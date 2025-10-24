@@ -1,0 +1,1447 @@
+system:
+  name: "Sistema de Gestão de Salão de Beleza"
+  version: "2.0.0"
+  description: "Sistema completo para gerenciamento de salão de beleza incluindo agendamentos, caixa, comissões, controle financeiro e gestão de horários"
+  branding:
+    powered_by: "Yazo Labs"
+    website: "https://yazolabs.com.br"
+    contact: "contato@yazolabs.com.br"
+    year: "2025"
+
+modules:
+  
+  authentication:
+    description: "Sistema de autenticação e controle de acesso baseado em roles"
+    features:
+      - login_logout: "Login e logout de usuários"
+      - protected_routes: "Rotas protegidas por autenticação"
+      - role_based_access: "Controle de acesso baseado em papéis (RBAC)"
+    security:
+      storage: "JWT token em localStorage"
+      validation: "Verificação de token em cada requisição"
+      protected_component: "ProtectedRoute wrapper"
+    roles:
+      - name: "admin"
+        description: "Administrador com acesso total ao sistema"
+        permissions: "Todas as telas com todas as ações (view, create, edit, delete)"
+      - name: "manager"
+        description: "Gerente com acesso amplo exceto gerenciamento de usuários"
+        permissions: "Acesso a dashboard, serviços, profissionais, itens, agendamentos, caixa, preços, históricos, promoções, clientes, fornecedores, contas a pagar e comissões"
+      - name: "professional"
+        description: "Profissional com acesso limitado"
+        permissions: "Visualização de agendamentos e comissões próprias"
+      - name: "receptionist"
+        description: "Recepcionista para gestão de agendamentos e clientes"
+        permissions: "Gestão de agendamentos e clientes (view, create, edit)"
+
+  dashboard:
+    path: "/dashboard"
+    description: "Painel principal com visão geral do negócio"
+    features:
+      - kpis: "Indicadores chave de performance (receita, atendimentos, etc)"
+      - charts: "Gráficos de receita e agendamentos"
+      - recent_activities: "Atividades recentes do sistema"
+      - quick_stats: "Estatísticas rápidas e resumidas"
+    permissions:
+      view: ["admin", "manager"]
+
+  users:
+    path: "/users"
+    description: "Gerenciamento de usuários do sistema"
+    features:
+      - user_crud: "Criar, visualizar, editar e excluir usuários"
+      - role_assignment: "Atribuição de papéis aos usuários"
+      - permission_management: "Gerenciamento de permissões por tela e ação"
+      - data_table: "Tabela com busca, filtros e paginação"
+    data_structure:
+      fields:
+        - id: "Identificador único (UUID)"
+        - name: "Nome completo do usuário"
+        - email: "Email para login e contato"
+        - username: "Nome de usuário único"
+        - role: "Papel do usuário (admin, manager, professional, receptionist)"
+        - permissions: "Array de permissões específicas por tela"
+        - created_at: "Data de criação"
+        - updated_at: "Data da última atualização"
+    permissions:
+      view: ["admin"]
+      create: ["admin"]
+      edit: ["admin"]
+      delete: ["admin"]
+
+  services:
+    path: "/services"
+    description: "Cadastro de serviços oferecidos pelo salão"
+    features:
+      - service_crud: "Criar, visualizar, editar e excluir serviços"
+      - pricing: "Definição de preço por serviço"
+      - duration: "Tempo de duração do serviço em minutos"
+      - commission_setup: "Configuração de comissão por serviço (valor fixo ou percentual)"
+      - category_management: "Organização por categorias"
+      - data_table: "Tabela com busca e filtros"
+    data_structure:
+      fields:
+        - id: "Identificador único"
+        - name: "Nome do serviço"
+        - description: "Descrição detalhada do serviço"
+        - price: "Preço do serviço (R$)"
+        - duration: "Duração em minutos"
+        - category: "Categoria do serviço (cabelo, unhas, estética, etc)"
+        - commissionType: "Tipo de comissão (percentage | fixed)"
+        - commissionValue: "Valor da comissão (% ou R$ fixo)"
+        - active: "Status ativo/inativo"
+    commission_types:
+      percentage:
+        description: "Comissão calculada como percentual do preço do serviço"
+        example: "10% de R$ 100,00 = R$ 10,00"
+      fixed:
+        description: "Comissão com valor fixo independente do preço"
+        example: "R$ 15,00 fixo"
+    permissions:
+      view: ["admin", "manager"]
+      create: ["admin", "manager"]
+      edit: ["admin", "manager"]
+      delete: ["admin", "manager"]
+
+  professionals:
+    path: "/professionals"
+    description: "Cadastro de profissionais que prestam serviços"
+    features:
+      - professional_crud: "Criar, visualizar, editar e excluir profissionais"
+      - specialties: "Definição de especialidades e serviços que realiza"
+      - availability: "Controle de disponibilidade e horários"
+      - work_schedule: "Configuração de horários de atendimento por dia da semana"
+      - day_off_management: "Gestão de dias de folga"
+      - commission_tracking: "Rastreamento de comissões geradas"
+      - contact_info: "Informações de contato completas"
+    data_structure:
+      fields:
+        - id: "Identificador único"
+        - name: "Nome do profissional"
+        - email: "Email de contato"
+        - phone: "Telefone de contato"
+        - specialties: "Array de especialidades/serviços que realiza"
+        - status: "Status ativo/inativo"
+        - workSchedule: "Configuração de horários por dia da semana"
+      work_schedule_structure:
+        - day: "Dia da semana (domingo a sábado)"
+        - isWorkingDay: "Flag indicando se é dia útil de trabalho"
+        - isDayOff: "Flag indicando se é dia de folga"
+        - startTime: "Horário de início do expediente"
+        - endTime: "Horário de fim do expediente"
+        - lunchStart: "Horário de início do almoço"
+        - lunchEnd: "Horário de fim do almoço"
+    work_schedule_logic:
+      - "Cada dia pode ser marcado como 'Dia útil' ou 'Folga'"
+      - "Campos de horário só são habilitados quando o dia é útil E NÃO é folga"
+      - "Domingo tem folga marcada por padrão"
+      - "Sistema permite configuração flexível por dia da semana"
+    permissions:
+      view: ["admin", "manager"]
+      create: ["admin", "manager"]
+      edit: ["admin", "manager"]
+      delete: ["admin", "manager"]
+
+  items:
+    path: "/items"
+    description: "Cadastro de produtos vendidos no salão"
+    features:
+      - item_crud: "Criar, visualizar, editar e excluir itens"
+      - inventory_control: "Controle de estoque com quantidade atual"
+      - stock_alerts: "Alertas de estoque mínimo"
+      - pricing: "Gestão de preços de venda e custo"
+      - commission_setup: "Configuração de comissão por produto (valor fixo ou percentual)"
+      - supplier_link: "Vinculação com fornecedores"
+      - category_management: "Organização por categorias"
+    data_structure:
+      fields:
+        - id: "Identificador único"
+        - name: "Nome do produto"
+        - description: "Descrição do produto"
+        - price: "Preço de venda (R$)"
+        - cost: "Custo de aquisição (R$)"
+        - stock: "Quantidade em estoque"
+        - minStock: "Estoque mínimo para alerta"
+        - category: "Categoria do produto"
+        - supplier: "Fornecedor principal"
+        - barcode: "Código de barras"
+        - commissionType: "Tipo de comissão (percentage | fixed)"
+        - commissionValue: "Valor da comissão (% ou R$ fixo)"
+    permissions:
+      view: ["admin", "manager"]
+      create: ["admin", "manager"]
+      edit: ["admin", "manager"]
+      delete: ["admin", "manager"]
+
+  appointments:
+    path: "/appointments"
+    description: "Gestão de agendamentos de serviços"
+    features:
+      - appointment_crud: "Criar, visualizar, editar e excluir agendamentos"
+      - calendar_view: "Visualização em calendário"
+      - status_management: "Gerenciamento de status (agendado, confirmado, concluído, cancelado)"
+      - checkout_process: "Processo de checkout integrado"
+      - service_selection: "Seleção de múltiplos serviços"
+      - professional_assignment: "Atribuição de profissional responsável"
+      - promotion_application: "Aplicação de promoções ativas no checkout"
+      - payment_processing: "Processamento de pagamento com múltiplos métodos"
+      - commission_generation: "Geração automática de comissões"
+    data_structure:
+      fields:
+        - id: "Identificador único"
+        - customer: "Cliente (ID e nome)"
+        - professional: "Profissional responsável (ID e nome)"
+        - services: "Array de serviços agendados"
+        - date: "Data do agendamento"
+        - time: "Horário de início"
+        - status: "Status do agendamento"
+        - totalPrice: "Valor total calculado"
+        - notes: "Observações e comentários"
+        - createdAt: "Data de criação"
+        - updatedAt: "Data da última atualização"
+    status_types:
+      - scheduled: "Agendado - aguardando confirmação"
+      - confirmed: "Confirmado - cliente confirmou presença"
+      - completed: "Concluído - serviço realizado e pago"
+      - cancelled: "Cancelado - agendamento cancelado"
+    checkout_flow:
+      description: "Processo completo de finalização do atendimento"
+      steps:
+        - step: 1
+          action: "open_checkout_dialog"
+          description: "Abre diálogo de checkout do agendamento"
+          
+        - step: 2
+          action: "select_promotion"
+          description: "Seleciona promoção ativa (opcional)"
+          details:
+            - "Lista todas as promoções ativas no momento"
+            - "Ao selecionar promoção, desconto é aplicado automaticamente"
+            - "Campo de desconto é preenchido com valor da promoção"
+            - "Alerta visual confirma promoção aplicada"
+          
+        - step: 3
+          action: "apply_discount"
+          description: "Aplica desconto manual ou via promoção"
+          details:
+            - "Desconto pode ser em percentual ou valor fixo"
+            - "Desconto via promoção é aplicado automaticamente"
+            - "Desconto manual pode ser ajustado pelo usuário"
+          
+        - step: 4
+          action: "select_payment_method"
+          description: "Seleciona método de pagamento"
+          options:
+            - "Dinheiro"
+            - "Cartão de crédito"
+            - "Cartão de débito"
+            - "PIX"
+            - "Outros"
+          
+        - step: 5
+          action: "calculate_totals"
+          description: "Calcula valores finais"
+          calculations:
+            - "Soma total dos serviços"
+            - "Aplica desconto"
+            - "Calcula valor final"
+            
+        - step: 6
+          action: "generate_commissions"
+          description: "Gera comissões automaticamente"
+          logic:
+            - "Para cada serviço do agendamento"
+            - "Obtém configuração de comissão do serviço"
+            - "Calcula valor baseado em tipo (percentage/fixed)"
+            - "Cria registro de comissão vinculado ao profissional"
+            
+        - step: 7
+          action: "create_accounts_payable"
+          description: "Cria contas a pagar para comissões"
+          details:
+            - "Uma conta a pagar por comissão gerada"
+            - "Status inicial: pendente"
+            - "Categoria: comissão"
+            - "Vinculada ao profissional e agendamento"
+            
+        - step: 8
+          action: "register_cashier_income"
+          description: "Registra entrada no caixa"
+          data:
+            type: "entrada"
+            category: "serviço"
+            amount: "Valor final (após desconto)"
+            paymentMethod: "Método selecionado"
+            reference: "ID do agendamento"
+            
+        - step: 9
+          action: "update_appointment_status"
+          description: "Atualiza status para 'concluído'"
+          
+        - step: 10
+          action: "show_success_message"
+          description: "Exibe mensagem de sucesso com resumo"
+    permissions:
+      view: ["admin", "manager", "professional", "receptionist"]
+      create: ["admin", "manager", "receptionist"]
+      edit: ["admin", "manager", "receptionist"]
+      delete: ["admin", "manager"]
+
+  cashier:
+    path: "/cashier"
+    description: "Controle de caixa e movimentações financeiras"
+    features:
+      - transaction_tracking: "Rastreamento de todas entradas e saídas"
+      - cash_flow: "Fluxo de caixa diário e periódico"
+      - payment_methods: "Registro detalhado de métodos de pagamento"
+      - commission_expenses: "Registro automático de despesas com comissões"
+      - category_management: "Categorização de transações"
+      - reports: "Relatórios financeiros"
+      - balance_calculation: "Cálculo automático de saldo"
+      - data_table: "Tabela com filtros por período e tipo"
+    data_structure:
+      fields:
+        - id: "Identificador único"
+        - date: "Data da transação"
+        - type: "Tipo (entrada | saida)"
+        - category: "Categoria da transação"
+        - description: "Descrição detalhada"
+        - amount: "Valor em R$"
+        - paymentMethod: "Método de pagamento utilizado"
+        - reference: "Referência (ID do agendamento, conta a pagar, etc)"
+        - user: "Usuário que registrou"
+        - notes: "Observações adicionais"
+    transaction_types:
+      entrada:
+        categories:
+          - appointment_payment: "Pagamento de serviços realizados"
+          - product_sale: "Venda de produtos"
+          - other_income: "Outras receitas"
+      saida:
+        categories:
+          - commission_payment: "Pagamento de comissões aos profissionais"
+          - supplier_payment: "Pagamento a fornecedores"
+          - general_expense: "Despesas gerais (aluguel, água, luz, etc)"
+          - other_expense: "Outras despesas"
+    automatic_transactions:
+      - source: "Checkout de agendamento"
+        type: "entrada"
+        category: "appointment_payment"
+        trigger: "Quando agendamento é finalizado"
+        
+      - source: "Pagamento de comissão"
+        type: "saida"
+        category: "commission_payment"
+        trigger: "Quando conta a pagar de comissão é marcada como paga"
+    permissions:
+      view: ["admin", "manager"]
+      create: ["admin", "manager"]
+      edit: ["admin", "manager"]
+      delete: ["admin"]
+
+  commissions:
+    path: "/commissions"
+    description: "Relatório e gestão de comissões dos profissionais"
+    features:
+      - commission_report: "Relatório detalhado de comissões geradas"
+      - filter_by_professional: "Filtro por profissional específico ou todos"
+      - date_range_filter: "Filtro por período (data inicial e final)"
+      - status_filter: "Filtro por status (pendente/pago)"
+      - export_pdf: "Exportação formatada para PDF"
+      - export_excel: "Exportação para planilha Excel"
+      - summary_by_professional: "Resumo consolidado por profissional"
+      - total_calculations: "Cálculos totais e estatísticas"
+    data_structure:
+      fields:
+        - id: "Identificador único"
+        - professional: "Nome do profissional"
+        - professionalId: "ID do profissional"
+        - date: "Data do serviço"
+        - customer: "Cliente atendido"
+        - service: "Serviço realizado"
+        - servicePrice: "Valor do serviço"
+        - commissionType: "Tipo de comissão (percentage | fixed)"
+        - commissionValue: "Valor/percentual da comissão"
+        - commissionAmount: "Valor calculado da comissão (R$)"
+        - status: "Status do pagamento (pendente | pago)"
+        - appointmentId: "ID do agendamento relacionado"
+        - paymentDate: "Data do pagamento (se pago)"
+    calculation_logic:
+      percentage:
+        formula: "servicePrice * (commissionValue / 100)"
+        example: "R$ 100,00 * (10% / 100) = R$ 10,00"
+      fixed:
+        formula: "commissionValue"
+        example: "R$ 15,00 = R$ 15,00"
+    report_summary:
+      metrics:
+        - total_commissions: "Soma total de todas as comissões"
+        - total_services: "Soma total do valor dos serviços"
+        - service_count: "Quantidade de serviços realizados"
+        - average_commission: "Comissão média por serviço"
+        - by_professional: "Resumo agrupado por profissional"
+        - by_status: "Resumo por status de pagamento"
+    integration:
+      automatic_generation:
+        - trigger: "Checkout de agendamento finalizado"
+        - action: "Criação automática de registro de comissão"
+        - linked_to: "Agendamento e profissional"
+        - creates: "Conta a pagar correspondente"
+      payment_update:
+        - trigger: "Conta a pagar de comissão marcada como paga"
+        - action: "Atualização do status da comissão para 'pago'"
+        - registers: "Saída no caixa"
+    permissions:
+      view: ["admin", "manager", "professional"]
+      create: ["admin", "manager"]
+      edit: ["admin", "manager"]
+      export: ["admin", "manager"]
+
+  item_prices:
+    path: "/item-prices"
+    description: "Gestão de preços de itens/produtos"
+    features:
+      - price_management: "Gerenciamento de preços atuais"
+      - bulk_update: "Atualização em lote de múltiplos preços"
+      - price_comparison: "Comparação entre preço de custo e venda"
+      - margin_calculation: "Cálculo automático de margem de lucro"
+      - price_history: "Acesso ao histórico de alterações"
+    permissions:
+      view: ["admin", "manager"]
+      create: ["admin", "manager"]
+      edit: ["admin", "manager"]
+
+  item_price_histories:
+    path: "/item-price-histories"
+    description: "Histórico de alterações de preços"
+    features:
+      - price_tracking: "Rastreamento completo de mudanças de preço"
+      - audit_trail: "Trilha de auditoria com usuário e data"
+      - price_analysis: "Análise de evolução de preços ao longo do tempo"
+      - comparison_charts: "Gráficos de comparação"
+      - export: "Exportação de histórico"
+    data_structure:
+      fields:
+        - id: "Identificador único"
+        - itemId: "ID do item"
+        - itemName: "Nome do produto"
+        - oldPrice: "Preço anterior"
+        - newPrice: "Novo preço"
+        - changeDate: "Data da alteração"
+        - changedBy: "Usuário que realizou a alteração"
+        - reason: "Motivo da alteração"
+    permissions:
+      view: ["admin", "manager"]
+
+  promotions:
+    path: "/promotions"
+    description: "Gestão de promoções e descontos"
+    features:
+      - promotion_crud: "Criar, visualizar, editar e excluir promoções"
+      - discount_configuration: "Configuração de descontos (percentual ou valor fixo)"
+      - validity_period: "Período de validade com datas de início e fim"
+      - active_status: "Controle de status ativo/inativo"
+      - applicable_services: "Definição de serviços/produtos aplicáveis"
+      - automatic_application: "Aplicação automática no checkout de agendamentos"
+    data_structure:
+      fields:
+        - id: "Identificador único"
+        - name: "Nome da promoção"
+        - description: "Descrição detalhada"
+        - discountType: "Tipo de desconto (percentage | fixed)"
+        - discountValue: "Valor do desconto (% ou R$)"
+        - startDate: "Data de início da validade"
+        - endDate: "Data de fim da validade"
+        - active: "Status ativo/inativo"
+        - applicableServices: "Array de serviços aplicáveis"
+        - applicableItems: "Array de produtos aplicáveis"
+        - minPurchaseAmount: "Valor mínimo de compra"
+        - maxDiscount: "Desconto máximo em R$"
+    checkout_integration:
+      - "Promoções ativas são listadas no checkout de agendamentos"
+      - "Ao selecionar promoção, desconto é aplicado automaticamente"
+      - "Sistema valida período de validade e aplicabilidade"
+      - "Alerta visual confirma promoção aplicada"
+    permissions:
+      view: ["admin", "manager"]
+      create: ["admin", "manager"]
+      edit: ["admin", "manager"]
+      delete: ["admin", "manager"]
+
+  customers:
+    path: "/customers"
+    description: "Cadastro de clientes do salão"
+    features:
+      - customer_crud: "Criar, visualizar, editar e excluir clientes"
+      - contact_info: "Informações completas de contato"
+      - address_management: "Gestão de endereço"
+      - appointment_history: "Histórico de agendamentos do cliente"
+      - purchase_history: "Histórico de compras e serviços"
+      - notes: "Campo de observações e preferências"
+      - data_table: "Tabela com busca e filtros"
+    data_structure:
+      fields:
+        - id: "Identificador único"
+        - name: "Nome completo"
+        - email: "Email de contato"
+        - phone: "Telefone principal"
+        - alternatePhone: "Telefone alternativo"
+        - address: "Endereço completo"
+        - city: "Cidade"
+        - state: "Estado"
+        - zipCode: "CEP"
+        - birthDate: "Data de nascimento"
+        - notes: "Observações e preferências"
+        - createdAt: "Data de cadastro"
+        - lastVisit: "Data da última visita"
+    permissions:
+      view: ["admin", "manager", "receptionist"]
+      create: ["admin", "manager", "receptionist"]
+      edit: ["admin", "manager", "receptionist"]
+      delete: ["admin", "manager"]
+
+  suppliers:
+    path: "/suppliers"
+    description: "Cadastro de fornecedores de produtos"
+    features:
+      - supplier_crud: "Criar, visualizar, editar e excluir fornecedores"
+      - contact_info: "Informações completas de contato"
+      - company_info: "Dados da empresa (CNPJ, razão social)"
+      - product_catalog: "Catálogo de produtos fornecidos"
+      - payment_terms: "Condições de pagamento"
+      - purchase_history: "Histórico de compras"
+    data_structure:
+      fields:
+        - id: "Identificador único"
+        - name: "Nome/Razão social"
+        - tradeName: "Nome fantasia"
+        - cnpj: "CNPJ"
+        - email: "Email de contato"
+        - phone: "Telefone"
+        - address: "Endereço completo"
+        - city: "Cidade"
+        - state: "Estado"
+        - zipCode: "CEP"
+        - contactPerson: "Pessoa de contato"
+        - paymentTerms: "Condições de pagamento"
+        - products: "Array de produtos fornecidos"
+        - notes: "Observações"
+    permissions:
+      view: ["admin", "manager"]
+      create: ["admin", "manager"]
+      edit: ["admin", "manager"]
+      delete: ["admin", "manager"]
+
+  accounts_payable:
+    path: "/accounts-payable"
+    description: "Gestão de contas a pagar do salão"
+    features:
+      - payable_crud: "Criar, visualizar, editar e excluir contas a pagar"
+      - due_date_tracking: "Controle de vencimentos com alertas"
+      - payment_status: "Gestão de status (pendente, pago, atrasado)"
+      - commission_integration: "Integração automática com comissões geradas"
+      - supplier_payments: "Pagamentos a fornecedores"
+      - category_management: "Categorização de contas"
+      - payment_processing: "Processo de baixa de pagamento"
+      - overdue_alerts: "Alertas de contas vencidas"
+    data_structure:
+      fields:
+        - id: "Identificador único"
+        - description: "Descrição da conta"
+        - amount: "Valor a pagar (R$)"
+        - dueDate: "Data de vencimento"
+        - status: "Status (pendente | pago | atrasado)"
+        - category: "Categoria (comissão, fornecedor, despesa, aluguel, etc)"
+        - supplier: "Fornecedor (se aplicável)"
+        - supplierId: "ID do fornecedor"
+        - professional: "Profissional (se comissão)"
+        - professionalId: "ID do profissional"
+        - paymentDate: "Data do pagamento efetivo"
+        - paymentMethod: "Método de pagamento utilizado"
+        - reference: "Referência (ID do agendamento, nota fiscal, etc)"
+        - notes: "Observações"
+        - createdAt: "Data de criação"
+    status_logic:
+      pendente: "Conta criada, aguardando pagamento"
+      atrasado: "Conta com data de vencimento passada e não paga"
+      pago: "Conta paga e baixada"
+    automatic_generation:
+      source: "Checkout de agendamentos com comissões"
+      trigger: "Quando agendamento é finalizado e pago"
+      process:
+        - "Para cada comissão gerada no checkout"
+        - "Cria conta a pagar com categoria 'comissão'"
+        - "Status inicial: pendente"
+        - "Vincula ao profissional e agendamento"
+      data_created:
+        - description: "Comissão - [Nome do Profissional] - [Nome do Serviço]"
+        - amount: "Valor calculado da comissão"
+        - category: "comissão"
+        - status: "pendente"
+        - reference: "ID do agendamento"
+        - professionalId: "ID do profissional"
+    payment_flow:
+      steps:
+        - step: 1
+          action: "select_account"
+          description: "Seleciona conta a pagar pendente"
+          
+        - step: 2
+          action: "process_payment"
+          description: "Registra pagamento"
+          fields:
+            - paymentDate: "Data do pagamento"
+            - paymentMethod: "Método utilizado"
+            
+        - step: 3
+          action: "update_status"
+          description: "Atualiza status para 'pago'"
+          
+        - step: 4
+          action: "register_cashier_expense"
+          description: "Registra saída no caixa"
+          
+        - step: 5
+          action: "update_commission"
+          description: "Se for comissão, atualiza status da comissão para 'pago'"
+    permissions:
+      view: ["admin", "manager"]
+      create: ["admin", "manager"]
+      edit: ["admin", "manager"]
+      delete: ["admin", "manager"]
+
+workflows:
+  
+  complete_appointment_flow:
+    name: "Fluxo Completo de Agendamento até Pagamento de Comissão"
+    description: "Processo end-to-end desde criação do agendamento até pagamento da comissão"
+    steps:
+      - step: 1
+        action: "create_appointment"
+        actor: "Recepcionista"
+        screen: "appointments"
+        description: "Cria agendamento com cliente, profissional, serviços, data e horário"
+        
+      - step: 2
+        action: "confirm_appointment"
+        actor: "Recepcionista"
+        screen: "appointments"
+        description: "Confirma agendamento (status: confirmado)"
+        
+      - step: 3
+        action: "perform_service"
+        actor: "Profissional"
+        location: "Salão"
+        description: "Profissional realiza o serviço no cliente"
+        
+      - step: 4
+        action: "initiate_checkout"
+        actor: "Recepcionista/Manager"
+        screen: "appointments"
+        description: "Inicia processo de checkout do agendamento"
+        
+      - step: 5
+        action: "select_promotion"
+        actor: "Recepcionista/Manager"
+        screen: "checkout_dialog"
+        description: "Seleciona promoção ativa (opcional)"
+        details:
+          - "Sistema lista todas as promoções ativas"
+          - "Ao selecionar, desconto é aplicado automaticamente"
+          - "Alerta visual confirma promoção aplicada"
+          
+      - step: 6
+        action: "apply_discount"
+        actor: "Recepcionista/Manager"
+        screen: "checkout_dialog"
+        description: "Aplica desconto (manual ou via promoção)"
+        
+      - step: 7
+        action: "select_payment_method"
+        actor: "Recepcionista/Manager"
+        screen: "checkout_dialog"
+        description: "Seleciona método de pagamento (dinheiro, cartão, PIX, etc)"
+        
+      - step: 8
+        action: "process_payment"
+        actor: "Sistema"
+        screen: "checkout_dialog"
+        description: "Sistema processa pagamento"
+        automated_actions:
+          - "Calcula total dos serviços"
+          - "Aplica desconto"
+          - "Calcula valor final"
+          
+      - step: 9
+        action: "generate_commissions"
+        actor: "Sistema"
+        screen: "background"
+        description: "Sistema gera comissões automaticamente"
+        logic:
+          - "Para cada serviço do agendamento"
+          - "Obtém configuração de comissão (tipo e valor)"
+          - "Calcula comissão (percentual ou fixa)"
+          - "Cria registro em commissions"
+          - "Vincula ao profissional e agendamento"
+          
+      - step: 10
+        action: "create_accounts_payable"
+        actor: "Sistema"
+        screen: "accounts-payable"
+        description: "Cria contas a pagar para cada comissão"
+        data:
+          description: "Comissão - [Profissional] - [Serviço]"
+          amount: "Valor calculado"
+          category: "comissão"
+          status: "pendente"
+          professionalId: "ID do profissional"
+          reference: "ID do agendamento"
+          
+      - step: 11
+        action: "register_cashier_income"
+        actor: "Sistema"
+        screen: "cashier"
+        description: "Registra entrada no caixa"
+        data:
+          type: "entrada"
+          category: "serviço"
+          amount: "Valor final (após desconto)"
+          paymentMethod: "Método selecionado"
+          reference: "ID do agendamento"
+          
+      - step: 12
+        action: "update_appointment_status"
+        actor: "Sistema"
+        screen: "appointments"
+        description: "Atualiza status do agendamento para 'concluído'"
+        
+      - step: 13
+        action: "show_success"
+        actor: "Sistema"
+        screen: "checkout_dialog"
+        description: "Exibe mensagem de sucesso"
+        
+      - step: 14
+        action: "pay_commission"
+        actor: "Gerente/Admin"
+        screen: "accounts-payable"
+        description: "Efetua pagamento da comissão ao profissional"
+        timing: "Posteriormente, conforme política de pagamento"
+        
+      - step: 15
+        action: "register_cashier_expense"
+        actor: "Sistema"
+        screen: "cashier"
+        description: "Registra saída no caixa"
+        data:
+          type: "saida"
+          category: "comissão"
+          amount: "Valor da comissão"
+          paymentMethod: "Método utilizado"
+          
+      - step: 16
+        action: "update_commission_status"
+        actor: "Sistema"
+        screen: "commissions"
+        description: "Atualiza status da comissão para 'pago'"
+
+  service_commission_configuration:
+    name: "Configuração de Comissão em Serviço"
+    description: "Como configurar comissões para serviços"
+    steps:
+      - step: 1
+        action: "access_services"
+        actor: "Gerente/Admin"
+        screen: "services"
+        description: "Acessa tela de serviços"
+        
+      - step: 2
+        action: "create_or_edit_service"
+        actor: "Gerente/Admin"
+        screen: "services"
+        description: "Cria novo serviço ou edita existente"
+        
+      - step: 3
+        action: "configure_commission"
+        actor: "Gerente/Admin"
+        screen: "service_form"
+        description: "Configura tipo e valor da comissão"
+        fields:
+          - commissionType:
+              label: "Tipo de Comissão"
+              options:
+                - value: "percentage"
+                  label: "Percentual (%)"
+                  description: "Comissão calculada como % do valor do serviço"
+                - value: "fixed"
+                  label: "Valor Fixo (R$)"
+                  description: "Comissão com valor fixo independente do preço"
+          - commissionValue:
+              label: "Valor da Comissão"
+              type: "number"
+              validation:
+                percentage: "0-100"
+                fixed: "Qualquer valor positivo"
+        
+      - step: 4
+        action: "save_service"
+        actor: "Gerente/Admin"
+        screen: "services"
+        description: "Salva serviço com configuração"
+        result: "Comissão será calculada automaticamente em todos os agendamentos deste serviço"
+
+  professional_schedule_configuration:
+    name: "Configuração de Horários do Profissional"
+    description: "Como configurar horários de atendimento e folgas"
+    steps:
+      - step: 1
+        action: "access_professionals"
+        actor: "Gerente/Admin"
+        screen: "professionals"
+        description: "Acessa tela de profissionais"
+        
+      - step: 2
+        action: "create_or_edit_professional"
+        actor: "Gerente/Admin"
+        screen: "professionals"
+        description: "Cria novo profissional ou edita existente"
+        
+      - step: 3
+        action: "configure_work_schedule"
+        actor: "Gerente/Admin"
+        screen: "professional_form"
+        description: "Configura horários por dia da semana"
+        for_each_day:
+          fields:
+            - isWorkingDay:
+                label: "Dia útil"
+                type: "checkbox"
+                description: "Marca se profissional trabalha neste dia"
+            - isDayOff:
+                label: "Folga"
+                type: "checkbox"
+                description: "Marca se é dia de folga"
+            - startTime:
+                label: "Horário de Início"
+                type: "time"
+                enabled_when: "isWorkingDay = true AND isDayOff = false"
+            - endTime:
+                label: "Horário de Fim"
+                type: "time"
+                enabled_when: "isWorkingDay = true AND isDayOff = false"
+            - lunchStart:
+                label: "Início do Almoço"
+                type: "time"
+                enabled_when: "isWorkingDay = true AND isDayOff = false"
+            - lunchEnd:
+                label: "Fim do Almoço"
+                type: "time"
+                enabled_when: "isWorkingDay = true AND isDayOff = false"
+        logic:
+          - "Campos de horário só habilitam quando dia útil E NÃO é folga"
+          - "Domingo tem folga marcada por padrão"
+          - "Flexibilidade total por dia da semana"
+        
+      - step: 4
+        action: "save_professional"
+        actor: "Gerente/Admin"
+        screen: "professionals"
+        description: "Salva profissional com horários configurados"
+
+  commission_report_generation:
+    name: "Geração de Relatório de Comissões"
+    description: "Como gerar e exportar relatório de comissões"
+    steps:
+      - step: 1
+        action: "access_commissions"
+        actor: "Gerente/Admin/Profissional"
+        screen: "commissions"
+        description: "Acessa tela de comissões"
+        
+      - step: 2
+        action: "apply_filters"
+        actor: "Usuário"
+        screen: "commissions"
+        description: "Aplica filtros desejados"
+        available_filters:
+          - professional:
+              type: "select"
+              options: "Lista de profissionais + opção 'Todos'"
+              description: "Filtra por profissional específico"
+          - startDate:
+              type: "date"
+              description: "Data inicial do período"
+          - endDate:
+              type: "date"
+              description: "Data final do período"
+          - status:
+              type: "select"
+              options: ["Todos", "Pendente", "Pago"]
+              description: "Filtra por status de pagamento"
+        
+      - step: 3
+        action: "view_summary"
+        actor: "Usuário"
+        screen: "commissions"
+        description: "Visualiza resumo consolidado"
+        displays:
+          - total_commissions: "Soma total de comissões no período"
+          - total_services: "Soma total de serviços realizados"
+          - service_count: "Quantidade de serviços"
+          - average_commission: "Comissão média por serviço"
+          - by_professional: "Resumo agrupado por profissional"
+        
+      - step: 4
+        action: "view_details"
+        actor: "Usuário"
+        screen: "commissions"
+        description: "Visualiza detalhes em tabela"
+        columns:
+          - professional: "Nome do profissional"
+          - date: "Data do serviço"
+          - customer: "Cliente atendido"
+          - service: "Serviço realizado"
+          - servicePrice: "Valor do serviço"
+          - commissionType: "Tipo (% ou fixo)"
+          - commissionValue: "Valor/percentual"
+          - commissionAmount: "Valor calculado"
+          - status: "Status (pendente/pago)"
+        
+      - step: 5
+        action: "export_report"
+        actor: "Gerente/Admin"
+        screen: "commissions"
+        description: "Exporta relatório"
+        options:
+          - pdf:
+              format: "PDF formatado"
+              includes:
+                - "Cabeçalho com logo e período"
+                - "Resumo consolidado"
+                - "Tabela detalhada"
+                - "Total geral"
+          - excel:
+              format: "Planilha Excel (.xlsx)"
+              includes:
+                - "Aba com dados brutos"
+                - "Formatação condicional"
+                - "Filtros automáticos"
+
+technical_details:
+  
+  frontend:
+    framework: "React 18.3.1"
+    build_tool: "Vite"
+    language: "TypeScript"
+    styling: "Tailwind CSS"
+    ui_components: "Radix UI + shadcn/ui"
+    routing: "React Router DOM 6.30.1"
+    forms: "React Hook Form + Zod validation"
+    state_management: "React Query (TanStack Query 5.83.0)"
+    charts: "Recharts 2.15.4"
+    icons: "Lucide React"
+    
+  data_management:
+    api_client: "Axios 1.12.2"
+    form_validation: "Zod 3.25.76"
+    date_handling: "date-fns 3.6.0"
+    
+  export_features:
+    pdf:
+      library: "jsPDF 3.0.3"
+      tables: "jsPDF-AutoTable 5.0.2"
+      features:
+        - "Geração de relatórios formatados"
+        - "Tabelas com cabeçalho e rodapé"
+        - "Logo e branding"
+    excel:
+      library: "XLSX 0.18.5"
+      features:
+        - "Exportação de dados tabulares"
+        - "Múltiplas abas"
+        - "Formatação de células"
+    
+  authentication:
+    strategy: "JWT token-based"
+    storage: "localStorage"
+    protected_routes: "ProtectedRoute component wrapper"
+    token_validation: "Em cada requisição HTTP"
+    
+  permissions:
+    system: "Role-Based Access Control (RBAC)"
+    implementation: "Permission checking per screen and action"
+    location: "src/lib/permissions.ts"
+    hook: "usePermission custom hook"
+    
+  ui_components:
+    library: "shadcn/ui + Radix UI"
+    customization: "Totalmente customizável via Tailwind"
+    components:
+      - "Button, Input, Select, Checkbox"
+      - "Dialog, Sheet, Popover"
+      - "Table, DataTable"
+      - "Calendar, DatePicker"
+      - "Sidebar, Navbar"
+      - "Toast, Alert"
+      - "Card, Badge"
+
+file_structure:
+  
+  root:
+    - "index.html - HTML principal com meta tags SEO"
+    - "vite.config.ts - Configuração do Vite"
+    - "tailwind.config.ts - Configuração do Tailwind"
+    - "system-documentation.yaml - Este arquivo de documentação"
+    
+  src:
+    main:
+      - "main.tsx - Ponto de entrada da aplicação"
+      - "App.tsx - Configuração de rotas e providers"
+      - "App.css - Estilos globais"
+      - "index.css - Estilos Tailwind e variáveis CSS"
+      
+    components:
+      layout:
+        - "SidebarLayout.tsx - Layout principal com sidebar e navbar"
+        - "AppSidebar.tsx - Menu lateral de navegação"
+        - "Navbar.tsx - Barra de navegação superior"
+        - "Footer.tsx - Rodapé com branding Yazo Labs"
+      
+      dialogs:
+        - "AppointmentCheckoutDialog.tsx - Dialog de checkout com seleção de promoção"
+        
+      tables:
+        - "DataTable.tsx - Tabela reutilizável com filtros e paginação"
+        
+      auth:
+        - "ProtectedRoute.tsx - Componente de rota protegida"
+      
+      ui:
+        description: "Componentes shadcn/ui customizados"
+        components:
+          - "button.tsx, input.tsx, select.tsx"
+          - "dialog.tsx, sheet.tsx, popover.tsx"
+          - "table.tsx, calendar.tsx"
+          - "sidebar.tsx, toast.tsx, alert.tsx"
+          - "E muitos outros componentes UI"
+    
+    pages:
+      - "Index.tsx - Página inicial (redirect)"
+      - "Login.tsx - Tela de login"
+      - "Dashboard.tsx - Dashboard principal com KPIs"
+      - "Users.tsx - Gestão de usuários"
+      - "Services.tsx - Cadastro de serviços"
+      - "Professionals.tsx - Cadastro de profissionais com horários"
+      - "Items.tsx - Cadastro de produtos"
+      - "Appointments.tsx - Gestão de agendamentos"
+      - "Cashier.tsx - Controle de caixa"
+      - "Commissions.tsx - Relatório de comissões"
+      - "ItemPrices.tsx - Gestão de preços"
+      - "ItemPriceHistories.tsx - Histórico de preços"
+      - "Promotions.tsx - Gestão de promoções"
+      - "Customers.tsx - Cadastro de clientes"
+      - "Suppliers.tsx - Cadastro de fornecedores"
+      - "AccountsPayable.tsx - Gestão de contas a pagar"
+      - "NotFound.tsx - Página 404"
+    
+    types:
+      - "auth.ts - Tipos de autenticação, roles, permissões e usuários"
+      - "vite-env.d.ts - Definições de tipos do Vite"
+    
+    lib:
+      - "permissions.ts - Configuração de permissões RBAC por role"
+      - "utils.ts - Funções utilitárias (cn para classNames)"
+    
+    services:
+      - "api.ts - Cliente API com Axios e interceptors"
+    
+    hooks:
+      - "useAuthUser.ts - Hook para obter usuário autenticado"
+      - "usePermission.ts - Hook para verificar permissões"
+      - "use-mobile.tsx - Hook para detectar dispositivo mobile"
+      - "use-toast.ts - Hook para notificações toast"
+    
+    assets:
+      - "logo.jpeg - Logo do salão"
+      - "yazolabs-logo.svg - Logo Yazo Labs para footer"
+
+integration_points:
+  
+  appointment_checkout_integration:
+    description: "Integração completa entre agendamento, comissões, contas a pagar e caixa"
+    input:
+      entity: "Agendamento"
+      status: "Concluído"
+      data:
+        - services: "Lista de serviços realizados"
+        - professional: "Profissional responsável"
+        - customer: "Cliente atendido"
+        - totalPrice: "Valor total"
+        - discount: "Desconto aplicado"
+        - promotionId: "ID da promoção (se aplicada)"
+        - paymentMethod: "Método de pagamento"
+    
+    process:
+      step_1:
+        action: "calculate_totals"
+        description: "Calcula valores finais"
+        logic:
+          - "Soma todos os serviços"
+          - "Aplica desconto (manual ou promoção)"
+          - "Calcula valor final"
+      
+      step_2:
+        action: "generate_commissions"
+        description: "Gera comissões para cada serviço"
+        logic:
+          - "Para cada serviço do agendamento"
+          - "Obtém commissionType e commissionValue do serviço"
+          - "Calcula: servicePrice * (percentage/100) OU fixed value"
+          - "Cria registro em tabela commissions"
+        output:
+          entity: "Commission"
+          data:
+            - professionalId: "ID do profissional"
+            - serviceId: "ID do serviço"
+            - appointmentId: "ID do agendamento"
+            - customerId: "ID do cliente"
+            - servicePrice: "Valor do serviço"
+            - commissionType: "Tipo da comissão"
+            - commissionValue: "Valor/percentual"
+            - commissionAmount: "Valor calculado"
+            - status: "pendente"
+            - date: "Data do agendamento"
+      
+      step_3:
+        action: "create_accounts_payable"
+        description: "Cria contas a pagar para comissões"
+        logic:
+          - "Para cada comissão gerada"
+          - "Cria registro em accounts_payable"
+        output:
+          entity: "AccountPayable"
+          data:
+            - description: "Comissão - [Profissional] - [Serviço]"
+            - amount: "commissionAmount"
+            - category: "comissão"
+            - status: "pendente"
+            - professionalId: "ID do profissional"
+            - reference: "appointmentId"
+            - dueDate: "Data definida pela política"
+      
+      step_4:
+        action: "register_cashier_income"
+        description: "Registra entrada no caixa"
+        output:
+          entity: "CashierTransaction"
+          data:
+            - type: "entrada"
+            - category: "serviço"
+            - amount: "Valor final (após desconto)"
+            - paymentMethod: "Método selecionado"
+            - reference: "appointmentId"
+            - date: "Data do checkout"
+  
+  commission_payment_integration:
+    description: "Integração entre pagamento de comissão e caixa"
+    input:
+      entity: "AccountPayable"
+      category: "comissão"
+      action: "Marcar como pago"
+      data:
+        - paymentDate: "Data do pagamento"
+        - paymentMethod: "Método utilizado"
+    
+    process:
+      step_1:
+        action: "update_payable_status"
+        description: "Atualiza status da conta a pagar"
+        logic:
+          - "status = 'pago'"
+          - "paymentDate = data informada"
+          - "paymentMethod = método informado"
+      
+      step_2:
+        action: "update_commission_status"
+        description: "Atualiza status da comissão relacionada"
+        logic:
+          - "Busca comissão pela referência (appointmentId e professionalId)"
+          - "Atualiza status = 'pago'"
+          - "Atualiza paymentDate"
+      
+      step_3:
+        action: "register_cashier_expense"
+        description: "Registra saída no caixa"
+        output:
+          entity: "CashierTransaction"
+          data:
+            - type: "saida"
+            - category: "comissão"
+            - amount: "Valor da comissão"
+            - paymentMethod: "Método utilizado"
+            - reference: "ID da conta a pagar"
+            - date: "Data do pagamento"
+  
+  promotion_application_integration:
+    description: "Integração de promoções no checkout"
+    trigger: "Seleção de promoção no checkout dialog"
+    process:
+      - "Lista promoções ativas (startDate <= hoje <= endDate)"
+      - "Ao selecionar promoção"
+      - "Aplica desconto automaticamente no campo discount"
+      - "Exibe alerta visual confirmando promoção"
+      - "Registra promotionId no agendamento"
+
+business_rules:
+  
+  commissions:
+    calculation:
+      percentage:
+        rule: "Comissão = Preço do Serviço × (Percentual ÷ 100)"
+        example: "Serviço R$ 100,00 com 15% = R$ 15,00"
+      fixed:
+        rule: "Comissão = Valor Fixo configurado"
+        example: "Serviço qualquer valor, comissão fixa R$ 20,00"
+    
+    generation:
+      trigger: "Checkout de agendamento concluído"
+      timing: "Imediatamente após pagamento"
+      status: "pendente (aguardando pagamento ao profissional)"
+    
+    payment:
+      status: "Marcado como 'pago' quando conta a pagar é baixada"
+      cashier: "Registrado como saída no caixa"
+  
+  appointments:
+    status_flow:
+      - scheduled: "Inicial - agendamento criado"
+      - confirmed: "Cliente confirmou presença"
+      - completed: "Serviço realizado e pago"
+      - cancelled: "Agendamento cancelado"
+    
+    checkout_rules:
+      - "Só pode fazer checkout de agendamento confirmado ou agendado"
+      - "Checkout gera comissões automaticamente"
+      - "Checkout cria contas a pagar para comissões"
+      - "Checkout registra entrada no caixa"
+      - "Status muda para 'completed' após checkout"
+  
+  professionals:
+    work_schedule:
+      - "Cada dia da semana tem configuração independente"
+      - "Dia útil E NÃO folga = horários habilitados"
+      - "Folga = horários desabilitados"
+      - "Domingo tem folga por padrão"
+      - "Horários incluem: início, fim, almoço início, almoço fim"
+  
+  promotions:
+    activation:
+      - "Promoção ativa quando: active = true E startDate <= hoje <= endDate"
+      - "Listada no checkout apenas se ativa"
+      - "Desconto aplicado automaticamente ao selecionar"
+    
+    discount_types:
+      percentage: "Desconto em percentual sobre o total"
+      fixed: "Desconto em valor fixo em reais"
+  
+  accounts_payable:
+    status_logic:
+      pendente: "Conta criada, não paga, dentro do prazo"
+      atrasado: "Data de vencimento passou e não foi paga"
+      pago: "Conta baixada com pagamento registrado"
+    
+    automatic_creation:
+      source: "Comissões geradas no checkout"
+      category: "comissão"
+      status_inicial: "pendente"
+
+security:
+  
+  authentication:
+    method: "JWT Token"
+    storage: "localStorage (token key)"
+    validation: "Interceptor Axios valida token em requisições"
+    protected_routes: "ProtectedRoute wrapper valida autenticação"
+  
+  authorization:
+    model: "RBAC (Role-Based Access Control)"
+    implementation:
+      - "Cada usuário tem um role (admin, manager, professional, receptionist)"
+      - "Cada role tem permissões específicas por tela"
+      - "Hook usePermission verifica permissões"
+      - "Componentes mostram/escondem baseado em permissões"
+    
+  best_practices:
+    - "Nunca expor tokens em console ou variáveis globais"
+    - "Validar permissões no backend (quando implementado)"
+    - "Usar HTTPS em produção"
+    - "Implementar rate limiting"
+    - "Sanitizar inputs do usuário"
+    - "Validar dados com Zod schemas"
+
+ui_ux:
+  
+  design_system:
+    colors:
+      source: "index.css com variáveis CSS HSL"
+      usage: "Semantic tokens via Tailwind (bg-primary, text-foreground, etc)"
+      themes: "Suporte a light/dark mode"
+    
+    typography:
+      primary: "Open Sans"
+      secondary: "Roboto"
+      weights: "300, 400, 500, 600, 700, 900"
+    
+    components:
+      library: "shadcn/ui baseado em Radix UI"
+      customization: "Totalmente customizável via Tailwind"
+      accessibility: "Componentes acessíveis por padrão"
+  
+  layout:
+    structure:
+      - "Sidebar colapsável para navegação"
+      - "Navbar superior com logo e info do usuário"
+      - "Main content area com padding"
+      - "Footer com branding Yazo Labs"
+    
+    responsiveness:
+      - "Mobile-first design"
+      - "Breakpoints Tailwind"
+      - "Sidebar responsiva"
+      - "Tabelas com scroll horizontal"
+  
+  navigation:
+    sidebar:
+      sections:
+        - "Dashboard"
+        - "Cadastros (Serviços, Profissionais, Produtos, Clientes, Fornecedores)"
+        - "Operações (Agendamentos, Caixa)"
+        - "Financeiro (Comissões, Contas a Pagar)"
+        - "Gestão (Usuários, Preços, Promoções)"
+      visibility: "Baseada em permissões do usuário"
+  
+  feedback:
+    toasts: "Notificações via Sonner"
+    alerts: "Mensagens inline via Alert component"
+    loading: "Loading states e skeletons"
+    errors: "Mensagens de erro claras e acionáveis"
+
+export_features:
+  
+  pdf_export:
+    library: "jsPDF + jsPDF-AutoTable"
+    available_in:
+      - commissions: "Relatório de comissões"
+    features:
+      - "Cabeçalho com logo"
+      - "Período do relatório"
+      - "Resumo consolidado"
+      - "Tabela detalhada"
+      - "Total geral"
+      - "Data de geração"
+    format:
+      orientation: "landscape"
+      margins: "automáticas"
+      font: "helvetica"
+  
+  excel_export:
+    library: "XLSX"
+    available_in:
+      - commissions: "Relatório de comissões"
+    features:
+      - "Dados tabulares"
+      - "Cabeçalhos formatados"
+      - "Filtros automáticos"
+      - "Múltiplas abas (se necessário)"
+    format:
+      extension: ".xlsx"
+      columns: "Auto-ajustadas"
+
+branding:
+  
+  yazo_labs:
+    footer:
+      position: "Rodapé de todas as páginas autenticadas"
+      alignment: "Direita"
+      content:
+        - text: "Powered by"
+        - logo: "Yazo Labs SVG"
+        - link: "https://yazolabs.com.br"
+      styling:
+        - "Texto muted-foreground"
+        - "Logo height 6 (h-6)"
+        - "Hover effect na logo"
+    
+    contact:
+      website: "yazolabs.com.br"
+      email: "contato@yazolabs.com.br"
+      year: "2025"
+
+seo:
+  
+  meta_tags:
+    title: "Sistema de Gestão - Salão de Beleza"
+    description: "Sistema completo de gestão para salões de beleza com agendamentos, controle de serviços e muito mais"
+    language: "pt-BR"
+    viewport: "width=device-width, initial-scale=1.0"
+  
+  og_tags:
+    title: "Sistema de Gestão - Salão de Beleza"
+    description: "Sistema completo de gestão para salões de beleza"
+    type: "website"
+  
+  fonts:
+    preconnect:
+      - "https://fonts.googleapis.com"
+      - "https://fonts.gstatic.com"
+
+future_enhancements:
+  
+  backend:
+    priority: "Alta"
+    items:
+      - lovable_cloud: "Integração com Lovable Cloud/Supabase"
+      - database: "Persistência real de dados em PostgreSQL"
+      - authentication: "Autenticação com Supabase Auth"
+      - storage: "Armazenamento de arquivos/imagens"
+      - realtime: "Atualizações em tempo real"
+  
+  features:
+    priority: "Média"
+    items:
+      - notifications: "Sistema de notificações push"
+      - reports: "Relatórios financeiros avançados"
+      - inventory_alerts: "Alertas automáticos de estoque baixo"
+      - appointment_reminders: "Lembretes por SMS/Email"
+      - online_booking: "Agendamento online para clientes"
+      - reviews: "Sistema de avaliações"
+      - loyalty_program: "Programa de fidelidade"
+  
+  scalability:
+    priority: "Baixa"
+    items:
+      - mobile_app: "Aplicativo mobile nativo"
+      - multi_location: "Suporte a múltiplas unidades"
+      - multi_language: "Suporte a múltiplos idiomas"
+      - api_public: "API pública para integrações"
+
+version_history:
+  
+  v2.0.0:
+    date: "2025"
+    changes:
+      - "Adicionado sistema de horários de trabalho para profissionais"
+      - "Implementada flag de folga por dia da semana"
+      - "Adicionada seleção de promoção no checkout de agendamentos"
+      - "Implementado rodapé com branding Yazo Labs"
+      - "Documentação completa atualizada"
+      - "Melhorias na UI/UX"
+  
+  v1.0.0:
+    date: "2024"
+    changes:
+      - "Versão inicial do sistema"
+      - "Módulos principais implementados"
+      - "Sistema de comissões automáticas"
+      - "Integração entre agendamentos, comissões e caixa"
+      - "RBAC completo"
