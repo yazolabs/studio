@@ -286,7 +286,7 @@ export default function Items() {
       header: 'Ações',
       render: (item: Item) => (
         <div className="flex gap-2">
-          {can('items', 'edit') && (
+          {can('items', 'update') && (
             <Button 
               variant="ghost" 
               size="icon"

@@ -1,81 +1,103 @@
-import { useState, useEffect, useCallback } from 'react';
-import { User, AuthState } from '@/types/auth';
-import { getUserPermissions } from '@/lib/permissions';
+import { useCallback, useEffect, useState } from 'react';
+import axios from 'axios';
+import { api, ensureCsrfCookie, ApiError } from '@/services/api';
+import { AuthState, User } from '@/types/auth';
 
-const AUTH_STORAGE_KEY = 'salon_auth';
+const initialState: AuthState = {
+  user: null,
+  isAuthenticated: false,
+  isLoading: true,
+};
+
+interface LoginResult {
+  success: boolean;
+  user?: User;
+  error?: string;
+}
 
 export function useAuthUser() {
-  const [authState, setAuthState] = useState<AuthState>(() => {
-    const stored = localStorage.getItem(AUTH_STORAGE_KEY);
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        return {
-          user: parsed.user,
-          token: parsed.token,
-          isAuthenticated: true,
-        };
-      } catch {
-        return { user: null, token: null, isAuthenticated: false };
+  const [authState, setAuthState] = useState<AuthState>(initialState);
+
+  const fetchAuthenticatedUser = useCallback(async () => {
+    setAuthState((prev) => ({ ...prev, isLoading: true }));
+
+    try {
+      const { data } = await api.get<{ user: User }>('/auth/me');
+      setAuthState({ user: data.user, isAuthenticated: true, isLoading: false });
+      return data.user;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        setAuthState({ user: null, isAuthenticated: false, isLoading: false });
+        return null;
       }
+
+      setAuthState((prev) => ({ ...prev, isLoading: false }));
+      throw error;
     }
-    return { user: null, token: null, isAuthenticated: false };
-  });
-
-  const login = useCallback((username: string, password: string) => {
-    // Simulated login - in production, this would call the API
-    // For demo: admin/admin123, manager/manager123, etc.
-    const mockUsers: Record<string, User> = {
-      admin: {
-        id: '1',
-        name: 'Administrator',
-        email: 'admin@salon.com',
-        username: 'admin',
-        role: 'admin',
-        permissions: getUserPermissions('admin'),
-      },
-      manager: {
-        id: '2',
-        name: 'Manager User',
-        email: 'manager@salon.com',
-        username: 'manager',
-        role: 'manager',
-        permissions: getUserPermissions('manager'),
-      },
-      professional: {
-        id: '3',
-        name: 'Professional User',
-        email: 'pro@salon.com',
-        username: 'professional',
-        role: 'professional',
-        permissions: getUserPermissions('professional'),
-      },
-    };
-
-    const user = mockUsers[username];
-    if (user && password.endsWith('123')) {
-      const token = `mock-token-${username}-${Date.now()}`;
-      const newAuthState = { user, token, isAuthenticated: true };
-      
-      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(newAuthState));
-      setAuthState(newAuthState);
-      
-      return { success: true, user };
-    }
-
-    return { success: false, error: 'Invalid credentials' };
   }, []);
 
-  const logout = useCallback(() => {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
-    setAuthState({ user: null, token: null, isAuthenticated: false });
+  useEffect(() => {
+    let isActive = true;
+
+    const bootstrap = async () => {
+      try {
+        await fetchAuthenticatedUser();
+      } catch {
+        if (!isActive) {
+          return;
+        }
+        setAuthState({ user: null, isAuthenticated: false, isLoading: false });
+      }
+    };
+
+    bootstrap();
+
+    return () => {
+      isActive = false;
+    };
+  }, [fetchAuthenticatedUser]);
+
+  const login = useCallback(
+    async (login: string, password: string): Promise<LoginResult> => {
+      try {
+        await ensureCsrfCookie();
+        const { data } = await api.post<{ message: string; user: User }>('/auth/login', {
+          login,
+          password,
+        });
+
+        setAuthState({ user: data.user, isAuthenticated: true, isLoading: false });
+        return { success: true, user: data.user };
+      } catch (error) {
+        let message = 'Não foi possível realizar o login.';
+
+        if (axios.isAxiosError<ApiError>(error)) {
+          message = error.response?.data?.message ?? message;
+        }
+
+        setAuthState({ user: null, isAuthenticated: false, isLoading: false });
+        return { success: false, error: message };
+      }
+    },
+    []
+  );
+
+  const logout = useCallback(async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch {
+      // Ignore logout errors, session might already be invalidated
+    } finally {
+      setAuthState({ user: null, isAuthenticated: false, isLoading: false });
+    }
   }, []);
 
   return {
     user: authState.user,
-    token: authState.token,
     isAuthenticated: authState.isAuthenticated,
+    isLoading: authState.isLoading,
     login,
     logout,
+    refresh: fetchAuthenticatedUser,
   };
 }

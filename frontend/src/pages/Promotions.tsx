@@ -216,7 +216,7 @@ export default function Promotions() {
           >
             <Send className="h-4 w-4" />
           </Button>
-          {can('promotions', 'edit') && (
+          {can('promotions', 'update') && (
             <Button
               variant="ghost"
               size="icon"

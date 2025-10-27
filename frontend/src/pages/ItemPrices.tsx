@@ -298,7 +298,7 @@ export default function ItemPrices() {
       header: 'Ações',
       render: (price: ItemPrice) => (
         <div className="flex gap-2">
-          {can('item-prices', 'edit') && (
+          {can('item-prices', 'update') && (
             <Button 
               variant="ghost" 
               size="icon"

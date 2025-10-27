@@ -247,7 +247,7 @@ export default function Professionals() {
       header: 'Ações',
       render: (professional: Professional) => (
         <div className="flex gap-2">
-          {can('professionals', 'edit') && (
+          {can('professionals', 'update') && (
             <Button
               variant="ghost"
               size="icon"

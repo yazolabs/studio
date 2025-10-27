@@ -636,7 +636,7 @@ export default function Appointments() {
             <Printer className="h-4 w-4" />
           </Button>
           {(appointment.status === 'scheduled' || appointment.status === 'confirmed') &&
-            can('appointments', 'edit') && (
+            can('appointments', 'update') && (
               <Button
                 variant="ghost"
                 size="icon"
@@ -646,7 +646,7 @@ export default function Appointments() {
                 <DollarSign className="h-4 w-4 text-success" />
               </Button>
             )}
-          {can('appointments', 'edit') && (
+          {can('appointments', 'update') && (
             <Button 
               variant="ghost" 
               size="icon"

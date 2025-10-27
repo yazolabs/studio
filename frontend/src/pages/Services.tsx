@@ -293,7 +293,7 @@ export default function Services() {
       header: 'Ações',
       render: (service: Service) => (
         <div className="flex gap-2">
-          {can('services', 'edit') && (
+          {can('services', 'update') && (
             <Button variant="ghost" size="icon" onClick={() => handleEdit(service)}>
               <Edit className="h-4 w-4" />
             </Button>
