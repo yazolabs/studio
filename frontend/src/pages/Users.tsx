@@ -67,7 +67,7 @@ export default function Users() {
       header: 'Ações',
       render: (user: User) => (
         <div className="flex gap-2">
-          {can('users', 'edit') && (
+          {can('users', 'update') && (
             <Button
               variant="ghost"
               size="icon"

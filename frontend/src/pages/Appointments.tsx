@@ -52,7 +52,7 @@ import { ptBR } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 
 interface Appointment {
-  id: string;
+  id: number;
   client: string;
   clientPhone?: string;
   service: string;
@@ -95,8 +95,8 @@ const mockServices = [
 ];
 
 const mockAppointments: Appointment[] = [
-  { 
-    id: '1', 
+  {
+    id: 1,
     client: 'Ana Silva', 
     clientPhone: '(11) 98765-4321',
     service: 'Corte Feminino', 
@@ -108,8 +108,8 @@ const mockAppointments: Appointment[] = [
     price: 80,
     notes: 'Cliente prefere franja reta'
   },
-  { 
-    id: '2', 
+  {
+    id: 2,
     client: 'Carlos Souza', 
     service: 'Corte Masculino', 
     professionals: ['2'], 
@@ -119,8 +119,8 @@ const mockAppointments: Appointment[] = [
     status: 'confirmed',
     price: 50
   },
-  { 
-    id: '3', 
+  {
+    id: 3,
     client: 'Beatriz Lima', 
     service: 'Manicure', 
     professionals: ['3'], 
@@ -130,8 +130,8 @@ const mockAppointments: Appointment[] = [
     status: 'completed',
     price: 35
   },
-  { 
-    id: '4', 
+  {
+    id: 4,
     client: 'Diego Alves', 
     service: 'Massagem', 
     professionals: ['4', '1'], 
@@ -145,12 +145,12 @@ const mockAppointments: Appointment[] = [
 
 export default function Appointments() {
   const [appointments, setAppointments] = useState<Appointment[]>(mockAppointments);
-  const [checkoutAppointment, setCheckoutAppointment] = useState<Appointment | null>(null);
+  const [checkoutAppointmentId, setCheckoutAppointmentId] = useState<number | null>(null);
   const [checkoutDialogOpen, setCheckoutDialogOpen] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
-  const [deletingAppointmentId, setDeletingAppointmentId] = useState<string | null>(null);
+  const [deletingAppointmentId, setDeletingAppointmentId] = useState<number | null>(null);
   const { can } = usePermission();
 
   const form = useForm<z.infer<typeof appointmentSchema>>({
@@ -233,7 +233,7 @@ export default function Appointments() {
       });
     } else {
       const newAppointment: Appointment = {
-        id: Date.now().toString(),
+        id: Date.now(),
         client: data.client,
         clientPhone: data.clientPhone,
         service: data.service,
@@ -254,7 +254,7 @@ export default function Appointments() {
     handleCloseDialog();
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = (id: number) => {
     setDeletingAppointmentId(id);
     setIsDeleteDialogOpen(true);
   };
@@ -272,7 +272,7 @@ export default function Appointments() {
   };
 
   const handleCheckout = (appointment: Appointment) => {
-    setCheckoutAppointment(appointment);
+    setCheckoutAppointmentId(appointment.id);
     setCheckoutDialogOpen(true);
   };
 
@@ -636,7 +636,7 @@ export default function Appointments() {
             <Printer className="h-4 w-4" />
           </Button>
           {(appointment.status === 'scheduled' || appointment.status === 'confirmed') &&
-            can('appointments', 'edit') && (
+            can('appointments', 'update') && (
               <Button
                 variant="ghost"
                 size="icon"
@@ -646,7 +646,7 @@ export default function Appointments() {
                 <DollarSign className="h-4 w-4 text-success" />
               </Button>
             )}
-          {can('appointments', 'edit') && (
+          {can('appointments', 'update') && (
             <Button 
               variant="ghost" 
               size="icon"
@@ -984,8 +984,13 @@ export default function Appointments() {
 
       <AppointmentCheckoutDialog
         open={checkoutDialogOpen}
-        onOpenChange={setCheckoutDialogOpen}
-        appointment={checkoutAppointment}
+        onOpenChange={(open) => {
+          setCheckoutDialogOpen(open);
+          if (!open) {
+            setCheckoutAppointmentId(null);
+          }
+        }}
+        appointmentId={checkoutAppointmentId}
       />
     </div>
   );

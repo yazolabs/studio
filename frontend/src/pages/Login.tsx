@@ -12,7 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import logo from '@/assets/logo.jpeg';
 
 const loginSchema = z.object({
-  username: z.string().min(3, 'Username deve ter no mínimo 3 caracteres'),
+  login: z.string().min(3, 'Informe usuário ou e-mail válido'),
   password: z.string().min(6, 'Senha deve ter no mínimo 6 caracteres'),
 });
 
@@ -20,9 +20,9 @@ type LoginFormData = z.infer<typeof loginSchema>;
 
 export default function Login() {
   const navigate = useNavigate();
-  const { login, isAuthenticated } = useAuthUser();
+  const { login, isAuthenticated, isLoading: isAuthLoading } = useAuthUser();
   const { toast } = useToast();
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const {
     register,
@@ -33,31 +33,37 @@ export default function Login() {
   });
 
   useEffect(() => {
+    if (isAuthLoading) {
+      return;
+    }
+
     if (isAuthenticated) {
       navigate('/dashboard', { replace: true });
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, isAuthLoading, navigate]);
 
   const onSubmit = async (data: LoginFormData) => {
-    setIsLoading(true);
-    
-    const result = login(data.username, data.password);
-    
-    if (result.success) {
-      toast({
-        title: 'Login realizado',
-        description: `Bem-vindo, ${result.user?.name}!`,
-      });
-      navigate('/dashboard');
-    } else {
-      toast({
-        title: 'Erro ao fazer login',
-        description: result.error || 'Credenciais inválidas',
-        variant: 'destructive',
-      });
+    setIsSubmitting(true);
+
+    try {
+      const result = await login(data.login, data.password);
+
+      if (result.success && result.user) {
+        toast({
+          title: 'Login realizado',
+          description: `Bem-vindo, ${result.user.name}!`,
+        });
+        navigate('/dashboard');
+      } else {
+        toast({
+          title: 'Erro ao fazer login',
+          description: result.error || 'Credenciais inválidas',
+          variant: 'destructive',
+        });
+      }
+    } finally {
+      setIsSubmitting(false);
     }
-    
-    setIsLoading(false);
   };
 
   return (
@@ -65,12 +71,13 @@ export default function Login() {
       <Card className="w-full max-w-md shadow-primary">
         <CardHeader className="space-y-2 text-center">
           <div className="mx-auto flex items-center justify-center">
-            <img 
-              src={logo} 
-              alt="Studio Unhas Delicadas" 
+            <img
+              src={logo}
+              alt="Studio Unhas Delicadas"
               className="h-24 w-auto object-contain"
             />
           </div>
+          <CardTitle className="text-2xl font-bold">Acesse o sistema</CardTitle>
           <CardDescription>
             Entre com suas credenciais para acessar o sistema
           </CardDescription>
@@ -78,15 +85,16 @@ export default function Login() {
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
+              <Label htmlFor="login">Usuário ou E-mail</Label>
               <Input
-                id="username"
-                placeholder="Digite seu username"
-                {...register('username')}
-                className={errors.username ? 'border-destructive' : ''}
+                id="login"
+                placeholder="Digite seu usuário ou e-mail"
+                autoComplete="username"
+                {...register('login')}
+                className={errors.login ? 'border-destructive' : ''}
               />
-              {errors.username && (
-                <p className="text-sm text-destructive">{errors.username.message}</p>
+              {errors.login && (
+                <p className="text-sm text-destructive">{errors.login.message}</p>
               )}
             </div>
 
@@ -96,6 +104,7 @@ export default function Login() {
                 id="password"
                 type="password"
                 placeholder="Digite sua senha"
+                autoComplete="current-password"
                 {...register('password')}
                 className={errors.password ? 'border-destructive' : ''}
               />
@@ -107,16 +116,25 @@ export default function Login() {
             <Button
               type="submit"
               className="w-full"
-              disabled={isLoading}
+              disabled={isSubmitting}
             >
-              {isLoading ? 'Entrando...' : 'Entrar'}
+              {isSubmitting ? 'Entrando...' : 'Entrar'}
             </Button>
 
             <div className="rounded-lg bg-muted p-4 text-sm">
               <p className="font-semibold mb-2">Credenciais de teste:</p>
-              <p>Admin: <code className="bg-background px-2 py-1 rounded">admin / admin123</code></p>
-              <p>Manager: <code className="bg-background px-2 py-1 rounded">manager / manager123</code></p>
-              <p>Professional: <code className="bg-background px-2 py-1 rounded">professional / professional123</code></p>
+              <p>
+                Admin:{' '}
+                <code className="bg-background px-2 py-1 rounded">admin / admin123</code>
+              </p>
+              <p>
+                Manager:{' '}
+                <code className="bg-background px-2 py-1 rounded">manager / manager123</code>
+              </p>
+              <p>
+                Professional:{' '}
+                <code className="bg-background px-2 py-1 rounded">professional / professional123</code>
+              </p>
             </div>
           </form>
         </CardContent>

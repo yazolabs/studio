@@ -1,0 +1,57 @@
+import { api, ensureCsrfCookie } from './api';
+import type { Paginated } from '../types/pagination';
+import type {
+  CreateProfessionalDto,
+  Professional,
+  UpdateProfessionalDto,
+} from '../types/professional';
+
+type ProfessionalQueryParams = {
+  page?: number;
+  perPage?: number;
+  search?: string;
+};
+
+const basePath = '/professionals';
+
+function mapPayload(payload: CreateProfessionalDto | UpdateProfessionalDto) {
+  const body = {
+    name: payload.name,
+    email: payload.email,
+    phone: payload.phone,
+    specialties: payload.specialties,
+    active: payload.active,
+    work_schedule: payload.workSchedule,
+  };
+
+  return Object.fromEntries(
+    Object.entries(body).filter(([, value]) => value !== undefined),
+  );
+}
+
+export async function listProfessionals(params?: ProfessionalQueryParams) {
+  const { data } = await api.get<Paginated<Professional>>(basePath, { params });
+  return data;
+}
+
+export async function getProfessional(id: number) {
+  const { data } = await api.get<Professional>(`${basePath}/${id}`);
+  return data;
+}
+
+export async function createProfessional(payload: CreateProfessionalDto) {
+  await ensureCsrfCookie();
+  const { data } = await api.post<Professional>(basePath, mapPayload(payload));
+  return data;
+}
+
+export async function updateProfessional(id: number, payload: UpdateProfessionalDto) {
+  await ensureCsrfCookie();
+  const { data } = await api.put<Professional>(`${basePath}/${id}`, mapPayload(payload));
+  return data;
+}
+
+export async function removeProfessional(id: number) {
+  await ensureCsrfCookie();
+  await api.delete(`${basePath}/${id}`);
+}
