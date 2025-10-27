@@ -273,7 +273,7 @@ export default function Customers() {
       header: 'Ações',
       render: (customer: Customer) => (
         <div className="flex gap-2">
-          {can('customers', 'edit') && (
+          {can('customers', 'update') && (
             <Button
               variant="ghost"
               size="icon"

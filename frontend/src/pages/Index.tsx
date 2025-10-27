@@ -4,15 +4,19 @@ import { useAuthUser } from '@/hooks/useAuthUser';
 
 const Index = () => {
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuthUser();
+  const { isAuthenticated, isLoading } = useAuthUser();
 
   useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+
     if (isAuthenticated) {
       navigate('/dashboard', { replace: true });
     } else {
       navigate('/login', { replace: true });
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, isLoading, navigate]);
 
   return (
     <div className="flex min-h-screen items-center justify-center">

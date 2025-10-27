@@ -1,6 +1,6 @@
 export type Role = 'admin' | 'manager' | 'professional' | 'receptionist';
 
-export type Screen = 
+export type Screen =
   | 'dashboard'
   | 'users'
   | 'services'
@@ -16,24 +16,31 @@ export type Screen =
   | 'accounts-payable'
   | 'commissions';
 
-export type Action = 'view' | 'create' | 'edit' | 'delete';
+export type PermissionAction = 'create' | 'read' | 'update' | 'delete';
 
 export interface Permission {
   screen: Screen;
-  actions: Action[];
+  actions: PermissionAction[];
+}
+
+export interface UserRole {
+  id: string;
+  name: string;
+  slug: string;
 }
 
 export interface User {
   id: string;
   name: string;
-  email: string;
+  email: string | null;
   username: string;
-  role: Role;
+  role: Role | null;
+  roles: UserRole[];
   permissions: Permission[];
 }
 
 export interface AuthState {
   user: User | null;
-  token: string | null;
   isAuthenticated: boolean;
+  isLoading: boolean;
 }

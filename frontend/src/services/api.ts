@@ -1,51 +1,57 @@
-import axios from 'axios';
+import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8010/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? '/api';
+const SANCTUM_BASE_URL = API_BASE_URL.replace(/\/api\/?$/, '');
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  withCredentials: true,
+  xsrfCookieName: 'XSRF-TOKEN',
+  xsrfHeaderName: 'X-XSRF-TOKEN',
 });
 
-// Request interceptor to add auth token
-api.interceptors.request.use(
-  (config) => {
-    const authData = localStorage.getItem('salon_auth');
-    if (authData) {
-      try {
-        const { token } = JSON.parse(authData);
-        if (token) {
-          config.headers.Authorization = `Bearer ${token}`;
-        }
-      } catch (error) {
-        console.error('Error parsing auth data:', error);
-      }
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
+export type ApiError = { message: string; errors?: Record<string, string[]> };
 
-// Response interceptor to handle errors
+export async function ensureCsrfCookie() {
+  await axios.get(`${SANCTUM_BASE_URL}/sanctum/csrf-cookie`, {
+    withCredentials: true,
+  });
+}
+
+type RetryableConfig = AxiosRequestConfig & { _retry?: boolean };
+
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('salon_auth');
-      window.location.href = '/login';
+  async (error: AxiosError<ApiError>) => {
+    const config = error.config as RetryableConfig | undefined;
+
+    if (error.response?.status === 419 && config && !config._retry) {
+      config._retry = true;
+      await ensureCsrfCookie();
+      return api.request(config);
     }
+
+    if (error.response?.status === 401) {
+      // Let callers handle redirect/feedback when the session expires
+      return Promise.reject(error);
+    }
+
     return Promise.reject(error);
   }
 );
 
-// Query keys for TanStack Query
 export const queryKeys = {
   users: ['users'],
   services: ['services'],
+  professionals: ['professionals'],
+  customers: ['customers'],
+  suppliers: ['suppliers'],
   items: ['items'],
+  promotions: ['promotions'],
   appointments: ['appointments'],
+  commissions: ['commissions'],
+  cashier: ['cashier'],
+  accountsPayable: ['accounts-payable'],
   itemPrices: ['item-prices'],
   itemPriceHistories: ['item-price-histories'],
 };

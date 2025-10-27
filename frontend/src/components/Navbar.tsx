@@ -6,6 +6,7 @@ import logo from '@/assets/logo.jpeg';
 
 export function Navbar() {
   const { user } = useAuthUser();
+  const primaryRoleLabel = user?.roles?.[0]?.name ?? (user?.role ?? '');
   const { toggleSidebar } = useSidebar();
 
   return (
@@ -30,7 +31,9 @@ export function Navbar() {
         <div className="flex items-center gap-4">
           <div className="text-sm">
             <p className="font-medium">{user?.name}</p>
-            <p className="text-xs text-muted-foreground capitalize">{user?.role}</p>
+            <p className="text-xs text-muted-foreground capitalize">
+              {primaryRoleLabel || 'Sem perfil'}
+            </p>
           </div>
         </div>
       </div>

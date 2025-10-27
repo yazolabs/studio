@@ -96,9 +96,12 @@ export function AppSidebar() {
 
   const collapsed = state === 'collapsed';
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } finally {
+      navigate('/login');
+    }
   };
 
   // Filter sections based on user permissions
