@@ -1,43 +1,46 @@
-# Documentação da Pasta `backend`
+# Backend (Laravel 12)
 
-## Visão Geral
+Este diretório contém a API do **Sistema de Gestão de Salão de Beleza**, implementada em Laravel 12 com PHP 8.2+. O backend expõe endpoints REST protegidos por Laravel Sanctum (cookies + CSRF) e aplica controle de acesso baseado em papéis e permissões (RBAC) via middleware `permission:{screenSlug},{actionSlug}`.
 
-A pasta `backend` deste projeto contém toda a lógica de negócio, integração com banco de dados, autenticação, rotas de API e demais funcionalidades essenciais para o funcionamento do sistema. O backend é responsável por receber requisições dos clientes (frontend ou outros serviços), processar dados, aplicar regras de negócio e retornar respostas apropriadas.
+## Usuários padrão (seeders)
 
-## Estrutura de Pastas e Arquivos
+Ao executar `php artisan migrate --seed`, os perfis abaixo serão criados automaticamente. Todos utilizam a senha **`Senha!123`**.
 
-- **controllers/**: Implementa a lógica de controle das rotas, recebendo requisições, validando dados e interagindo com os serviços e modelos.
-- **models/**: Define os esquemas e modelos de dados utilizados pelo sistema, geralmente integrados a um banco de dados relacional ou NoSQL.
-- **routes/**: Configura as rotas da API, associando endpoints HTTP aos métodos dos controllers.
-- **middlewares/**: Contém funções intermediárias para autenticação, autorização, tratamento de erros e validação de dados.
-- **services/**: Implementa regras de negócio e integrações externas, separando a lógica do controller.
-- **config/**: Armazena configurações do sistema, como variáveis de ambiente, conexões com banco de dados e parâmetros de autenticação.
-- **utils/**: Funções utilitárias e helpers reutilizáveis em diferentes partes do backend.
-- **app.js / server.js**: Arquivo principal de inicialização do servidor, configuração de middlewares globais e conexão com o banco de dados.
+| Perfil         | Nome completo              | Usuário     | E-mail                         |
+| -------------- | -------------------------- | ----------- | ------------------------------ |
+| Administrador  | Administrador Geral        | `admin`     | `admin@yazolabs.com`           |
+| Gerente        | Gerente Operacional        | `manager`   | `manager@yazolabs.com`         |
+| Profissional   | Profissional do Salão      | `professional` | `professional@yazolabs.com` |
+| Recepcionista  | Recepcionista do Salão     | `receptionist` | `receptionist@yazolabs.com` |
 
-## Funcionalidades Principais
+Use essas credenciais para acessar o frontend e validar cenários de RBAC. Cada usuário recebe automaticamente as permissões descritas no Lovable YAML (dashboard, usuários, serviços, agendamentos, caixa, etc.).
 
-- **Autenticação e Autorização**: Gerenciamento de usuários, login, registro, geração e validação de tokens JWT, controle de acesso a rotas protegidas.
-- **CRUD de Recursos**: Implementação de operações de criação, leitura, atualização e remoção de entidades do sistema, como usuários, produtos, pedidos, etc.
-- **Validação de Dados**: Garantia de integridade e consistência dos dados recebidos via API, utilizando middlewares de validação.
-- **Tratamento de Erros**: Captura e resposta adequada a erros de execução, validação e acesso não autorizado.
-- **Integração com Banco de Dados**: Conexão, consulta e manipulação de dados persistidos, utilizando ORM/ODM ou drivers nativos.
-- **Logs e Monitoramento**: Registro de atividades do sistema e monitoramento de eventos relevantes para auditoria e depuração.
+## Principais pastas
 
-## Fluxo de Funcionamento
+- **app/Models** – Modelos Eloquent com casts, relacionamentos e enums compartilhados com o frontend.
+- **app/Http/Controllers** – Controladores enxutos que delegam regras de negócio para os serviços e retornam `JsonResource` em camelCase.
+- **app/Services** – Camada de serviços responsável por orquestrar operações de CRUD, filtros e workflows (checkout de agendamento, pagamento de comissão, etc.).
+- **app/Http/Resources** – Serialização padronizada das respostas da API (camelCase, metadados de paginação, timestamps ISO8601).
+- **app/Enums** – Enums PHP 8.2 (status de agendamento, tipos de comissão, etc.), espelhados no frontend.
+- **app/Http/Middleware/CheckPermission.php** – Middleware que valida permissões no padrão `permission:{screenSlug},{actionSlug}`.
+- **database/migrations** – Estrutura do banco (MySQL) usando `increments`, `foreignId()->constrained()` e `softDeletes()` quando aplicável.
+- **database/seeders** – População inicial de ações, papéis, permissões e usuários padrão.
+- **routes/api.php** – Registro das rotas `api/*`, todas protegidas por `auth:sanctum` + middleware de permissão.
 
-1. O cliente faz uma requisição HTTP para um endpoint da API.
-2. A requisição passa por middlewares globais (ex: autenticação, logs).
-3. O controller correspondente processa a requisição, valida os dados e chama os serviços necessários.
-4. Os serviços interagem com os modelos e o banco de dados para executar a lógica de negócio.
-5. O resultado é retornado ao controller, que envia a resposta apropriada ao cliente.
-6. Em caso de erro, o middleware de tratamento de erros envia uma resposta padronizada.
+## Autenticação
 
-## Observações
+- Fluxo Sanctum SPA (`GET /sanctum/csrf-cookie` → requisições autenticadas com cookies HttpOnly).
+- Endpoints principais: `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`.
+- Todas as rotas de negócio usam `auth:sanctum` e o middleware `permission` para RBAC.
 
-- O backend segue boas práticas de organização, separação de responsabilidades e segurança.
-- É recomendada a configuração de variáveis sensíveis via arquivos `.env`.
-- Testes automatizados podem estar presentes na pasta `tests/` ou similar.
+## Testes e utilidades
 
----
-Esta documentação cobre a estrutura e funcionamento geral do backend, podendo ser complementada com detalhes específicos de cada módulo conforme necessário.
+- Rode `php artisan test` para executar os testes de feature.
+- Utilize `php artisan optimize:clear` antes de rodar a suíte se necessário.
+- Arquivo `backend/openapi.yaml` centraliza o contrato dos endpoints, servindo de base para a tipagem do frontend.
+
+## Próximos passos
+
+- Configure as variáveis de ambiente (`.env`) com credenciais de banco, domínios `SANCTUM_STATEFUL_DOMAINS`, `SESSION_DOMAIN`, etc.
+- Execute as migrations e seeders (`php artisan migrate --seed`).
+- Inicie o servidor (`php artisan serve`) e consuma os endpoints via frontend ou cliente HTTP.
