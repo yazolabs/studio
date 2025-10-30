@@ -1,6 +1,5 @@
 import { Role, Permission, PermissionAction, Screen } from '@/types/auth';
 
-// RBAC Configuration - Define permissions by role (fallback/default)
 export const rolePermissions: Record<Role, Permission[]> = {
   admin: [
     { screen: 'dashboard', actions: ['read'] },
@@ -58,13 +57,29 @@ export function hasPermission(
   screen: Screen,
   action: PermissionAction
 ): boolean {
-  const screenPermission = permissions.find((p) => p.screen === screen);
-  return screenPermission?.actions.includes(action) ?? false;
+  const screenPermissions = permissions.filter((p) => p.screen === screen);
+
+  if (screenPermissions.length === 0) {
+    console.warn(`No permissions found for screen: ${screen}`);
+    return false;
+  }
+
+  const hasActionPermission = screenPermissions.some((p) =>
+    p.actions.includes(action)
+  );
+
+  if (!hasActionPermission) {
+    console.warn(`No action ${action} found for screen: ${screen}`);
+  }
+
+  return hasActionPermission;
 }
 
-export function canAccessScreen(
-  permissions: Permission[],
-  screen: Screen
-): boolean {
-  return permissions.some((p) => p.screen === screen && p.actions.length > 0);
+export function canAccessScreen(permissions: Permission[], screen: Screen): boolean {
+  console.log("Checking permissions for screen:", screen);
+
+  const screenPermissions = permissions.filter((p) => p.screen === screen);
+  console.log("Permissions available for screen:", screen, screenPermissions);
+
+  return screenPermissions.length > 0;
 }

@@ -1,4 +1,4 @@
-import { api, ensureCsrfCookie } from './api';
+import { api } from './api';
 import type { Paginated } from '../types/pagination';
 import type {
   Appointment,
@@ -55,18 +55,15 @@ export async function getAppointment(id: number) {
 }
 
 export async function createAppointment(payload: CreateAppointmentDto) {
-  await ensureCsrfCookie();
   const { data } = await api.post<Appointment>(basePath, mapPayload(payload));
   return data;
 }
 
 export async function updateAppointment(id: number, payload: UpdateAppointmentDto) {
-  await ensureCsrfCookie();
   const { data } = await api.put<Appointment>(`${basePath}/${id}`, mapPayload(payload));
   return data;
 }
 
 export async function removeAppointment(id: number) {
-  await ensureCsrfCookie();
   await api.delete(`${basePath}/${id}`);
 }

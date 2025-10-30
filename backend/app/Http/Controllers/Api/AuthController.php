@@ -3,78 +3,72 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Http\Resources\AuthUserResource;
 use App\Models\User;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
+use Illuminate\Http\{JsonResponse, Request};
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
     public function login(Request $request): JsonResponse
     {
-        $credentials = $request->validate([
-            'login' => ['required', 'string'],
-            'password' => ['required', 'string'],
+        $request->validate([
+            'login'    => 'required|string',
+            'password' => 'required|string',
         ]);
 
-        $login = $request->string('login')->trim();
-        $password = (string) $credentials['password'];
+        $login = $request->input('login');
+        $password = $request->input('password');
 
-        if (! $this->attemptLogin($login, $password)) {
+        /** @var User|null $user */
+        $user = User::where('email', $login)
+            ->orWhere('username', $login)
+            ->first();
+
+        if (! $user || ! Hash::check($password, $user->password)) {
             throw ValidationException::withMessages([
                 'login' => ['As credenciais estão incorretas.'],
             ]);
         }
 
-        $request->session()->regenerate();
+        $user->tokens()->delete();
 
-        /** @var User $user */
-        $user = Auth::guard('web')->user();
+        $token = $user->createToken('auth_token')->plainTextToken;
 
         return response()->json([
             'message' => 'Login realizado com sucesso.',
-            'user' => new AuthUserResource($user),
+            'token'   => $token,
+            'user'    => $user,
         ]);
     }
 
     public function me(Request $request): JsonResponse
     {
-        /** @var User|null $user */
         $user = $request->user();
 
         if (! $user) {
-            return response()->json([
-                'message' => 'Usuário não autenticado.',
-            ], 401);
+            return response()->json(['message' => 'Usuário não autenticado.'], 401);
         }
 
+        $permissions = $user->roles->flatMap(function ($role) {
+            return $role->permissions->map(function ($permission) {
+                return [
+                    'screen' => $permission->screen->slug,
+                    'action' => $permission->action->slug,
+                ];
+            });
+        });
+
         return response()->json([
-            'user' => new AuthUserResource($user),
+            'user' => $user,
+            'permissions' => $permissions,
         ]);
     }
 
     public function logout(Request $request): JsonResponse
     {
-        Auth::guard('web')->logout();
+        $request->user()->currentAccessToken()->delete();
 
-        $request->session()->invalidate();
-        $request->session()->regenerateToken();
-
-        return response()->json([
-            'message' => 'Logout realizado com sucesso.',
-        ]);
-    }
-
-    private function attemptLogin(string $login, string $password): bool
-    {
-        $guard = Auth::guard('web');
-
-        if ($guard->attempt(['email' => $login, 'password' => $password])) {
-            return true;
-        }
-
-        return $guard->attempt(['username' => $login, 'password' => $password]);
+        return response()->json(['message' => 'Logout realizado com sucesso.']);
     }
 }

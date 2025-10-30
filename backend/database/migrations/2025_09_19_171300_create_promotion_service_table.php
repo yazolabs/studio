@@ -8,9 +8,9 @@ return new class extends Migration {
     public function up(): void
     {
         Schema::create('promotion_service', function (Blueprint $table) {
-            $table->increments('id');
-            $table->foreignId('promotion_id')->constrained('promotions')->cascadeOnDelete();
-            $table->foreignId('service_id')->constrained('services')->cascadeOnDelete();
+            $table->id();
+            $table->foreignId('promotion_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('service_id')->constrained()->cascadeOnDelete();
             $table->timestamps();
 
             $table->unique(['promotion_id', 'service_id']);

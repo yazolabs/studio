@@ -1,4 +1,4 @@
-import { api, ensureCsrfCookie } from './api';
+import { api } from './api';
 import type { Paginated } from '../types/pagination';
 import type { CreateItemDto, Item, UpdateItemDto } from '../types/item';
 
@@ -42,18 +42,15 @@ export async function getItem(id: number) {
 }
 
 export async function createItem(payload: CreateItemDto) {
-  await ensureCsrfCookie();
   const { data } = await api.post<Item>(basePath, mapPayload(payload));
   return data;
 }
 
 export async function updateItem(id: number, payload: UpdateItemDto) {
-  await ensureCsrfCookie();
   const { data } = await api.put<Item>(`${basePath}/${id}`, mapPayload(payload));
   return data;
 }
 
 export async function removeItem(id: number) {
-  await ensureCsrfCookie();
   await api.delete(`${basePath}/${id}`);
 }

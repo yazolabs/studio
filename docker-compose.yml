@@ -1,0 +1,66 @@
+services:
+  teste-integracao-backend:
+    build:
+      context: ./backend
+      args:
+        UID: ${UID}
+        GID: ${GID}
+    container_name: teste-integracao-backend
+    volumes:
+      - ./backend:/var/www/html
+    ports:
+      - "8000:80"
+    environment:
+      - APACHE_RUN_USER=www-data
+      - APACHE_RUN_GROUP=www-data
+    depends_on:
+      - teste-integracao-db
+
+  teste-integracao-db:
+    image: mysql:8.0
+    container_name: teste-integracao-db
+    restart: "no"
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_DATABASE: teste_integracao_db
+      MYSQL_ROOT_PASSWORD: laravel
+      MYSQL_USER: laravel
+      MYSQL_PASSWORD: laravel
+    volumes:
+      - teste_integracao_db_data:/var/lib/mysql
+
+  teste-integracao-phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: teste-integracao-phpmyadmin
+    restart: "no"
+    ports:
+      - "8080:80"
+    environment:
+      PMA_HOST: teste-integracao-db
+      PMA_USER: laravel
+      PMA_PASSWORD: laravel
+
+  teste-integracao-frontend:
+    build:
+      context: ./frontend
+    container_name: teste-integracao-frontend
+    volumes:
+      - ./frontend:/app
+      - teste_integracao_node_modules:/app/node_modules
+    ports:
+      - "5173:5173"
+    environment:
+      - CHOKIDAR_USEPOLLING=1
+      - WATCHPACK_POLLING=true
+      - VITE_DEV_HOST=0.0.0.0
+    command: >
+      sh -lc "
+        mkdir -p /app/node_modules &&
+        chown -R node:node /app /app/node_modules &&
+        su node -s /bin/sh -c 'npm ci && npm run dev -- --host 0.0.0.0 --port 5173'
+      "
+
+volumes:
+  teste_integracao_db_data:
+  teste_integracao_node_modules:

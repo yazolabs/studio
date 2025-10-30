@@ -8,7 +8,7 @@ return new class extends Migration {
     public function up(): void
     {
         Schema::create('cashier_transactions', function (Blueprint $table) {
-            $table->increments('id');
+            $table->id();
             $table->date('date');
             $table->string('type', 20);
             $table->string('category', 80);
@@ -16,7 +16,7 @@ return new class extends Migration {
             $table->decimal('amount', 12, 2);
             $table->string('payment_method', 60)->nullable();
             $table->string('reference', 160)->nullable();
-            $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
             $table->text('notes')->nullable();
             $table->timestamps();
             $table->softDeletes();

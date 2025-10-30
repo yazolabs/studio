@@ -8,7 +8,7 @@ return new class extends Migration {
     public function up(): void
     {
         Schema::create('promotions', function (Blueprint $table) {
-            $table->increments('id');
+            $table->id();
             $table->string('name', 160);
             $table->text('description')->nullable();
             $table->string('discount_type', 20);

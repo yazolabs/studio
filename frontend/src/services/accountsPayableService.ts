@@ -1,4 +1,4 @@
-import { api, ensureCsrfCookie } from './api';
+import { api } from './api';
 import type { Paginated } from '../types/pagination';
 import type {
   AccountPayable,
@@ -48,18 +48,15 @@ export async function getAccountPayable(id: number) {
 }
 
 export async function createAccountPayable(payload: CreateAccountPayableDto) {
-  await ensureCsrfCookie();
   const { data } = await api.post<AccountPayable>(basePath, mapPayload(payload));
   return data;
 }
 
 export async function updateAccountPayable(id: number, payload: UpdateAccountPayableDto) {
-  await ensureCsrfCookie();
   const { data } = await api.put<AccountPayable>(`${basePath}/${id}`, mapPayload(payload));
   return data;
 }
 
 export async function removeAccountPayable(id: number) {
-  await ensureCsrfCookie();
   await api.delete(`${basePath}/${id}`);
 }

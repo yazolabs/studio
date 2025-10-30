@@ -1,4 +1,4 @@
-import { api, ensureCsrfCookie } from './api';
+import { api } from './api';
 import type { Paginated } from '../types/pagination';
 import type { CreateItemPriceDto, ItemPrice, UpdateItemPriceDto } from '../types/item-price';
 
@@ -37,18 +37,15 @@ export async function getItemPrice(id: number) {
 }
 
 export async function createItemPrice(payload: CreateItemPriceDto) {
-  await ensureCsrfCookie();
   const { data } = await api.post<ItemPrice>(basePath, mapPayload(payload));
   return data;
 }
 
 export async function updateItemPrice(id: number, payload: UpdateItemPriceDto) {
-  await ensureCsrfCookie();
   const { data } = await api.put<ItemPrice>(`${basePath}/${id}`, mapPayload(payload));
   return data;
 }
 
 export async function removeItemPrice(id: number) {
-  await ensureCsrfCookie();
   await api.delete(`${basePath}/${id}`);
 }

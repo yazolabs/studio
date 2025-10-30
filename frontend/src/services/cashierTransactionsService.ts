@@ -1,4 +1,4 @@
-import { api, ensureCsrfCookie } from './api';
+import { api } from './api';
 import type { Paginated } from '../types/pagination';
 import type {
   CashierTransaction,
@@ -46,7 +46,6 @@ export async function getCashierTransaction(id: number) {
 }
 
 export async function createCashierTransaction(payload: CreateCashierTransactionDto) {
-  await ensureCsrfCookie();
   const { data } = await api.post<CashierTransaction>(basePath, mapPayload(payload));
   return data;
 }
@@ -55,12 +54,10 @@ export async function updateCashierTransaction(
   id: number,
   payload: UpdateCashierTransactionDto,
 ) {
-  await ensureCsrfCookie();
   const { data } = await api.put<CashierTransaction>(`${basePath}/${id}`, mapPayload(payload));
   return data;
 }
 
 export async function removeCashierTransaction(id: number) {
-  await ensureCsrfCookie();
   await api.delete(`${basePath}/${id}`);
 }

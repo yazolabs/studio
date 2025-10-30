@@ -1,37 +1,14 @@
 <?php
 
-use App\Http\Controllers\Api\{
-    AccountPayableController,
-    ActionController,
-    AppointmentController,
-    AuthController,
-    CashierTransactionController,
-    CommissionController,
-    CustomerController,
-    ItemController,
-    ItemPriceController,
-    ItemPriceHistoryController,
-    PermissionController,
-    ProfessionalController,
-    PromotionController,
-    RoleController,
-    ScreenController,
-    ServiceController,
-    SupplierController,
-    UserController
-};
+use App\Http\Controllers\Api\{ AccountPayableController, ActionController, AppointmentController, AuthController, CashierTransactionController, CommissionController, CustomerController, ItemController, ItemPriceController, ItemPriceHistoryController, PermissionController, ProfessionalController, PromotionController, RoleController, ScreenController, ServiceController, SupplierController, UserController};
 use Illuminate\Support\Facades\Route;
 
-Route::prefix('auth')->controller(AuthController::class)->group(function () {
-    Route::post('login', 'login');
-
-    Route::middleware('auth:sanctum')->group(function () {
-        Route::get('me', 'me');
-        Route::post('logout', 'logout');
-    });
-});
+Route::post('/login', [AuthController::class, 'login']);
 
 Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/me', [AuthController::class, 'me']);
+    Route::post('/logout', [AuthController::class, 'logout']);
+
     Route::prefix('users')->controller(UserController::class)->group(function () {
         Route::get('/', 'index')->middleware('permission:users,read');
         Route::post('/', 'store')->middleware('permission:users,create');

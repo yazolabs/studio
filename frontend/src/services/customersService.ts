@@ -1,4 +1,4 @@
-import { api, ensureCsrfCookie } from './api';
+import { api } from './api';
 import type { Paginated } from '../types/pagination';
 import type { CreateCustomerDto, Customer, UpdateCustomerDto } from '../types/customer';
 
@@ -41,18 +41,15 @@ export async function getCustomer(id: number) {
 }
 
 export async function createCustomer(payload: CreateCustomerDto) {
-  await ensureCsrfCookie();
   const { data } = await api.post<Customer>(basePath, mapPayload(payload));
   return data;
 }
 
 export async function updateCustomer(id: number, payload: UpdateCustomerDto) {
-  await ensureCsrfCookie();
   const { data } = await api.put<Customer>(`${basePath}/${id}`, mapPayload(payload));
   return data;
 }
 
 export async function removeCustomer(id: number) {
-  await ensureCsrfCookie();
   await api.delete(`${basePath}/${id}`);
 }

@@ -1,44 +1,20 @@
-import axios, { AxiosError, AxiosRequestConfig } from 'axios';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? '/api';
-const SANCTUM_BASE_URL = API_BASE_URL.replace(/\/api\/?$/, '');
+import axios from 'axios';
 
 export const api = axios.create({
-  baseURL: API_BASE_URL,
-  withCredentials: true,
-  xsrfCookieName: 'XSRF-TOKEN',
-  xsrfHeaderName: 'X-XSRF-TOKEN',
+  baseURL: import.meta.env.VITE_API_URL ?? '/api',
+  headers: {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  },
 });
 
-export type ApiError = { message: string; errors?: Record<string, string[]> };
-
-export async function ensureCsrfCookie() {
-  await axios.get(`${SANCTUM_BASE_URL}/sanctum/csrf-cookie`, {
-    withCredentials: true,
-  });
-}
-
-type RetryableConfig = AxiosRequestConfig & { _retry?: boolean };
-
-api.interceptors.response.use(
-  (response) => response,
-  async (error: AxiosError<ApiError>) => {
-    const config = error.config as RetryableConfig | undefined;
-
-    if (error.response?.status === 419 && config && !config._retry) {
-      config._retry = true;
-      await ensureCsrfCookie();
-      return api.request(config);
-    }
-
-    if (error.response?.status === 401) {
-      // Let callers handle redirect/feedback when the session expires
-      return Promise.reject(error);
-    }
-
-    return Promise.reject(error);
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('authToken');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
   }
-);
+  return config;
+});
 
 export const queryKeys = {
   users: ['users'],
@@ -55,3 +31,5 @@ export const queryKeys = {
   itemPrices: ['item-prices'],
   itemPriceHistories: ['item-price-histories'],
 };
+
+export default api;

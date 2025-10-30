@@ -8,8 +8,8 @@ return new class extends Migration {
     public function up(): void
     {
         Schema::create('item_price_histories', function (Blueprint $table) {
-            $table->increments('id');
-            $table->foreignId('item_id')->constrained('items')->cascadeOnDelete();
+            $table->id();
+            $table->foreignId('item_id')->constrained()->cascadeOnDelete();
             $table->decimal('old_price', 12, 2)->nullable();
             $table->decimal('new_price', 12, 2);
             $table->timestamp('change_date');

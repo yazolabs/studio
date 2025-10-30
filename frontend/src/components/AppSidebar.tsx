@@ -1,33 +1,6 @@
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import {
-  LayoutDashboard,
-  Users,
-  Scissors,
-  UserCog,
-  Package,
-  Calendar,
-  DollarSign,
-  History,
-  LogOut,
-  Megaphone,
-  UserCircle,
-  Wallet,
-  Store,
-  FileText,
-  Percent,
-} from 'lucide-react';
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  useSidebar,
-} from '@/components/ui/sidebar';
+import { LayoutDashboard, Users, Scissors, UserCog, Package, Calendar, DollarSign, History, LogOut, Megaphone, UserCircle, Wallet, Store, FileText, Percent } from 'lucide-react';
+import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { useAuthUser } from '@/hooks/useAuthUser';
 import { usePermission } from '@/hooks/usePermission';
@@ -104,11 +77,13 @@ export function AppSidebar() {
     }
   };
 
-  // Filter sections based on user permissions
-  const filteredSections = navSections.map(section => ({
+  const filteredSections = navSections.map((section) => ({
     ...section,
-    items: section.items.filter(item => canAccess(item.screen))
-  })).filter(section => section.items.length > 0);
+    items: section.items.filter((item) => {
+      const hasAccess = canAccess(item.screen);
+      return hasAccess;
+    }),
+  })).filter((section) => section.items.length > 0);
 
   return (
     <Sidebar collapsible="icon" className="border-r">

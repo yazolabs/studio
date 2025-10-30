@@ -1,4 +1,4 @@
-import { api, ensureCsrfCookie } from './api';
+import { api } from './api';
 import type { Paginated } from '../types/pagination';
 import type {
   CreateItemPriceHistoryDto,
@@ -41,7 +41,6 @@ export async function getItemPriceHistory(id: number) {
 }
 
 export async function createItemPriceHistory(payload: CreateItemPriceHistoryDto) {
-  await ensureCsrfCookie();
   const { data } = await api.post<ItemPriceHistory>(basePath, mapPayload(payload));
   return data;
 }
@@ -50,12 +49,10 @@ export async function updateItemPriceHistory(
   id: number,
   payload: UpdateItemPriceHistoryDto,
 ) {
-  await ensureCsrfCookie();
   const { data } = await api.put<ItemPriceHistory>(`${basePath}/${id}`, mapPayload(payload));
   return data;
 }
 
 export async function removeItemPriceHistory(id: number) {
-  await ensureCsrfCookie();
   await api.delete(`${basePath}/${id}`);
 }

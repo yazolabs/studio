@@ -8,10 +8,10 @@ return new class extends Migration {
     public function up(): void
     {
         Schema::create('appointment_service', function (Blueprint $table) {
-            $table->increments('id');
-            $table->foreignId('appointment_id')->constrained('appointments')->cascadeOnDelete();
-            $table->foreignId('service_id')->constrained('services')->cascadeOnDelete();
-            $table->foreignId('professional_id')->nullable()->constrained('professionals')->nullOnDelete();
+            $table->id();
+            $table->foreignId('appointment_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('service_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('professional_id')->nullable()->constrained()->nullOnDelete();
             $table->decimal('service_price', 12, 2);
             $table->string('commission_type', 20)->nullable();
             $table->decimal('commission_value', 12, 2)->default(0);

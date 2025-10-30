@@ -1,4 +1,4 @@
-import { api, ensureCsrfCookie } from './api';
+import { api } from './api';
 import type { Paginated } from '../types/pagination';
 import type { Commission, CreateCommissionDto, UpdateCommissionDto } from '../types/commission';
 
@@ -45,18 +45,15 @@ export async function getCommission(id: number) {
 }
 
 export async function createCommission(payload: CreateCommissionDto) {
-  await ensureCsrfCookie();
   const { data } = await api.post<Commission>(basePath, mapPayload(payload));
   return data;
 }
 
 export async function updateCommission(id: number, payload: UpdateCommissionDto) {
-  await ensureCsrfCookie();
   const { data } = await api.put<Commission>(`${basePath}/${id}`, mapPayload(payload));
   return data;
 }
 
 export async function removeCommission(id: number) {
-  await ensureCsrfCookie();
   await api.delete(`${basePath}/${id}`);
 }

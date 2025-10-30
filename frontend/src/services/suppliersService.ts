@@ -1,4 +1,4 @@
-import { api, ensureCsrfCookie } from './api';
+import { api } from './api';
 import type { Paginated } from '../types/pagination';
 import type { CreateSupplierDto, Supplier, UpdateSupplierDto } from '../types/supplier';
 
@@ -42,18 +42,15 @@ export async function getSupplier(id: number) {
 }
 
 export async function createSupplier(payload: CreateSupplierDto) {
-  await ensureCsrfCookie();
   const { data } = await api.post<Supplier>(basePath, mapPayload(payload));
   return data;
 }
 
 export async function updateSupplier(id: number, payload: UpdateSupplierDto) {
-  await ensureCsrfCookie();
   const { data } = await api.put<Supplier>(`${basePath}/${id}`, mapPayload(payload));
   return data;
 }
 
 export async function removeSupplier(id: number) {
-  await ensureCsrfCookie();
   await api.delete(`${basePath}/${id}`);
 }

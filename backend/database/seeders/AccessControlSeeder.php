@@ -141,25 +141,25 @@ class AccessControlSeeder extends Seeder
                     'name' => 'Administrador Geral',
                     'username' => 'admin',
                     'email' => 'admin@yazolabs.com',
-                    'password' => 'Senha!123',
+                    'password' => '12345678',
                 ],
                 'manager' => [
                     'name' => 'Gerente Operacional',
                     'username' => 'manager',
                     'email' => 'manager@yazolabs.com',
-                    'password' => 'Senha!123',
+                    'password' => '12345678',
                 ],
                 'professional' => [
                     'name' => 'Profissional do Salão',
                     'username' => 'professional',
                     'email' => 'professional@yazolabs.com',
-                    'password' => 'Senha!123',
+                    'password' => '12345678',
                 ],
                 'receptionist' => [
                     'name' => 'Recepcionista do Salão',
                     'username' => 'receptionist',
                     'email' => 'receptionist@yazolabs.com',
-                    'password' => 'Senha!123',
+                    'password' => '12345678',
                 ],
             ];
 

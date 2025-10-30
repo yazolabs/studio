@@ -1,28 +1,21 @@
-import { useAuthUser } from './useAuthUser';
-import { hasPermission, canAccessScreen, rolePermissions } from '@/lib/permissions';
+import { usePermissions } from '@/contexts/permissionsContext';
 import { Screen, PermissionAction } from '@/types/auth';
 
 export function usePermission() {
-  const { user } = useAuthUser();
-
-  const effectivePermissions = (() => {
-    if (user?.permissions?.length) {
-      return user.permissions;
-    }
-
-    if (user?.role) {
-      return rolePermissions[user.role] ?? [];
-    }
-
-    return [];
-  })();
+  const { permissions, loading } = usePermissions();
 
   const can = (screen: Screen, action: PermissionAction): boolean => {
-    return hasPermission(effectivePermissions, screen, action);
+    if (loading) {
+      return false;
+    }
+    return permissions?.some((permission) => permission.screen === screen && permission.actions.includes(action)) || false;
   };
 
   const canAccess = (screen: Screen): boolean => {
-    return canAccessScreen(effectivePermissions, screen);
+    if (loading) {
+      return false;
+    }
+    return permissions?.some((permission) => permission.screen === screen) || false;
   };
 
   return { can, canAccess };

@@ -1,4 +1,4 @@
-import { api, ensureCsrfCookie } from './api';
+import { api } from './api';
 import type { Paginated } from '../types/pagination';
 import type { CreatePromotionDto, Promotion, UpdatePromotionDto } from '../types/promotion';
 
@@ -42,18 +42,15 @@ export async function getPromotion(id: number) {
 }
 
 export async function createPromotion(payload: CreatePromotionDto) {
-  await ensureCsrfCookie();
   const { data } = await api.post<Promotion>(basePath, mapPayload(payload));
   return data;
 }
 
 export async function updatePromotion(id: number, payload: UpdatePromotionDto) {
-  await ensureCsrfCookie();
   const { data } = await api.put<Promotion>(`${basePath}/${id}`, mapPayload(payload));
   return data;
 }
 
 export async function removePromotion(id: number) {
-  await ensureCsrfCookie();
   await api.delete(`${basePath}/${id}`);
 }

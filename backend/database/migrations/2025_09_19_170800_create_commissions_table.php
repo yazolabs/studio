@@ -8,11 +8,11 @@ return new class extends Migration {
     public function up(): void
     {
         Schema::create('commissions', function (Blueprint $table) {
-            $table->increments('id');
-            $table->foreignId('professional_id')->constrained('professionals')->cascadeOnDelete();
-            $table->foreignId('appointment_id')->constrained('appointments')->cascadeOnDelete();
-            $table->foreignId('service_id')->constrained('services')->cascadeOnDelete();
-            $table->foreignId('customer_id')->constrained('customers')->cascadeOnDelete();
+            $table->id();
+            $table->foreignId('professional_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('appointment_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('service_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('customer_id')->constrained()->cascadeOnDelete();
             $table->date('date');
             $table->decimal('service_price', 12, 2);
             $table->string('commission_type', 20);

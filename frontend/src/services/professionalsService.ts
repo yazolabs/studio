@@ -1,4 +1,4 @@
-import { api, ensureCsrfCookie } from './api';
+import { api } from './api';
 import type { Paginated } from '../types/pagination';
 import type {
   CreateProfessionalDto,
@@ -40,18 +40,15 @@ export async function getProfessional(id: number) {
 }
 
 export async function createProfessional(payload: CreateProfessionalDto) {
-  await ensureCsrfCookie();
   const { data } = await api.post<Professional>(basePath, mapPayload(payload));
   return data;
 }
 
 export async function updateProfessional(id: number, payload: UpdateProfessionalDto) {
-  await ensureCsrfCookie();
   const { data } = await api.put<Professional>(`${basePath}/${id}`, mapPayload(payload));
   return data;
 }
 
 export async function removeProfessional(id: number) {
-  await ensureCsrfCookie();
   await api.delete(`${basePath}/${id}`);
 }
