@@ -1,28 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { queryKeys } from '../../services/api';
-import {
-  createProfessional,
-  getProfessional,
-  listProfessionals,
-  removeProfessional,
-  updateProfessional,
-} from '../../services/professionalsService';
-import type {
-  CreateProfessionalDto,
-  Professional,
-  UpdateProfessionalDto,
-} from '../../types/professional';
+import { createProfessional, getProfessional, listProfessionals, removeProfessional, updateProfessional } from '../../services/professionalsService';
+import type { CreateProfessionalDto, Professional, UpdateProfessionalDto } from '../../types/professional';
+
+const PROFESSIONALS_KEY = ['professionals'];
 
 export function useProfessionalsQuery(params?: Parameters<typeof listProfessionals>[0]) {
   return useQuery({
-    queryKey: [queryKeys.professionals[0], params],
+    queryKey: [...PROFESSIONALS_KEY, params],
     queryFn: () => listProfessionals(params),
   });
 }
 
 export function useProfessionalQuery(id: number, enabled = true) {
   return useQuery({
-    queryKey: [queryKeys.professionals[0], id],
+    queryKey: [...PROFESSIONALS_KEY, id],
     queryFn: () => getProfessional(id),
     enabled,
   });
@@ -33,7 +24,7 @@ export function useCreateProfessional() {
   return useMutation<Professional, unknown, CreateProfessionalDto>({
     mutationFn: createProfessional,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.professionals });
+      queryClient.invalidateQueries({ queryKey: PROFESSIONALS_KEY });
     },
   });
 }
@@ -43,8 +34,8 @@ export function useUpdateProfessional(id: number) {
   return useMutation<Professional, unknown, UpdateProfessionalDto>({
     mutationFn: (payload) => updateProfessional(id, payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.professionals });
-      queryClient.invalidateQueries({ queryKey: [queryKeys.professionals[0], id] });
+      queryClient.invalidateQueries({ queryKey: PROFESSIONALS_KEY });
+      queryClient.invalidateQueries({ queryKey: [...PROFESSIONALS_KEY, id] });
     },
   });
 }
@@ -54,7 +45,7 @@ export function useDeleteProfessional() {
   return useMutation<void, unknown, number>({
     mutationFn: (id) => removeProfessional(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.professionals });
+      queryClient.invalidateQueries({ queryKey: PROFESSIONALS_KEY });
     },
   });
 }

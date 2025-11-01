@@ -31,12 +31,38 @@ class UserController extends Controller
     {
         $validated = $request->validate([
             'name'     => 'required|string|max:255',
-            'username' => 'required|string|max:50|unique:users,username',
-            'email'    => 'nullable|email|unique:users,email',
+            'username' => 'required|string|max:50',
+            'email'    => 'nullable|email',
             'password' => 'required|string|min:4',
             'roles'    => 'nullable|array',
             'roles.*'  => 'exists:roles,id',
         ]);
+
+        $existing = User::withTrashed()
+            ->where('username', $validated['username'])
+            ->orWhere('email', $validated['email'] ?? '')
+            ->first();
+
+        if ($existing && $existing->trashed()) {
+            $existing->restore();
+            $existing->update([
+                'name'     => $validated['name'],
+                'username' => $validated['username'],
+                'email'    => $validated['email'] ?? null,
+                'password' => Hash::make($validated['password']),
+            ]);
+
+            if (!empty($validated['roles'])) {
+                $existing->roles()->sync($validated['roles']);
+            }
+
+            $existing->load('roles');
+
+            return response()->json([
+                'message' => 'Usuário reativado com sucesso.',
+                'user'    => $existing
+            ], 200);
+        }
 
         $user = User::create([
             'name'     => $validated['name'],
@@ -80,8 +106,8 @@ class UserController extends Controller
     {
         $validated = $request->validate([
             'name'     => 'sometimes|string|max:255',
-            'username' => 'sometimes|string|max:50|unique:users,username,' . $user->id,
-            'email'    => 'nullable|email|unique:users,email,' . $user->id,
+            'username' => 'sometimes|string|max:50|unique:users,username,' . $user->id . ',id,deleted_at,NULL',
+            'email'    => 'nullable|email|unique:users,email,' . $user->id . ',id,deleted_at,NULL',
             'password' => 'nullable|string|min:6',
             'roles'    => 'nullable|array',
             'roles.*'  => 'exists:roles,id',

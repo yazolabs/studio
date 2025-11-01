@@ -10,8 +10,7 @@ class Professional extends Model
     use HasFactory, SoftDeletes;
 
     protected $fillable = [
-        'name',
-        'email',
+        'user_id',
         'phone',
         'specialties',
         'active',
@@ -20,9 +19,14 @@ class Professional extends Model
 
     protected $casts = [
         'specialties' => 'array',
-        'work_schedule' => 'array',
+        'work_schedule' =>  'array',
         'active' => 'boolean',
     ];
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
 
     public function appointments()
     {

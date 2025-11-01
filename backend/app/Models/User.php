@@ -61,4 +61,9 @@ class User extends Authenticatable
     {
         return $this->hasRole('adm');
     }
+
+    public function professional()
+    {
+        return $this->hasOne(Professional::class);
+    }
 }

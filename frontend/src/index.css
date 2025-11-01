@@ -61,7 +61,7 @@ All colors MUST be HSL.
     --warning-foreground: 0 0% 100%;
 
     /* Gradients */
-    --gradient-primary: linear-gradient(135deg, hsl(330 100% 60%), hsl(320 85% 50%));
+    --gradient-primary: linear-gradient(135deg, hsla(330, 100%, 60%, 0.06), hsla(320, 85%, 50%, 0.331));
     --gradient-subtle: linear-gradient(180deg, hsl(0 0% 100%), hsl(30 15% 98%));
 
     /* Shadows */

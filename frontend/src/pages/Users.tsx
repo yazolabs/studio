@@ -6,20 +6,26 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/DataTable";
-import { Plus, Edit, Trash2 } from "lucide-react";
+import { Plus, Edit, Trash2, ChevronsUpDown, Check } from "lucide-react";
 import { usePermission } from "@/hooks/usePermission";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { listUsers, createUser, updateUser, deleteUser } from "@/services/userService";
+import { listRoles } from "@/services/roleService";
 import { User, CreateUserDto, UpdateUserDto } from "@/types/user";
+import type { Role } from "@/types/role";
+import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const userSchema = z.object({
   name: z.string().min(1, "Nome é obrigatório"),
   email: z.string().email("Email inválido"),
   username: z.string().min(1, "Nome de usuário é obrigatório"),
-  password: z.string().min(4, "Senha deve ter no mínimo 4 caracteres"),
+  password: z.string().optional(),
   roles: z.array(z.number()).optional(),
 });
 
@@ -28,6 +34,7 @@ export default function Users() {
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const { can } = usePermission();
   const queryClient = useQueryClient();
+  const isMobile = useIsMobile();
 
   const {
     data: usersData,
@@ -39,6 +46,11 @@ export default function Users() {
   });
 
   const users = usersData?.data ?? [];
+
+  const { data: rolesData = [] } = useQuery({
+    queryKey: ["roles"],
+    queryFn: () => listRoles(),
+  });
 
   const createMutation = useMutation({
     mutationFn: (payload: CreateUserDto) => createUser(payload),
@@ -131,7 +143,7 @@ export default function Users() {
     { key: "email", header: "Email" },
     {
       key: "role",
-      header: "Perfil",
+      header: "Perfis",
       render: (user: User) => (
         <div className="flex flex-wrap gap-1">
           {(user.roles ?? []).map((role) => (
@@ -148,11 +160,7 @@ export default function Users() {
       render: (user: User) => (
         <div className="flex gap-2">
           {can("users", "update") && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => handleEdit(user)}
-            >
+            <Button variant="ghost" size="icon" onClick={() => handleEdit(user)}>
               <Edit className="h-4 w-4" />
             </Button>
           )}
@@ -209,7 +217,7 @@ export default function Users() {
               {editingUser ? "Editar Usuário" : "Novo Usuário"}
             </DialogTitle>
             <DialogDescription>
-              Preencha os dados do usuário e defina seu perfil.
+              Preencha os dados do usuário e defina seus perfis de acesso.
             </DialogDescription>
           </DialogHeader>
 
@@ -281,6 +289,75 @@ export default function Users() {
                 )}
               />
 
+              <FormField
+                control={form.control}
+                name="roles"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Perfis de Acesso</FormLabel>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          role="combobox"
+                          className={cn(
+                            "w-full justify-between",
+                            !field.value?.length && "text-muted-foreground"
+                          )}
+                        >
+                          {field.value?.length
+                            ? `${field.value.length} perfil${field.value.length > 1 ? "es" : ""} selecionado${field.value.length > 1 ? "s" : ""}`
+                            : "Selecionar perfis"}
+                          <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        className={cn(
+                          "p-0 w-[300px]",
+                          isMobile && "w-[90vw]"
+                        )}
+                      >
+                        <Command>
+                          <CommandInput placeholder="Buscar perfil..." />
+                          <CommandList>
+                            <CommandEmpty>Nenhum perfil encontrado.</CommandEmpty>
+                            <CommandGroup>
+                              {rolesData.map((role: Role) => {
+                                const isSelected = field.value?.includes(role.id);
+                                return (
+                                  <CommandItem
+                                    key={role.id}
+                                    onSelect={() => {
+                                      const newRoles = isSelected
+                                        ? field.value.filter((id) => id !== role.id)
+                                        : [...(field.value || []), role.id];
+                                      field.onChange(newRoles);
+                                    }}
+                                  >
+                                    <div
+                                      className={cn(
+                                        "mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary",
+                                        isSelected &&
+                                          "bg-primary text-primary-foreground"
+                                      )}
+                                    >
+                                      {isSelected && <Check className="h-3 w-3" />}
+                                    </div>
+                                    {role.name}
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <DialogFooter>
                 <Button
                   type="button"
@@ -289,7 +366,10 @@ export default function Users() {
                 >
                   Cancelar
                 </Button>
-                <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
+                <Button
+                  type="submit"
+                  disabled={createMutation.isPending || updateMutation.isPending}
+                >
                   {editingUser ? "Atualizar" : "Cadastrar"}
                 </Button>
               </DialogFooter>

@@ -15,18 +15,13 @@ type ProfessionalQueryParams = {
 const basePath = '/professionals';
 
 function mapPayload(payload: CreateProfessionalDto | UpdateProfessionalDto) {
-  const body = {
-    name: payload.name,
-    email: payload.email,
-    phone: payload.phone,
-    specialties: payload.specialties,
-    active: payload.active,
-    work_schedule: payload.workSchedule,
+  return {
+    user_id: payload.user_id,
+    phone: payload.phone ?? "",
+    specialties: payload.specialties ?? [],
+    active: payload.active ?? true,
+    work_schedule: payload.work_schedule ?? [],
   };
-
-  return Object.fromEntries(
-    Object.entries(body).filter(([, value]) => value !== undefined),
-  );
 }
 
 export async function listProfessionals(params?: ProfessionalQueryParams) {
@@ -41,6 +36,7 @@ export async function getProfessional(id: number) {
 
 export async function createProfessional(payload: CreateProfessionalDto) {
   const { data } = await api.post<Professional>(basePath, mapPayload(payload));
+  console.log(data)
   return data;
 }
 

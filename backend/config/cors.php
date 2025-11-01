@@ -5,7 +5,11 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['*'],
+    'allowed_origins' => [
+        'http://localhost:5173',
+        'https://yazolabs.com.br',
+        'https://*.yazolabs.com.br',
+    ],
 
     'allowed_origins_patterns' => [],
 

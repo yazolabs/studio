@@ -9,8 +9,7 @@ return new class extends Migration {
     {
         Schema::create('professionals', function (Blueprint $table) {
             $table->id();
-            $table->string('name', 160);
-            $table->string('email', 160)->nullable();
+            $table->foreignId('user_id')->constrained('users')->cascadeOnDelete()->unique();
             $table->string('phone', 40)->nullable();
             $table->json('specialties')->nullable();
             $table->boolean('active')->default(true);
@@ -18,7 +17,6 @@ return new class extends Migration {
             $table->timestamps();
             $table->softDeletes();
 
-            $table->unique('email');
             $table->index('active');
         });
     }

@@ -4,19 +4,19 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Resources\Json\JsonResource;
 
-/** @mixin \App\Models\Professional */
 class ProfessionalResource extends JsonResource
 {
     public function toArray($request): array
     {
         return [
             'id' => $this->id,
-            'name' => $this->name,
-            'email' => $this->email,
+            'userId' => $this->user_id,
+            'name' => $this->user?->name,
+            'email' => $this->user?->email,
             'phone' => $this->phone,
             'specialties' => $this->specialties,
             'active' => $this->active,
-            'workSchedule' => $this->work_schedule,
+            'work_schedule' => $this->work_schedule ?? [],
             'createdAt' => $this->created_at?->toISOString(),
             'updatedAt' => $this->updated_at?->toISOString(),
         ];
