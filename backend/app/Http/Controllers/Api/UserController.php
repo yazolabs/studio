@@ -108,18 +108,22 @@ class UserController extends Controller
             'name'     => 'sometimes|string|max:255',
             'username' => 'sometimes|string|max:50|unique:users,username,' . $user->id . ',id,deleted_at,NULL',
             'email'    => 'nullable|email|unique:users,email,' . $user->id . ',id,deleted_at,NULL',
-            'password' => 'nullable|string|min:6',
+            'password' => 'nullable|string|min:6|sometimes',
             'roles'    => 'nullable|array',
             'roles.*'  => 'exists:roles,id',
         ]);
+
+        if (array_key_exists('password', $validated) && empty($validated['password'])) {
+            unset($validated['password']);
+        }
 
         $user->update([
             'name'     => $validated['name'] ?? $user->name,
             'username' => $validated['username'] ?? $user->username,
             'email'    => $validated['email'] ?? $user->email,
-            'password' => isset($validated['password']) 
-                            ? Hash::make($validated['password']) 
-                            : $user->password,
+            'password' => !empty($validated['password'])
+                    ? Hash::make($validated['password'])
+                    : $user->password,
         ]);
 
         if (isset($validated['roles'])) {

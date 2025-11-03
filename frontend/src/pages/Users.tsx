@@ -117,24 +117,31 @@ export default function Users() {
 
   const onSubmit = (data: z.infer<typeof userSchema>) => {
     if (editingUser) {
-      updateMutation.mutate({
-        id: editingUser.id,
-        data: {
-          name: data.name,
-          email: data.email,
-          username: data.username,
-          password: data.password,
-          roles: data.roles ?? [],
-        },
-      });
-    } else {
-      createMutation.mutate({
+      const payload: UpdateUserDto = {
         name: data.name,
         email: data.email,
         username: data.username,
-        password: data.password,
         roles: data.roles ?? [],
+      };
+
+      if (data.password && data.password.trim() !== "") {
+        payload.password = data.password;
+      }
+
+      updateMutation.mutate({
+        id: editingUser.id,
+        data: payload,
       });
+    } else {
+      const payload: CreateUserDto = {
+        name: data.name,
+        email: data.email,
+        username: data.username,
+        password: data.password ?? "",
+        roles: data.roles ?? [],
+      };
+
+      createMutation.mutate(payload);
     }
   };
 
