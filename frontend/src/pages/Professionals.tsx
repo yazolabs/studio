@@ -8,40 +8,15 @@ import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/DataTable";
 import { Plus, Edit, Trash2 } from "lucide-react";
 import { usePermission } from "@/hooks/usePermission";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectTrigger,
-  SelectContent,
-  SelectItem,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import {
-  listProfessionals,
-  createProfessional,
-  updateProfessional,
-  removeProfessional,
-} from "@/services/professionalsService";
+import { listProfessionals, createProfessional, updateProfessional, removeProfessional } from "@/services/professionalsService";
 import { listUsers } from "@/services/userService";
-import type { Professional } from "@/types/professional";
+import type { Professional, CreateProfessionalDto } from "@/types/professional";
 import type { User } from "@/types/user";
 import { WorkScheduleDay } from "@/types/work-schedule";
 
@@ -115,10 +90,10 @@ const defaultSchedule: WorkScheduleDay[] = [
     day: "Domingo",
     isWorkingDay: false,
     isDayOff: true,
-    startTime: "",
-    endTime: "",
-    lunchStart: "",
-    lunchEnd: "",
+    startTime: "09:00",
+    endTime: "18:00",
+    lunchStart: "12:00",
+    lunchEnd: "13:00",
   },
 ];
 
@@ -144,6 +119,7 @@ const professionalSchema = z.object({
 
 export default function Professionals() {
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingProfessional, setEditingProfessional] =
     useState<Professional | null>(null);
   const { can } = usePermission();
@@ -168,21 +144,19 @@ export default function Professionals() {
   });
 
   const openDialog = async (professional?: Professional) => {
-    setEditingProfessional(professional ?? null);
-    setDialogOpen(true);
-
     if (users.length === 0) {
       try {
         const userResponse = await listUsers({ perPage: 100 });
         setUsers(userResponse.data);
       } catch {
         toast.error("Erro ao carregar usuários.");
+        return;
       }
     }
 
     if (professional) {
       form.reset({
-        user_id: professional.user?.id ?? undefined,
+        user_id: professional.userId ?? undefined,
         phone: professional.phone ?? "",
         specialties: professional.specialties ?? [],
         active: professional.active ?? true,
@@ -197,6 +171,9 @@ export default function Professionals() {
         work_schedule: defaultSchedule,
       });
     }
+
+    setEditingProfessional(professional ?? null);
+    setDialogOpen(true);
   };
 
   const handleDelete = async (id: number) => {
@@ -209,20 +186,33 @@ export default function Professionals() {
     }
   };
 
-  const onSubmit = async (data: z.infer<typeof professionalSchema>) => {
-    console.log("Payload enviado:", data); // 👈 log útil
+  type ProfessionalFormData = z.infer<typeof professionalSchema>;
+
+  const onSubmit = async (data: ProfessionalFormData) => {
+    setIsSubmitting(true);
+    const payload: CreateProfessionalDto = {
+      user_id: data.user_id,
+      phone: data.phone ?? null,
+      specialties: data.specialties ?? [],
+      active: data.active ?? true,
+      work_schedule: data.work_schedule as WorkScheduleDay[],
+    };
+
     try {
       if (editingProfessional) {
-        await updateProfessional(editingProfessional.id, data);
+        await updateProfessional(editingProfessional.id, payload);
         toast.success("Profissional atualizado com sucesso!");
       } else {
-        await createProfessional(data);
+        await createProfessional(payload);
         toast.success("Profissional criado com sucesso!");
       }
+
       refetch();
       setDialogOpen(false);
     } catch {
       toast.error("Erro ao salvar profissional.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -230,7 +220,7 @@ export default function Professionals() {
     {
       key: "user",
       header: "Usuário",
-      render: (professional: Professional) => professional.user?.name ?? "-",
+      render: (professional: Professional) => professional.name ?? "-",
     },
     { key: "phone", header: "Telefone" },
     {
@@ -338,11 +328,17 @@ export default function Professionals() {
                           <SelectValue placeholder="Selecione um usuário" />
                         </SelectTrigger>
                         <SelectContent>
-                          {users.map((user) => (
-                            <SelectItem key={user.id} value={String(user.id)}>
-                              {user.name} ({user.email})
-                            </SelectItem>
-                          ))}
+                          {users.length === 0 ? (
+                            <div className="p-2 text-sm text-muted-foreground">
+                              Carregando usuários...
+                            </div>
+                          ) : (
+                            users.map((user) => (
+                              <SelectItem key={user.id} value={String(user.id)}>
+                                {user.name} ({user.email})
+                              </SelectItem>
+                            ))
+                          )}
                         </SelectContent>
                       </Select>
                     </FormControl>
@@ -405,6 +401,22 @@ export default function Professionals() {
                       ))}
                     </div>
                     <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="active"
+                render={({ field }) => (
+                  <FormItem className="flex items-center justify-between border p-3 rounded-lg">
+                    <FormLabel>Status do Profissional</FormLabel>
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
                   </FormItem>
                 )}
               />
@@ -547,8 +559,8 @@ export default function Professionals() {
                 >
                   Cancelar
                 </Button>
-                <Button type="submit">
-                  {editingProfessional ? "Atualizar" : "Cadastrar"}
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? "Salvando..." : editingProfessional ? "Atualizar" : "Cadastrar"}
                 </Button>
               </DialogFooter>
             </form>

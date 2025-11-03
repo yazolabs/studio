@@ -98,8 +98,6 @@ class ProfessionalController extends Controller
     {
         $professional->delete();
 
-        return response()->json([
-            'message' => 'Profissional excluído com sucesso.'
-        ], Response::HTTP_NO_CONTENT);
+        return response()->noContent();
     }
 }
