@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -44,103 +44,32 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 
-interface Service {
-  id: string;
-  name: string;
-  category: string;
-  duration: number;
-  price: string;
-  size: 'small' | 'medium' | 'large';
-  description: string;
-  status: 'active' | 'inactive';
-  requirements?: string;
-  commissionType: 'percentage' | 'fixed';
-  commissionValue: number;
-}
+import type { Service, CreateServiceDto } from '@/types/service';
+import {
+  listServices,
+  createService,
+  updateService,
+  removeService,
+} from '@/services/servicesService';
 
 const serviceSchema = z.object({
   name: z.string().min(1, 'Nome é obrigatório').max(100),
-  category: z.string().min(1, 'Categoria é obrigatória'),
+  category: z.string().optional().default(''),
   duration: z.coerce.number().min(5, 'Duração mínima de 5 minutos').max(480),
   price: z.coerce.number().min(0, 'Preço deve ser positivo'),
-  size: z.enum(['small', 'medium', 'large']),
   description: z.string().min(1, 'Descrição é obrigatória').max(500),
   status: z.enum(['active', 'inactive']),
-  requirements: z.string().max(200).optional(),
   commissionType: z.enum(['percentage', 'fixed']),
   commissionValue: z.coerce.number().min(0, 'Valor da comissão deve ser positivo'),
 });
 
-const mockServices: Service[] = [
-  { 
-    id: '1', 
-    name: 'Corte Feminino', 
-    category: 'Cabelo', 
-    duration: 60, 
-    price: 'R$ 80,00',
-    size: 'medium',
-    description: 'Corte feminino completo com lavagem e finalização',
-    status: 'active',
-    requirements: 'Cabelos limpos e secos',
-    commissionType: 'percentage',
-    commissionValue: 30
-  },
-  { 
-    id: '2', 
-    name: 'Corte Masculino', 
-    category: 'Cabelo', 
-    duration: 30, 
-    price: 'R$ 40,00',
-    size: 'small',
-    description: 'Corte masculino tradicional',
-    status: 'active',
-    commissionType: 'percentage',
-    commissionValue: 30
-  },
-  { 
-    id: '3', 
-    name: 'Manicure', 
-    category: 'Unhas', 
-    duration: 45, 
-    price: 'R$ 35,00',
-    size: 'small',
-    description: 'Manicure completa com esmaltação',
-    status: 'active',
-    commissionType: 'fixed',
-    commissionValue: 10
-  },
-  { 
-    id: '4', 
-    name: 'Massagem Relaxante', 
-    category: 'Massagem', 
-    duration: 90,
-    price: 'R$ 120,00',
-    size: 'large',
-    description: 'Massagem relaxante de corpo inteiro',
-    status: 'active',
-    requirements: 'Consultar contraindicações',
-    commissionType: 'percentage',
-    commissionValue: 25
-  },
-];
-
-const sizeLabels = {
-  small: 'Pequeno',
-  medium: 'Médio',
-  large: 'Grande',
-};
-
-const statusLabels = {
-  active: 'Ativo',
-  inactive: 'Inativo',
-};
-
 export default function Services() {
-  const [services, setServices] = useState<Service[]>(mockServices);
+  const [services, setServices] = useState<Service[]>([]);
+  const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editingService, setEditingService] = useState<Service | null>(null);
-  const [deletingServiceId, setDeletingServiceId] = useState<string | null>(null);
+  const [deletingServiceId, setDeletingServiceId] = useState<number | null>(null);
   const { can } = usePermission();
   const { toast } = useToast();
 
@@ -151,13 +80,35 @@ export default function Services() {
       category: '',
       duration: 30,
       price: 0,
-      size: 'medium',
       description: '',
       status: 'active',
-      requirements: '',
+      commissionType: 'percentage',
+      commissionValue: 0,
     },
   });
 
+  // 🔹 Carregar dados do backend
+  async function load() {
+    setLoading(true);
+    try {
+      const result = await listServices({ page: 1, perPage: 50 });
+      setServices(result);
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao carregar serviços',
+        description: err?.response?.data?.message ?? 'Tente novamente.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  // 🔹 Adicionar novo
   const handleAdd = () => {
     setEditingService(null);
     form.reset({
@@ -165,141 +116,126 @@ export default function Services() {
       category: '',
       duration: 30,
       price: 0,
-      size: 'medium',
       description: '',
       status: 'active',
-      requirements: '',
       commissionType: 'percentage',
       commissionValue: 0,
     });
     setDialogOpen(true);
   };
 
-  const handleEdit = (service: Service) => {
-    setEditingService(service);
+  // 🔹 Editar
+  const handleEdit = (s: Service) => {
+    setEditingService(s);
     form.reset({
-      name: service.name,
-      category: service.category,
-      duration: service.duration,
-      price: parseFloat(service.price.replace('R$ ', '').replace(',', '.')),
-      size: service.size,
-      description: service.description,
-      status: service.status,
-      requirements: service.requirements || '',
-      commissionType: service.commissionType,
-      commissionValue: service.commissionValue,
+      name: s.name,
+      category: s.category ?? '',
+      duration: s.duration,
+      price: Number(s.price),
+      description: s.description ?? '',
+      status: s.active ? 'active' : 'inactive',
+      commissionType: s.commissionType,
+      commissionValue: Number(s.commissionValue),
     });
     setDialogOpen(true);
   };
 
-  const handleDelete = (serviceId: string) => {
-    setDeletingServiceId(serviceId);
+  // 🔹 Excluir
+  const handleDelete = (id: number) => {
+    setDeletingServiceId(id);
     setDeleteDialogOpen(true);
   };
 
-  const confirmDelete = () => {
-    if (deletingServiceId) {
-      setServices(services.filter(s => s.id !== deletingServiceId));
+  const confirmDelete = async () => {
+    if (!deletingServiceId) return;
+    try {
+      await removeService(deletingServiceId);
+      toast({ title: 'Serviço excluído', description: 'Removido com sucesso.' });
+      await load();
+    } catch (err: any) {
       toast({
-        title: 'Serviço excluído',
-        description: 'O serviço foi removido com sucesso.',
+        title: 'Erro ao excluir',
+        description: err?.response?.data?.message ?? 'Tente novamente.',
+        variant: 'destructive',
       });
+    } finally {
       setDeleteDialogOpen(false);
       setDeletingServiceId(null);
     }
   };
 
-  const onSubmit = (values: z.infer<typeof serviceSchema>) => {
-    const formattedPrice = `R$ ${values.price.toFixed(2).replace('.', ',')}`;
-    
-    if (editingService) {
-      setServices(services.map(s => 
-        s.id === editingService.id 
-          ? { 
-              id: s.id,
-              name: values.name,
-              category: values.category,
-              duration: values.duration,
-              price: formattedPrice,
-              size: values.size,
-              description: values.description,
-              status: values.status,
-              requirements: values.requirements || undefined,
-              commissionType: values.commissionType,
-              commissionValue: values.commissionValue,
-            } 
-          : s
-      ));
+  // 🔹 Criar ou atualizar
+  const onSubmit = async (values: z.infer<typeof serviceSchema>) => {
+    const payload: CreateServiceDto = {
+      name: values.name,
+      description: values.description || null,
+      price: values.price.toString(),
+      duration: values.duration,
+      category: values.category || null,
+      commissionType: values.commissionType,
+      commissionValue: values.commissionValue.toString(),
+      active: values.status === 'active',
+    };
+
+    try {
+      if (editingService) {
+        await updateService(Number(editingService.id), payload);
+        toast({ title: 'Serviço atualizado', description: 'Alterações salvas.' });
+      } else {
+        await createService(payload);
+        toast({ title: 'Serviço criado', description: 'Novo serviço adicionado.' });
+      }
+      setDialogOpen(false);
+      form.reset();
+      await load(); // recarrega lista
+    } catch (err: any) {
       toast({
-        title: 'Serviço atualizado',
-        description: 'As alterações foram salvas com sucesso.',
-      });
-    } else {
-      const newService: Service = {
-        id: (services.length + 1).toString(),
-        name: values.name,
-        category: values.category,
-        duration: values.duration,
-        price: formattedPrice,
-        size: values.size,
-        description: values.description,
-        status: values.status,
-        requirements: values.requirements || undefined,
-        commissionType: values.commissionType,
-        commissionValue: values.commissionValue,
-      };
-      setServices([...services, newService]);
-      toast({
-        title: 'Serviço criado',
-        description: 'O novo serviço foi adicionado com sucesso.',
+        title: 'Erro ao salvar',
+        description: err?.response?.data?.message ?? 'Verifique os dados e tente novamente.',
+        variant: 'destructive',
       });
     }
-    
-    setDialogOpen(false);
-    form.reset();
   };
 
+  // 🔹 Colunas da tabela
   const columns = [
     { key: 'name', header: 'Nome' },
     {
       key: 'category',
       header: 'Categoria',
-      render: (service: Service) => (
-        <Badge variant="secondary">{service.category}</Badge>
-      ),
-    },
-    {
-      key: 'size',
-      header: 'Tamanho',
-      render: (service: Service) => sizeLabels[service.size],
+      render: (s: Service) => <Badge variant="secondary">{s.category ?? '-'}</Badge>,
     },
     {
       key: 'duration',
       header: 'Duração',
-      render: (service: Service) => `${service.duration} min`,
+      render: (s: Service) => `${s.duration} min`,
     },
-    { key: 'price', header: 'Preço' },
+    {
+      key: 'price',
+      header: 'Preço',
+      render: (s: Service) => `R$ ${Number(s.price).toFixed(2).replace('.', ',')}`,
+    },
     {
       key: 'status',
       header: 'Status',
-      render: (service: Service) => (
-        <Badge variant={service.status === 'active' ? 'default' : 'secondary'}>
-          {statusLabels[service.status]}
+      render: (s: Service) => (
+        <Badge variant={s.active ? 'default' : 'secondary'}>
+          {s.active ? 'Ativo' : 'Inativo'}
         </Badge>
       ),
     },
     {
       key: 'actions',
       header: 'Ações',
-      render: (service: Service) => (
+      render: (s: Service) => (
         <div className="flex gap-2">
           {can('services', 'update') && (
-            <Button variant="ghost" size="icon" onClick={() => handleEdit(service)}>
+            <Button variant="ghost" size="icon" onClick={() => handleEdit(s)}>
               <Edit className="h-4 w-4" />
             </Button>
           )}
           {can('services', 'delete') && (
-            <Button variant="ghost" size="icon" onClick={() => handleDelete(service.id)}>
+            <Button variant="ghost" size="icon" onClick={() => handleDelete(Number(s.id))}>
               <Trash2 className="h-4 w-4 text-destructive" />
             </Button>
           )}
@@ -308,14 +244,13 @@ export default function Services() {
     },
   ];
 
+  // 🔹 Renderização
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Serviços</h1>
-          <p className="text-muted-foreground">
-            Gerencie os serviços oferecidos pelo salão
-          </p>
+          <p className="text-muted-foreground">Gerencie os serviços oferecidos pelo salão</p>
         </div>
         {can('services', 'create') && (
           <Button className="shadow-md" onClick={handleAdd}>
@@ -329,21 +264,21 @@ export default function Services() {
         data={services}
         columns={columns}
         searchPlaceholder="Buscar serviços..."
+        // isLoading={loading} se seu DataTable suportar
       />
 
+      {/* MODAL DE CRIAÇÃO/EDIÇÃO */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>
-              {editingService ? 'Editar Serviço' : 'Novo Serviço'}
-            </DialogTitle>
+            <DialogTitle>{editingService ? 'Editar Serviço' : 'Novo Serviço'}</DialogTitle>
             <DialogDescription>
-              {editingService 
-                ? 'Atualize as informações do serviço.' 
+              {editingService
+                ? 'Atualize as informações do serviço.'
                 : 'Preencha os dados para criar um novo serviço.'}
             </DialogDescription>
           </DialogHeader>
-          
+
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -360,7 +295,7 @@ export default function Services() {
                     </FormItem>
                   )}
                 />
-                
+
                 <FormField
                   control={form.control}
                   name="category"
@@ -390,7 +325,7 @@ export default function Services() {
                     </FormItem>
                   )}
                 />
-                
+
                 <FormField
                   control={form.control}
                   name="price"
@@ -407,20 +342,19 @@ export default function Services() {
 
                 <FormField
                   control={form.control}
-                  name="size"
+                  name="status"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Tamanho</FormLabel>
+                      <FormLabel>Status</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Selecione" />
+                            <SelectValue />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="small">Pequeno</SelectItem>
-                          <SelectItem value="medium">Médio</SelectItem>
-                          <SelectItem value="large">Grande</SelectItem>
+                          <SelectItem value="active">Ativo</SelectItem>
+                          <SelectItem value="inactive">Inativo</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -428,28 +362,6 @@ export default function Services() {
                   )}
                 />
               </div>
-
-              <FormField
-                control={form.control}
-                name="status"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Status</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="active">Ativo</SelectItem>
-                        <SelectItem value="inactive">Inativo</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
 
               <div className="grid grid-cols-2 gap-4">
                 <FormField
@@ -480,14 +392,20 @@ export default function Services() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>
-                        {form.watch('commissionType') === 'percentage' ? 'Percentual (%)' : 'Valor Fixo (R$)'}
+                        {form.watch('commissionType') === 'percentage'
+                          ? 'Percentual (%)'
+                          : 'Valor Fixo (R$)'}
                       </FormLabel>
                       <FormControl>
-                        <Input 
-                          type="number" 
-                          step={form.watch('commissionType') === 'percentage' ? '1' : '0.01'} 
-                          placeholder={form.watch('commissionType') === 'percentage' ? 'Ex: 30' : 'Ex: 15.00'}
-                          {...field} 
+                        <Input
+                          type="number"
+                          step={form.watch('commissionType') === 'percentage' ? '1' : '0.01'}
+                          placeholder={
+                            form.watch('commissionType') === 'percentage'
+                              ? 'Ex: 30'
+                              : 'Ex: 15.00'
+                          }
+                          {...field}
                         />
                       </FormControl>
                       <FormMessage />
@@ -503,27 +421,10 @@ export default function Services() {
                   <FormItem>
                     <FormLabel>Descrição Detalhada</FormLabel>
                     <FormControl>
-                      <Textarea 
+                      <Textarea
                         placeholder="Descreva o serviço em detalhes..."
                         className="min-h-[100px]"
-                        {...field} 
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="requirements"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Requisitos (Opcional)</FormLabel>
-                    <FormControl>
-                      <Textarea 
-                        placeholder="Ex: Cabelos limpos, consultar contraindicações..."
-                        {...field} 
+                        {...field}
                       />
                     </FormControl>
                     <FormMessage />
@@ -532,7 +433,11 @@ export default function Services() {
               />
 
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setDialogOpen(false)}
+                >
                   Cancelar
                 </Button>
                 <Button type="submit">
@@ -544,6 +449,7 @@ export default function Services() {
         </DialogContent>
       </Dialog>
 
+      {/* CONFIRMAÇÃO DE EXCLUSÃO */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -554,7 +460,10 @@ export default function Services() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
               Excluir
             </AlertDialogAction>
           </AlertDialogFooter>
