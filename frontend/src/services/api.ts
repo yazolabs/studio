@@ -30,6 +30,7 @@ export const queryKeys = {
   accountsPayable: ['accounts-payable'],
   itemPrices: ['item-prices'],
   itemPriceHistories: ['item-price-histories'],
+  states: ['states'],
 };
 
 export default api;

@@ -4,7 +4,7 @@ import type { CreateCustomerDto, Customer, UpdateCustomerDto } from '../types/cu
 
 const basePath = '/customers';
 
-type CustomerQueryParams = {
+export type CustomerQueryParams = {
   page?: number;
   perPage?: number;
   search?: string;
@@ -13,16 +13,24 @@ type CustomerQueryParams = {
 function mapPayload(payload: CreateCustomerDto | UpdateCustomerDto) {
   const body = {
     name: payload.name,
+    cpf: payload.cpf,
+    gender: payload.gender,
+    active: payload.active,
     email: payload.email,
     phone: payload.phone,
-    alternate_phone: payload.alternatePhone,
+    alternate_phone: payload.alternate_phone,
     address: payload.address,
+    number: payload.number,
+    complement: payload.complement,
+    neighborhood: payload.neighborhood,
     city: payload.city,
     state: payload.state,
-    zip_code: payload.zipCode,
-    birth_date: payload.birthDate,
+    zip_code: payload.zip_code,
+    birth_date: payload.birth_date,
+    last_visit: payload.last_visit,
     notes: payload.notes,
-    last_visit: payload.lastVisit,
+    contact_preferences: payload.contact_preferences,
+    accepts_marketing: payload.accepts_marketing,
   };
 
   return Object.fromEntries(

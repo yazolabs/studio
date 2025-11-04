@@ -11,6 +11,7 @@ class DatabaseSeeder extends Seeder
         $this->call([
             ActionSeeder::class,
             AccessControlSeeder::class,
+            StateSeeder::class,
         ]);
     }
 }

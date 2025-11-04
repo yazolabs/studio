@@ -16,6 +16,7 @@ import {
   ChevronsRight,
   Search,
 } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface Column<T> {
   key: string;
@@ -29,6 +30,7 @@ interface DataTableProps<T> {
   onRowClick?: (item: T) => void;
   searchPlaceholder?: string;
   emptyMessage?: string;
+  loading?: boolean;
 }
 
 export function DataTable<T extends Record<string, any>>({
@@ -37,6 +39,7 @@ export function DataTable<T extends Record<string, any>>({
   onRowClick,
   searchPlaceholder = 'Buscar...',
   emptyMessage = 'Nenhum registro encontrado.',
+  loading = false,
 }: DataTableProps<T>) {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -51,6 +54,45 @@ export function DataTable<T extends Record<string, any>>({
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const paginatedData = filteredData.slice(startIndex, startIndex + itemsPerPage);
+
+  if (loading) {
+    return (
+      <div className="space-y-4 animate-pulse">
+
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Skeleton className="h-9 w-full" />
+          </div>
+        </div>
+
+
+        <div className="rounded-md border shadow-sm">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/50">
+                {columns.map((col) => (
+                  <TableHead key={col.key}>
+                    <Skeleton className="h-5 w-24" />
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {Array.from({ length: 8 }).map((_, i) => (
+                <TableRow key={i}>
+                  {columns.map((col) => (
+                    <TableCell key={col.key}>
+                      <Skeleton className="h-5 w-full" />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
