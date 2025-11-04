@@ -16,9 +16,17 @@ class ItemPriceHistoryController extends Controller
     {
     }
 
+    // public function index(Request $request)
+    // {
+    //     $histories = $this->service->paginate($request->all());
+
+    //     return ItemPriceHistoryResource::collection($histories);
+    // }
+
     public function index(Request $request)
     {
-        $histories = $this->service->paginate($request->all());
+
+        $histories = $this->service->paginate($request->all(), ['item', 'user']);
 
         return ItemPriceHistoryResource::collection($histories);
     }
@@ -68,4 +76,6 @@ class ItemPriceHistoryController extends Controller
 
         return response()->noContent();
     }
+
+
 }

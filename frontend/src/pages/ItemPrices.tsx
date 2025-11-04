@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { DataTable } from '@/components/DataTable';
-import { Plus, Edit, History } from 'lucide-react';
+import { Plus, Edit } from 'lucide-react';
 import { usePermission } from '@/hooks/usePermission';
 import {
   Dialog,
@@ -35,276 +35,179 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
+import { listItems } from '@/services/itemsService';
+import {
+  listItemPrices,
+  createItemPrice,
+  updateItemPrice,
+} from '@/services/itemPricesService';
+import type { Item } from '@/types/item';
+import type { ItemPrice, CreateItemPriceDto } from '@/types/item-price';
 
-// Importar os itens do cadastro (simulado - em produção virá do banco)
-interface Item {
-  id: string;
-  name: string;
-  category: string;
-  costPrice: number;
-  salePrice: number;
-}
-
-interface ItemPrice {
-  id: string;
-  itemId: string;
-  itemName: string;
-  previousPrice: number;
-  currentPrice: number;
-  lastUpdate: string;
-  updatedBy: string;
-  reason?: string;
-}
-
-const priceUpdateSchema = z.object({
+const priceSchema = z.object({
   itemId: z.string().min(1, 'Item é obrigatório'),
-  newCostPrice: z.coerce.number().min(0, 'Preço de custo inválido'),
-  newSalePrice: z.coerce.number().min(0, 'Preço de venda inválido'),
-  reason: z.string().trim().max(200, 'Motivo muito longo').optional(),
+  cost: z.coerce.number().min(0, 'Preço de custo inválido'),
+  price: z.coerce.number().min(0, 'Preço de venda inválido'),
+  margin: z.coerce.number().optional(),
+  notes: z.string().trim().max(200).optional(),
 });
 
-// Mock dos itens cadastrados (virá da página Items em produção)
-const mockItems: Item[] = [
-  { id: '1', name: 'Shampoo Premium', category: 'Cabelo', costPrice: 15.50, salePrice: 35.00 },
-  { id: '2', name: 'Esmalte Vermelho', category: 'Unhas', costPrice: 8.00, salePrice: 18.00 },
-  { id: '3', name: 'Óleo de Massagem', category: 'Massagem', costPrice: 25.00, salePrice: 55.00 },
-  { id: '4', name: 'Cera Depilatória', category: 'Depilação', costPrice: 30.00, salePrice: 65.00 },
-];
-
-const mockItemPrices: ItemPrice[] = [
-  { 
-    id: '1', 
-    itemId: '1',
-    itemName: 'Shampoo Premium', 
-    previousPrice: 30.00,
-    currentPrice: 35.00, 
-    lastUpdate: '2025-10-01', 
-    updatedBy: 'Admin',
-    reason: 'Ajuste de mercado'
-  },
-  { 
-    id: '2', 
-    itemId: '2',
-    itemName: 'Esmalte Vermelho', 
-    previousPrice: 15.00,
-    currentPrice: 18.00, 
-    lastUpdate: '2025-09-15', 
-    updatedBy: 'Manager',
-    reason: 'Aumento do fornecedor'
-  },
-  { 
-    id: '3', 
-    itemId: '3',
-    itemName: 'Óleo de Massagem', 
-    previousPrice: 50.00,
-    currentPrice: 55.00, 
-    lastUpdate: '2025-09-20', 
-    updatedBy: 'Admin'
-  },
-  { 
-    id: '4', 
-    itemId: '4',
-    itemName: 'Cera Depilatória', 
-    previousPrice: 60.00,
-    currentPrice: 65.00, 
-    lastUpdate: '2025-08-30', 
-    updatedBy: 'Manager'
-  },
-];
-
 export default function ItemPrices() {
-  const [itemPrices, setItemPrices] = useState<ItemPrice[]>(mockItemPrices);
-  const [items, setItems] = useState<Item[]>(mockItems);
+  const [itemPrices, setItemPrices] = useState<ItemPrice[]>([]);
+  const [items, setItems] = useState<Item[]>([]);
+  const [loading, setLoading] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingPrice, setEditingPrice] = useState<ItemPrice | null>(null);
+  const [editing, setEditing] = useState<ItemPrice | null>(null);
   const { can } = usePermission();
 
-  const form = useForm<z.infer<typeof priceUpdateSchema>>({
-    resolver: zodResolver(priceUpdateSchema),
+  const form = useForm<z.infer<typeof priceSchema>>({
+    resolver: zodResolver(priceSchema),
     defaultValues: {
       itemId: '',
-      newCostPrice: 0,
-      newSalePrice: 0,
-      reason: '',
+      cost: 0,
+      price: 0,
+      margin: 0,
+      notes: '',
     },
   });
 
-  const selectedItemId = form.watch('itemId');
-  const selectedItem = items.find(item => item.id === selectedItemId);
+  async function load() {
+    setLoading(true);
+    try {
+      const [itemsData, pricesData] = await Promise.all([
+        listItems({ perPage: 100 }),
+        listItemPrices({ perPage: 100 }),
+      ]);
+      setItems(Array.isArray(itemsData.data) ? itemsData.data : itemsData);
+      setItemPrices(Array.isArray(pricesData.data) ? pricesData.data : pricesData);
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao carregar dados',
+        description:
+          err?.response?.data?.message ?? 'Não foi possível carregar os preços.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
 
-  const handleOpenDialog = (priceRecord?: ItemPrice) => {
-    if (priceRecord) {
-      setEditingPrice(priceRecord);
-      const item = items.find(i => i.id === priceRecord.itemId);
-      if (item) {
-        form.reset({
-          itemId: item.id,
-          newCostPrice: item.costPrice,
-          newSalePrice: item.salePrice,
-          reason: '',
-        });
-      }
+  useEffect(() => {
+    load();
+  }, []);
+
+  const handleOpenDialog = (price?: ItemPrice) => {
+    if (price) {
+      setEditing(price);
+      form.reset({
+        itemId: String(price.itemId),
+        cost: Number(price.cost ?? 0),
+        price: Number(price.price ?? 0),
+        margin: Number(price.margin ?? 0),
+        notes: price.notes ?? '',
+      });
     } else {
-      setEditingPrice(null);
+      setEditing(null);
       form.reset({
         itemId: '',
-        newCostPrice: 0,
-        newSalePrice: 0,
-        reason: '',
+        cost: 0,
+        price: 0,
+        margin: 0,
+        notes: '',
       });
     }
     setIsDialogOpen(true);
   };
 
   const handleCloseDialog = () => {
+    setEditing(null);
     setIsDialogOpen(false);
-    setEditingPrice(null);
-    form.reset();
   };
 
-  const onSubmit = (data: z.infer<typeof priceUpdateSchema>) => {
-    const item = items.find(i => i.id === data.itemId);
-    if (!item) {
+  const onSubmit = async (values: z.infer<typeof priceSchema>) => {
+    const marginPercent =
+      values.cost > 0
+        ? ((values.price - values.cost) / values.cost) * 100
+        : 0;
+
+    const payload: CreateItemPriceDto = {
+      itemId: Number(values.itemId),
+      price: values.price.toFixed(2),
+      cost: values.cost.toFixed(2),
+      margin: marginPercent.toFixed(2),
+      effectiveDate: format(new Date(), 'yyyy-MM-dd'),
+      notes: values.notes ?? null,
+    };
+
+    try {
+      if (editing) {
+        await updateItemPrice(editing.id, payload);
+        toast({
+          title: 'Preço atualizado',
+          description: 'Alterações salvas com sucesso.',
+        });
+      } else {
+        await createItemPrice(payload);
+        toast({
+          title: 'Preço cadastrado',
+          description: 'Novo preço adicionado com sucesso.',
+        });
+      }
+      handleCloseDialog();
+      await load();
+    } catch (err: any) {
       toast({
-        title: 'Erro',
-        description: 'Item não encontrado.',
+        title: 'Erro ao salvar preço',
+        description:
+          err?.response?.data?.message ??
+          'Verifique os campos e tente novamente.',
         variant: 'destructive',
       });
-      return;
     }
-
-    // Verificar se houve mudança de preço
-    const costChanged = data.newCostPrice !== item.costPrice;
-    const saleChanged = data.newSalePrice !== item.salePrice;
-
-    if (!costChanged && !saleChanged) {
-      toast({
-        title: 'Aviso',
-        description: 'Nenhuma alteração de preço foi feita.',
-      });
-      return;
-    }
-
-    // Atualizar o item com os novos preços
-    setItems(items.map(i => 
-      i.id === data.itemId 
-        ? { ...i, costPrice: data.newCostPrice, salePrice: data.newSalePrice }
-        : i
-    ));
-
-    // Criar/atualizar registro de preço
-    const existingPriceRecord = itemPrices.find(p => p.itemId === data.itemId);
-    const now = format(new Date(), 'yyyy-MM-dd');
-    
-    if (existingPriceRecord) {
-      // Atualizar registro existente
-      setItemPrices(itemPrices.map(p =>
-        p.itemId === data.itemId
-          ? {
-              ...p,
-              previousPrice: item.salePrice,
-              currentPrice: data.newSalePrice,
-              lastUpdate: now,
-              updatedBy: 'Admin', // Em produção, pegar do usuário logado
-              reason: data.reason,
-            }
-          : p
-      ));
-    } else {
-      // Criar novo registro
-      const newPriceRecord: ItemPrice = {
-        id: Date.now().toString(),
-        itemId: data.itemId,
-        itemName: item.name,
-        previousPrice: item.salePrice,
-        currentPrice: data.newSalePrice,
-        lastUpdate: now,
-        updatedBy: 'Admin', // Em produção, pegar do usuário logado
-        reason: data.reason,
-      };
-      setItemPrices([...itemPrices, newPriceRecord]);
-    }
-
-    const changeText = [];
-    if (costChanged) changeText.push(`Custo: R$ ${item.costPrice.toFixed(2)} → R$ ${data.newCostPrice.toFixed(2)}`);
-    if (saleChanged) changeText.push(`Venda: R$ ${item.salePrice.toFixed(2)} → R$ ${data.newSalePrice.toFixed(2)}`);
-
-    toast({
-      title: 'Preço atualizado',
-      description: (
-        <div>
-          <p className="font-medium">{item.name}</p>
-          {changeText.map((text, idx) => (
-            <p key={idx} className="text-sm">{text}</p>
-          ))}
-        </div>
-      ),
-    });
-
-    handleCloseDialog();
   };
 
   const columns = [
-    { key: 'itemName', header: 'Item' },
     {
-      key: 'currentPrice',
+      key: 'itemId',
+      header: 'Item',
+      render: (p: ItemPrice) => items.find((i) => i.id === p.itemId)?.name ?? '-',
+    },
+    {
+      key: 'price',
       header: 'Preço Venda',
-      render: (price: ItemPrice) => (
-        <span className="font-medium">R$ {price.currentPrice.toFixed(2)}</span>
-      ),
+      render: (p: ItemPrice) => `R$ ${Number(p.price).toFixed(2)}`,
     },
     {
-      key: 'previousPrice',
-      header: 'Preço Anterior',
-      render: (price: ItemPrice) => {
-        const diff = price.currentPrice - price.previousPrice;
-        const isIncrease = diff > 0;
-        const isDecrease = diff < 0;
-        
-        return (
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground">
-              R$ {price.previousPrice.toFixed(2)}
-            </span>
-            {diff !== 0 && (
-              <Badge variant={isIncrease ? 'default' : 'secondary'} className="text-xs">
-                {isIncrease ? '+' : ''}{diff.toFixed(2)}
-              </Badge>
-            )}
-          </div>
-        );
-      },
+      key: 'cost',
+      header: 'Custo',
+      render: (p: ItemPrice) => `R$ ${Number(p.cost).toFixed(2)}`,
     },
     {
-      key: 'lastUpdate',
-      header: 'Última Atualização',
-      render: (price: ItemPrice) => {
-        const date = new Date(price.lastUpdate);
-        return date.toLocaleDateString('pt-BR');
-      },
+      key: 'margin',
+      header: 'Margem',
+      render: (p: ItemPrice) =>
+        p.margin ? `${Number(p.margin).toFixed(1)}%` : '-',
     },
-    { key: 'updatedBy', header: 'Atualizado Por' },
     {
-      key: 'reason',
-      header: 'Motivo',
-      render: (price: ItemPrice) => (
-        <span className="text-sm text-muted-foreground">
-          {price.reason || '-'}
-        </span>
-      ),
+      key: 'effectiveDate',
+      header: 'Vigência',
+      render: (p: ItemPrice) =>
+        p.effectiveDate
+          ? new Date(p.effectiveDate).toLocaleDateString('pt-BR')
+          : '-',
+    },
+    {
+      key: 'notes',
+      header: 'Observações',
+      render: (p: ItemPrice) => p.notes ?? '-',
     },
     {
       key: 'actions',
       header: 'Ações',
-      render: (price: ItemPrice) => (
+      render: (p: ItemPrice) => (
         <div className="flex gap-2">
           {can('item-prices', 'update') && (
-            <Button 
-              variant="ghost" 
-              size="icon"
-              onClick={() => handleOpenDialog(price)}
-              title="Editar preço"
-            >
+            <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(p)}>
               <Edit className="h-4 w-4" />
             </Button>
           )}
@@ -313,19 +216,22 @@ export default function ItemPrices() {
     },
   ];
 
+  const selectedItemId = form.watch('itemId');
+  const selectedItem = items.find((i) => String(i.id) === selectedItemId);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Preços de Itens</h1>
           <p className="text-muted-foreground">
-            Gerencie os preços dos itens do estoque
+            Gerencie os preços e margens de lucro dos produtos
           </p>
         </div>
         {can('item-prices', 'create') && (
           <Button className="shadow-md" onClick={() => handleOpenDialog()}>
             <Plus className="mr-2 h-4 w-4" />
-            Atualizar Preço
+            Novo Preço
           </Button>
         )}
       </div>
@@ -334,14 +240,15 @@ export default function ItemPrices() {
         data={itemPrices}
         columns={columns}
         searchPlaceholder="Buscar preços..."
+        isLoading={loading}
       />
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Atualizar Preço de Item</DialogTitle>
+            <DialogTitle>{editing ? 'Editar Preço' : 'Novo Preço'}</DialogTitle>
             <DialogDescription>
-              Selecione um item e defina os novos preços de custo e venda.
+              Defina o preço, custo e margem de lucro do item selecionado.
             </DialogDescription>
           </DialogHeader>
 
@@ -353,17 +260,10 @@ export default function ItemPrices() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Item *</FormLabel>
-                    <Select 
-                      onValueChange={(value) => {
-                        field.onChange(value);
-                        const item = items.find(i => i.id === value);
-                        if (item) {
-                          form.setValue('newCostPrice', item.costPrice);
-                          form.setValue('newSalePrice', item.salePrice);
-                        }
-                      }} 
+                    <Select
+                      onValueChange={field.onChange}
                       value={field.value}
-                      disabled={!!editingPrice}
+                      disabled={!!editing}
                     >
                       <FormControl>
                         <SelectTrigger>
@@ -371,9 +271,9 @@ export default function ItemPrices() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {items.map((item) => (
-                          <SelectItem key={item.id} value={item.id}>
-                            {item.name} - {item.category}
+                        {items.map((i) => (
+                          <SelectItem key={i.id} value={String(i.id)}>
+                            {i.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -384,48 +284,30 @@ export default function ItemPrices() {
               />
 
               {selectedItem && (
-                <div className="p-4 bg-muted rounded-lg space-y-2">
-                  <p className="text-sm font-medium">Preços Atuais:</p>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">Custo: </span>
-                      <span className="font-medium">R$ {selectedItem.costPrice.toFixed(2)}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Venda: </span>
-                      <span className="font-medium">R$ {selectedItem.salePrice.toFixed(2)}</span>
-                    </div>
-                  </div>
-                  <div className="text-sm">
-                    <span className="text-muted-foreground">Margem: </span>
-                    <span className="font-medium">
-                      {selectedItem.costPrice > 0 
-                        ? ((selectedItem.salePrice - selectedItem.costPrice) / selectedItem.costPrice * 100).toFixed(1)
-                        : 0}%
+                <div className="p-3 bg-muted rounded-md text-sm">
+                  <p className="font-medium">{selectedItem.name}</p>
+                  <div className="flex justify-between mt-2">
+                    <span className="text-muted-foreground">
+                      Custo atual: R$ {Number(selectedItem.cost ?? 0).toFixed(2)}
+                    </span>
+                    <span className="text-muted-foreground">
+                      Venda atual: R$ {Number(selectedItem.price ?? 0).toFixed(2)}
                     </span>
                   </div>
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
-                  name="newCostPrice"
+                  name="cost"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Novo Preço de Custo *</FormLabel>
+                      <FormLabel>Preço de Custo *</FormLabel>
                       <FormControl>
-                        <Input 
-                          type="number" 
-                          step="0.01" 
-                          placeholder="0.00" 
-                          {...field}
-                          disabled={!selectedItemId}
-                        />
+                        <Input type="number" step="0.01" {...field} />
                       </FormControl>
-                      <FormDescription>
-                        Preço que você paga ao fornecedor
-                      </FormDescription>
+                      <FormDescription>Preço pago ao fornecedor</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -433,52 +315,49 @@ export default function ItemPrices() {
 
                 <FormField
                   control={form.control}
-                  name="newSalePrice"
+                  name="price"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Novo Preço de Venda *</FormLabel>
+                      <FormLabel>Preço de Venda *</FormLabel>
                       <FormControl>
-                        <Input 
-                          type="number" 
-                          step="0.01" 
-                          placeholder="0.00" 
-                          {...field}
-                          disabled={!selectedItemId}
-                        />
+                        <Input type="number" step="0.01" {...field} />
                       </FormControl>
-                      <FormDescription>
-                        Preço cobrado do cliente
-                      </FormDescription>
+                      <FormDescription>Preço cobrado ao cliente</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
               </div>
 
-              {selectedItemId && form.watch('newCostPrice') > 0 && (
-                <div className="p-4 bg-muted rounded-lg">
-                  <p className="text-sm font-medium mb-2">Nova Margem de Lucro:</p>
-                  <p className="text-2xl font-bold">
-                    {((form.watch('newSalePrice') - form.watch('newCostPrice')) / form.watch('newCostPrice') * 100).toFixed(1)}%
+              {form.watch('cost') > 0 && form.watch('price') > 0 && (
+                <div className="p-3 bg-muted rounded-md text-sm">
+                  <p className="font-medium">Margem de Lucro Estimada</p>
+                  <p className="text-2xl font-bold mt-1">
+                    {(
+                      ((form.watch('price') - form.watch('cost')) /
+                        form.watch('cost')) *
+                      100
+                    ).toFixed(1)}
+                    %
                   </p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Lucro: R$ {(form.watch('newSalePrice') - form.watch('newCostPrice')).toFixed(2)} por unidade
+                  <p className="text-muted-foreground">
+                    Lucro unitário: R${' '}
+                    {(form.watch('price') - form.watch('cost')).toFixed(2)}
                   </p>
                 </div>
               )}
 
               <FormField
                 control={form.control}
-                name="reason"
+                name="notes"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Motivo da Alteração</FormLabel>
+                    <FormLabel>Observações</FormLabel>
                     <FormControl>
-                      <Textarea 
-                        placeholder="Ex: Ajuste de mercado, aumento do fornecedor, promoção..." 
+                      <Textarea
+                        placeholder="Motivo da alteração (opcional)"
                         className="resize-none"
                         {...field}
-                        disabled={!selectedItemId}
                       />
                     </FormControl>
                     <FormMessage />
@@ -490,9 +369,7 @@ export default function ItemPrices() {
                 <Button type="button" variant="outline" onClick={handleCloseDialog}>
                   Cancelar
                 </Button>
-                <Button type="submit" disabled={!selectedItemId}>
-                  Atualizar Preço
-                </Button>
+                <Button type="submit">{editing ? 'Salvar' : 'Criar'}</Button>
               </DialogFooter>
             </form>
           </Form>

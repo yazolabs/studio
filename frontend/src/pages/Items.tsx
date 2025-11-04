@@ -1,4 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { DataTable } from '@/components/DataTable';
@@ -39,100 +42,40 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
-import { toast } from '@/hooks/use-toast';
+import { useToast } from '@/hooks/use-toast';
+import {
+  listItems,
+  createItem,
+  updateItem,
+  removeItem,
+} from '@/services/itemsService';
+import type { Item, CreateItemDto } from '@/types/item';
 
-interface Item {
-  id: string;
-  name: string;
-  description?: string;
-  category: string;
-  stock: number;
-  minStock: number;
-  unit: string;
-  barcode?: string;
-  costPrice: number;
-  salePrice: number;
-  commissionType: 'percentage' | 'fixed';
-  commissionValue: number;
-}
-
+// --------------------
+// SCHEMA
+// --------------------
 const itemSchema = z.object({
-  name: z.string().trim().min(1, 'Nome é obrigatório').max(100, 'Nome muito longo'),
-  description: z.string().trim().max(500, 'Descrição muito longa').optional(),
-  category: z.string().min(1, 'Categoria é obrigatória'),
+  name: z.string().trim().min(1, 'Nome é obrigatório').max(160),
+  description: z.string().trim().max(500).optional(),
+  category: z.string().trim().optional().default(''),
   stock: z.coerce.number().min(0, 'Estoque não pode ser negativo'),
   minStock: z.coerce.number().min(0, 'Estoque mínimo não pode ser negativo'),
-  unit: z.string().min(1, 'Unidade é obrigatória'),
-  barcode: z.string().trim().max(50, 'Código de barras muito longo').optional(),
-  costPrice: z.coerce.number().min(0, 'Preço de custo inválido'),
-  salePrice: z.coerce.number().min(0, 'Preço de venda inválido'),
+  barcode: z.string().trim().max(80).optional(),
+  cost: z.coerce.number().min(0, 'Preço de custo inválido'),
+  price: z.coerce.number().min(0, 'Preço de venda inválido'),
   commissionType: z.enum(['percentage', 'fixed']),
   commissionValue: z.coerce.number().min(0, 'Valor da comissão deve ser positivo'),
 });
 
-const mockItems: Item[] = [
-  { 
-    id: '1', 
-    name: 'Shampoo Premium', 
-    description: 'Shampoo para cabelos secos',
-    category: 'Cabelo', 
-    stock: 25, 
-    minStock: 10,
-    unit: 'un',
-    barcode: '7891234567890',
-    costPrice: 15.50,
-    salePrice: 35.00,
-    commissionType: 'fixed',
-    commissionValue: 5.00
-  },
-  { 
-    id: '2', 
-    name: 'Esmalte Vermelho', 
-    category: 'Unhas', 
-    stock: 15, 
-    minStock: 5,
-    unit: 'un',
-    costPrice: 8.00,
-    salePrice: 18.00,
-    commissionType: 'fixed',
-    commissionValue: 3.00
-  },
-  { 
-    id: '3', 
-    name: 'Óleo de Massagem', 
-    category: 'Massagem', 
-    stock: 8, 
-    minStock: 3,
-    unit: 'L',
-    costPrice: 25.00,
-    salePrice: 55.00,
-    commissionType: 'percentage',
-    commissionValue: 15
-  },
-  { 
-    id: '4', 
-    name: 'Cera Depilatória', 
-    category: 'Depilação', 
-    stock: 12, 
-    minStock: 5,
-    unit: 'kg',
-    costPrice: 30.00,
-    salePrice: 65.00,
-    commissionType: 'fixed',
-    commissionValue: 8.00
-  },
-];
-
 export default function Items() {
-  const [items, setItems] = useState<Item[]>(mockItems);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [items, setItems] = useState<Item[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Item | null>(null);
-  const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
+  const [deletingItemId, setDeletingItemId] = useState<number | null>(null);
   const { can } = usePermission();
+  const { toast } = useToast();
 
   const form = useForm<z.infer<typeof itemSchema>>({
     resolver: zodResolver(itemSchema),
@@ -142,144 +85,149 @@ export default function Items() {
       category: '',
       stock: 0,
       minStock: 0,
-      unit: 'un',
       barcode: '',
-      costPrice: 0,
-      salePrice: 0,
+      cost: 0,
+      price: 0,
+      commissionType: 'percentage',
+      commissionValue: 0,
     },
   });
 
-  const handleOpenDialog = (item?: Item) => {
-    if (item) {
-      setEditingItem(item);
-      form.reset({
-        name: item.name,
-        description: item.description || '',
-        category: item.category,
-        stock: item.stock,
-        minStock: item.minStock,
-        unit: item.unit,
-        barcode: item.barcode || '',
-        costPrice: item.costPrice,
-        salePrice: item.salePrice,
-        commissionType: item.commissionType,
-        commissionValue: item.commissionValue,
+  async function load() {
+    setLoading(true);
+    try {
+      const result = await listItems({ page: 1, perPage: 50 });
+      const data = Array.isArray(result.data) ? result.data : result;
+      setItems(data);
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao carregar itens',
+        description: err?.response?.data?.message ?? 'Não foi possível carregar os itens.',
+        variant: 'destructive',
       });
-    } else {
-      setEditingItem(null);
-      form.reset({
-        name: '',
-        description: '',
-        category: '',
-        stock: 0,
-        minStock: 0,
-        unit: 'un',
-        barcode: '',
-        costPrice: 0,
-        salePrice: 0,
-        commissionType: 'percentage',
-        commissionValue: 0,
-      });
+    } finally {
+      setLoading(false);
     }
-    setIsDialogOpen(true);
-  };
+  }
 
-  const handleCloseDialog = () => {
-    setIsDialogOpen(false);
+  useEffect(() => {
+    load();
+  }, []);
+
+  const handleAdd = () => {
     setEditingItem(null);
     form.reset();
+    setDialogOpen(true);
   };
 
-  const onSubmit = (data: z.infer<typeof itemSchema>) => {
-    if (editingItem) {
-      setItems(items.map(item => 
-        item.id === editingItem.id 
-          ? { ...item, ...data } as Item
-          : item
-      ));
-      toast({
-        title: 'Item atualizado',
-        description: 'Item atualizado com sucesso.',
-      });
-    } else {
-      const newItem: Item = {
-        id: Date.now().toString(),
-        name: data.name,
-        description: data.description,
-        category: data.category,
-        stock: data.stock,
-        minStock: data.minStock,
-        unit: data.unit,
-        barcode: data.barcode,
-        costPrice: data.costPrice,
-        salePrice: data.salePrice,
-        commissionType: data.commissionType,
-        commissionValue: data.commissionValue,
-      };
-      setItems([...items, newItem]);
-      toast({
-        title: 'Item criado',
-        description: 'Novo item adicionado com sucesso.',
-      });
-    }
-    handleCloseDialog();
+  const handleEdit = (item: Item) => {
+    setEditingItem(item);
+    form.reset({
+      name: item.name,
+      description: item.description ?? '',
+      category: item.category ?? '',
+      stock: item.stock,
+      minStock: item.minStock,
+      barcode: item.barcode ?? '',
+      cost: Number(item.cost),
+      price: Number(item.price),
+      commissionType: item.commissionType ?? 'percentage',
+      commissionValue: Number(item.commissionValue),
+    });
+    setDialogOpen(true);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = (id: number) => {
     setDeletingItemId(id);
-    setIsDeleteDialogOpen(true);
+    setDeleteDialogOpen(true);
   };
 
-  const confirmDelete = () => {
-    if (deletingItemId) {
-      setItems(items.filter(item => item.id !== deletingItemId));
+  const confirmDelete = async () => {
+    if (!deletingItemId) return;
+    try {
+      await removeItem(deletingItemId);
+      toast({ title: 'Item excluído', description: 'Removido com sucesso.' });
+      await load();
+    } catch (err: any) {
       toast({
-        title: 'Item excluído',
-        description: 'Item removido com sucesso.',
+        title: 'Erro ao excluir',
+        description: err?.response?.data?.message ?? 'Tente novamente.',
+        variant: 'destructive',
+      });
+    } finally {
+      setDeleteDialogOpen(false);
+      setDeletingItemId(null);
+    }
+  };
+
+  const onSubmit = async (values: z.infer<typeof itemSchema>) => {
+    const payload: CreateItemDto = {
+      name: values.name,
+      description: values.description || null,
+      category: values.category || null,
+      stock: values.stock,
+      minStock: values.minStock,
+      barcode: values.barcode || null,
+      cost: values.cost.toFixed(2),
+      price: values.price.toFixed(2),
+      commissionType: values.commissionType,
+      commissionValue: values.commissionValue.toFixed(2),
+      supplierId: null,
+    };
+
+    try {
+      if (editingItem) {
+        await updateItem(editingItem.id, payload);
+        toast({ title: 'Item atualizado', description: 'Alterações salvas com sucesso.' });
+      } else {
+        await createItem(payload);
+        toast({ title: 'Item criado', description: 'Novo item adicionado com sucesso.' });
+      }
+      setDialogOpen(false);
+      await load();
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao salvar',
+        description: err?.response?.data?.message ?? 'Verifique os dados e tente novamente.',
+        variant: 'destructive',
       });
     }
-    setIsDeleteDialogOpen(false);
-    setDeletingItemId(null);
   };
-
   const columns = [
     { key: 'name', header: 'Nome' },
     {
       key: 'category',
       header: 'Categoria',
       render: (item: Item) => (
-        <Badge variant="secondary">{item.category}</Badge>
+        <Badge variant="secondary">{item.category ?? '-'}</Badge>
       ),
     },
     {
       key: 'stock',
       header: 'Estoque',
-      render: (item: Item) => {
-        const isLow = item.stock < item.minStock;
-        return (
-          <Badge variant={isLow ? 'destructive' : 'outline'}>
-            {item.stock} {item.unit}
-          </Badge>
-        );
-      },
-    },
-    {
-      key: 'costPrice',
-      header: 'Preço Custo',
       render: (item: Item) => (
-        <span className="text-muted-foreground">
-          R$ {item.costPrice.toFixed(2)}
-        </span>
+        <Badge variant={item.stock < item.minStock ? 'destructive' : 'outline'}>
+          {item.stock}
+        </Badge>
       ),
     },
     {
-      key: 'salePrice',
-      header: 'Preço Venda',
-      render: (item: Item) => (
-        <span className="font-medium">
-          R$ {item.salePrice.toFixed(2)}
-        </span>
-      ),
+      key: 'cost',
+      header: 'Custo',
+      render: (item: Item) => `R$ ${Number(item.cost).toFixed(2).replace('.', ',')}`,
+    },
+    {
+      key: 'price',
+      header: 'Venda',
+      render: (item: Item) => `R$ ${Number(item.price).toFixed(2).replace('.', ',')}`,
+    },
+    {
+      key: 'commissionValue',
+      header: 'Comissão',
+      render: (item: Item) =>
+        item.commissionType === 'percentage'
+          ? `${item.commissionValue}%`
+          : `R$ ${Number(item.commissionValue).toFixed(2)}`,
     },
     {
       key: 'actions',
@@ -287,17 +235,13 @@ export default function Items() {
       render: (item: Item) => (
         <div className="flex gap-2">
           {can('items', 'update') && (
-            <Button 
-              variant="ghost" 
-              size="icon"
-              onClick={() => handleOpenDialog(item)}
-            >
+            <Button variant="ghost" size="icon" onClick={() => handleEdit(item)}>
               <Edit className="h-4 w-4" />
             </Button>
           )}
           {can('items', 'delete') && (
-            <Button 
-              variant="ghost" 
+            <Button
+              variant="ghost"
               size="icon"
               onClick={() => handleDelete(item.id)}
             >
@@ -319,7 +263,7 @@ export default function Items() {
           </p>
         </div>
         {can('items', 'create') && (
-          <Button className="shadow-md" onClick={() => handleOpenDialog()}>
+          <Button className="shadow-md" onClick={handleAdd}>
             <Plus className="mr-2 h-4 w-4" />
             Novo Item
           </Button>
@@ -330,14 +274,14 @@ export default function Items() {
         data={items}
         columns={columns}
         searchPlaceholder="Buscar itens..."
+        isLoading={loading}
       />
 
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+      {/* MODAL */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>
-              {editingItem ? 'Editar Item' : 'Novo Item'}
-            </DialogTitle>
+            <DialogTitle>{editingItem ? 'Editar Item' : 'Novo Item'}</DialogTitle>
             <DialogDescription>
               Preencha os dados do item. Campos marcados são obrigatórios.
             </DialogDescription>
@@ -345,7 +289,7 @@ export default function Items() {
 
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="name"
@@ -365,22 +309,10 @@ export default function Items() {
                   name="category"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Categoria *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecione" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="Cabelo">Cabelo</SelectItem>
-                          <SelectItem value="Unhas">Unhas</SelectItem>
-                          <SelectItem value="Massagem">Massagem</SelectItem>
-                          <SelectItem value="Depilação">Depilação</SelectItem>
-                          <SelectItem value="Estética">Estética</SelectItem>
-                          <SelectItem value="Outros">Outros</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <FormLabel>Categoria</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Ex: Cabelo, Unhas..." {...field} />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -394,10 +326,10 @@ export default function Items() {
                   <FormItem>
                     <FormLabel>Descrição</FormLabel>
                     <FormControl>
-                      <Textarea 
-                        placeholder="Descrição do item" 
+                      <Textarea
+                        placeholder="Descrição do item"
                         className="resize-none"
-                        {...field} 
+                        {...field}
                       />
                     </FormControl>
                     <FormMessage />
@@ -405,7 +337,7 @@ export default function Items() {
                 )}
               />
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <FormField
                   control={form.control}
                   name="barcode"
@@ -427,7 +359,7 @@ export default function Items() {
                     <FormItem>
                       <FormLabel>Estoque Atual *</FormLabel>
                       <FormControl>
-                        <Input type="number" placeholder="0" {...field} />
+                        <Input type="number" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -441,7 +373,7 @@ export default function Items() {
                     <FormItem>
                       <FormLabel>Estoque Mínimo *</FormLabel>
                       <FormControl>
-                        <Input type="number" placeholder="0" {...field} />
+                        <Input type="number" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -449,47 +381,15 @@ export default function Items() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
-                  name="unit"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Unidade *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecione" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="un">Unidade (un)</SelectItem>
-                          <SelectItem value="kg">Quilograma (kg)</SelectItem>
-                          <SelectItem value="g">Grama (g)</SelectItem>
-                          <SelectItem value="L">Litro (L)</SelectItem>
-                          <SelectItem value="ml">Mililitro (ml)</SelectItem>
-                          <SelectItem value="m">Metro (m)</SelectItem>
-                          <SelectItem value="cx">Caixa (cx)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="costPrice"
+                  name="cost"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Preço de Custo *</FormLabel>
                       <FormControl>
-                        <Input 
-                          type="number" 
-                          step="0.01" 
-                          placeholder="0.00" 
-                          {...field} 
-                        />
+                        <Input type="number" step="0.01" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -498,17 +398,12 @@ export default function Items() {
 
                 <FormField
                   control={form.control}
-                  name="salePrice"
+                  name="price"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Preço de Venda *</FormLabel>
                       <FormControl>
-                        <Input 
-                          type="number" 
-                          step="0.01" 
-                          placeholder="0.00" 
-                          {...field} 
-                        />
+                        <Input type="number" step="0.01" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -545,14 +440,15 @@ export default function Items() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>
-                        {form.watch('commissionType') === 'percentage' ? 'Percentual (%)' : 'Valor Fixo (R$)'}
+                        {form.watch('commissionType') === 'percentage'
+                          ? 'Percentual (%)'
+                          : 'Valor Fixo (R$)'}
                       </FormLabel>
                       <FormControl>
-                        <Input 
-                          type="number" 
-                          step={form.watch('commissionType') === 'percentage' ? '1' : '0.01'} 
-                          placeholder={form.watch('commissionType') === 'percentage' ? 'Ex: 15' : 'Ex: 5.00'}
-                          {...field} 
+                        <Input
+                          type="number"
+                          step={form.watch('commissionType') === 'percentage' ? '1' : '0.01'}
+                          {...field}
                         />
                       </FormControl>
                       <FormMessage />
@@ -562,11 +458,15 @@ export default function Items() {
               </div>
 
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={handleCloseDialog}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setDialogOpen(false)}
+                >
                   Cancelar
                 </Button>
                 <Button type="submit">
-                  {editingItem ? 'Salvar' : 'Criar'}
+                  {editingItem ? 'Salvar Alterações' : 'Criar Item'}
                 </Button>
               </DialogFooter>
             </form>
@@ -574,7 +474,8 @@ export default function Items() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+      {/* CONFIRMAR EXCLUSÃO */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
@@ -584,7 +485,10 @@ export default function Items() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete}>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
               Excluir
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -593,3 +497,6 @@ export default function Items() {
     </div>
   );
 }
+
+
+
