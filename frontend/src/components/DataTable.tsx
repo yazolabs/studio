@@ -1,22 +1,10 @@
 import { useState } from 'react';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
-  Search,
-} from 'lucide-react';
-import { Skeleton } from '@/components/ui/skeleton';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Search } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface Column<T> {
   key: string;
@@ -44,6 +32,7 @@ export function DataTable<T extends Record<string, any>>({
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+  const isMobile = useIsMobile();
 
   const filteredData = data.filter((item) =>
     Object.values(item).some((value) =>
@@ -55,109 +44,110 @@ export function DataTable<T extends Record<string, any>>({
   const startIndex = (currentPage - 1) * itemsPerPage;
   const paginatedData = filteredData.slice(startIndex, startIndex + itemsPerPage);
 
-  if (loading) {
-    return (
-      <div className="space-y-4 animate-pulse">
-
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <Skeleton className="h-9 w-full" />
-          </div>
-        </div>
-
-
-        <div className="rounded-md border shadow-sm">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/50">
-                {columns.map((col) => (
-                  <TableHead key={col.key}>
-                    <Skeleton className="h-5 w-24" />
-                  </TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {Array.from({ length: 8 }).map((_, i) => (
-                <TableRow key={i}>
-                  {columns.map((col) => (
-                    <TableCell key={col.key}>
-                      <Skeleton className="h-5 w-full" />
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder={searchPlaceholder}
-            value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value);
-              setCurrentPage(1);
-            }}
-            className="pl-9"
-          />
-        </div>
+      <div className="relative flex-1">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          placeholder={searchPlaceholder}
+          value={searchTerm}
+          onChange={(e) => {
+            setSearchTerm(e.target.value);
+            setCurrentPage(1);
+          }}
+          className="pl-9"
+        />
       </div>
 
-      <div className="rounded-md border shadow-sm">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-muted/50">
-              {columns.map((column) => (
-                <TableHead key={column.key} className="font-semibold">
-                  {column.header}
-                </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {paginatedData.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={columns.length}
-                  className="h-24 text-center text-muted-foreground"
-                >
+      {loading && (
+        <div className="flex items-center justify-center py-8 text-muted-foreground">
+          Carregando...
+        </div>
+      )}
+
+      {!loading && (
+        <>
+          {!isMobile ? (
+            <div className="rounded-md border shadow-sm">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/50">
+                    {columns.map((column) => (
+                      <TableHead key={column.key} className="font-semibold">
+                        {column.header}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedData.length === 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={columns.length}
+                        className="h-24 text-center text-muted-foreground"
+                      >
+                        {emptyMessage}
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    paginatedData.map((item, index) => (
+                      <TableRow
+                        key={index}
+                        onClick={() => onRowClick?.(item)}
+                        className={onRowClick ? 'cursor-pointer hover:bg-muted/50' : ''}
+                      >
+                        {columns.map((column) => (
+                          <TableCell key={column.key}>
+                            {column.render ? column.render(item) : item[column.key]}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4">
+              {paginatedData.length === 0 ? (
+                <div className="text-center text-muted-foreground py-8">
                   {emptyMessage}
-                </TableCell>
-              </TableRow>
-            ) : (
-              paginatedData.map((item, index) => (
-                <TableRow
-                  key={index}
-                  onClick={() => onRowClick?.(item)}
-                  className={onRowClick ? 'cursor-pointer hover:bg-muted/50' : ''}
-                >
-                  {columns.map((column) => (
-                    <TableCell key={column.key}>
-                      {column.render ? column.render(item) : item[column.key]}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+                </div>
+              ) : (
+                paginatedData.map((item, index) => (
+                  <div
+                    key={index}
+                    className={cn(
+                      'rounded-lg border p-4 shadow-sm bg-card space-y-2 transition-all hover:shadow-md',
+                      onRowClick && 'cursor-pointer'
+                    )}
+                    onClick={() => onRowClick?.(item)}
+                  >
+                    {columns.map((col) => (
+                      <div key={col.key} className="flex flex-col text-sm">
+                        <span className="font-medium text-muted-foreground">
+                          {col.header}
+                        </span>
+                        <span>
+                          {col.render ? col.render(item) : String(item[col.key] ?? '-')}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </>
+      )}
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            Mostrando {startIndex + 1} a {Math.min(startIndex + itemsPerPage, filteredData.length)} de{' '}
-            {filteredData.length} resultados
+        <div className="flex items-center justify-between text-sm text-muted-foreground">
+          <p>
+            Mostrando {startIndex + 1}–{Math.min(startIndex + itemsPerPage, filteredData.length)} de{' '}
+            {filteredData.length}
           </p>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <Button
               variant="outline"
               size="icon"
@@ -174,7 +164,7 @@ export function DataTable<T extends Record<string, any>>({
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <span className="text-sm">
+            <span>
               Página {currentPage} de {totalPages}
             </span>
             <Button

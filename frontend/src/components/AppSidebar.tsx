@@ -4,6 +4,7 @@ import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupConte
 import { Button } from '@/components/ui/button';
 import { useAuthUser } from '@/hooks/useAuthUser';
 import { usePermission } from '@/hooks/usePermission';
+import { cn } from "@/lib/utils";
 import { Screen } from '@/types/auth';
 
 interface NavItem {
@@ -67,27 +68,26 @@ export function AppSidebar() {
   const { logout } = useAuthUser();
   const { canAccess } = usePermission();
 
-  const collapsed = state === 'collapsed';
+  const collapsed = state === "collapsed";
 
   const handleLogout = async () => {
     try {
       await logout();
     } finally {
-      navigate('/login');
+      navigate("/login");
     }
   };
 
-  const filteredSections = navSections.map((section) => ({
-    ...section,
-    items: section.items.filter((item) => {
-      const hasAccess = canAccess(item.screen);
-      return hasAccess;
-    }),
-  })).filter((section) => section.items.length > 0);
+  const filteredSections = navSections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => canAccess(item.screen)),
+    }))
+    .filter((section) => section.items.length > 0);
 
   return (
-    <Sidebar collapsible="icon" className="border-r">
-      <SidebarContent>
+    <Sidebar collapsible="icon" className="border-r flex flex-col justify-between">
+      <SidebarContent className="flex-1 overflow-y-auto">
         {filteredSections.map((section) => (
           <SidebarGroup key={section.label}>
             <SidebarGroupLabel>{section.label}</SidebarGroupLabel>
@@ -102,8 +102,8 @@ export function AppSidebar() {
                           to={item.url}
                           className={({ isActive }) =>
                             isActive
-                              ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                              : 'hover:bg-sidebar-accent/50'
+                              ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                              : "hover:bg-sidebar-accent/50"
                           }
                         >
                           <item.icon className="h-4 w-4" />
@@ -119,14 +119,18 @@ export function AppSidebar() {
         ))}
       </SidebarContent>
 
-      <SidebarFooter className="border-t p-4">
+      <SidebarFooter className="border-t p-3 flex items-center justify-center min-h-[65px]">
         <Button
           variant="ghost"
-          className="w-full justify-start hover:bg-destructive/10 hover:text-destructive"
           onClick={handleLogout}
+          className={cn(
+            "flex items-center gap-2 w-full transition-colors",
+            "hover:bg-destructive/10 hover:text-destructive",
+            collapsed ? "justify-center px-0" : "justify-start"
+          )}
         >
           <LogOut className="h-4 w-4" />
-          {!collapsed && <span className="ml-2">Sair</span>}
+          {!collapsed && <span>Sair</span>}
         </Button>
       </SidebarFooter>
     </Sidebar>

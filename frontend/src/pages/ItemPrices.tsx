@@ -4,30 +4,9 @@ import { Badge } from '@/components/ui/badge';
 import { DataTable } from '@/components/DataTable';
 import { Plus, Edit } from 'lucide-react';
 import { usePermission } from '@/hooks/usePermission';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-  FormDescription,
-} from '@/components/ui/form';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useForm } from 'react-hook-form';
@@ -36,13 +15,11 @@ import * as z from 'zod';
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { listItems } from '@/services/itemsService';
-import {
-  listItemPrices,
-  createItemPrice,
-  updateItemPrice,
-} from '@/services/itemPricesService';
+import { listItemPrices, createItemPrice, updateItemPrice } from '@/services/itemPricesService';
 import type { Item } from '@/types/item';
 import type { ItemPrice, CreateItemPriceDto } from '@/types/item-price';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { cn } from '@/lib/utils';
 
 const priceSchema = z.object({
   itemId: z.string().min(1, 'Item é obrigatório'),
@@ -59,6 +36,7 @@ export default function ItemPrices() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editing, setEditing] = useState<ItemPrice | null>(null);
   const { can } = usePermission();
+  const isMobile = useIsMobile();
 
   const form = useForm<z.infer<typeof priceSchema>>({
     resolver: zodResolver(priceSchema),
@@ -71,6 +49,12 @@ export default function ItemPrices() {
     },
   });
 
+  function extractData<T>(response: T[] | { data: T[] }): T[] {
+    return Array.isArray((response as any).data)
+      ? (response as { data: T[] }).data
+      : (response as T[]);
+  }
+
   async function load() {
     setLoading(true);
     try {
@@ -78,8 +62,9 @@ export default function ItemPrices() {
         listItems({ perPage: 100 }),
         listItemPrices({ perPage: 100 }),
       ]);
-      setItems(Array.isArray(itemsData.data) ? itemsData.data : itemsData);
-      setItemPrices(Array.isArray(pricesData.data) ? pricesData.data : pricesData);
+
+      setItems(extractData<Item>(itemsData));
+      setItemPrices(extractData<ItemPrice>(pricesData));
     } catch (err: any) {
       toast({
         title: 'Erro ao carregar dados',
@@ -207,7 +192,11 @@ export default function ItemPrices() {
       render: (p: ItemPrice) => (
         <div className="flex gap-2">
           {can('item-prices', 'update') && (
-            <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(p)}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => handleOpenDialog(p)}
+            >
               <Edit className="h-4 w-4" />
             </Button>
           )}
@@ -221,7 +210,7 @@ export default function ItemPrices() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Preços de Itens</h1>
           <p className="text-muted-foreground">
@@ -229,7 +218,10 @@ export default function ItemPrices() {
           </p>
         </div>
         {can('item-prices', 'create') && (
-          <Button className="shadow-md" onClick={() => handleOpenDialog()}>
+          <Button
+            className={cn('shadow-md', isMobile && 'w-full')}
+            onClick={() => handleOpenDialog()}
+          >
             <Plus className="mr-2 h-4 w-4" />
             Novo Preço
           </Button>
@@ -240,11 +232,17 @@ export default function ItemPrices() {
         data={itemPrices}
         columns={columns}
         searchPlaceholder="Buscar preços..."
-        isLoading={loading}
+        loading={loading}
       />
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent
+          className={
+            isMobile
+              ? 'max-w-[95vw] h-[90vh] overflow-y-auto'
+              : 'max-w-lg max-h-[90vh] overflow-y-auto'
+          }
+        >
           <DialogHeader>
             <DialogTitle>{editing ? 'Editar Preço' : 'Novo Preço'}</DialogTitle>
             <DialogDescription>
@@ -286,18 +284,18 @@ export default function ItemPrices() {
               {selectedItem && (
                 <div className="p-3 bg-muted rounded-md text-sm">
                   <p className="font-medium">{selectedItem.name}</p>
-                  <div className="flex justify-between mt-2">
-                    <span className="text-muted-foreground">
+                  <div className="flex justify-between mt-2 text-muted-foreground text-sm">
+                    <span>
                       Custo atual: R$ {Number(selectedItem.cost ?? 0).toFixed(2)}
                     </span>
-                    <span className="text-muted-foreground">
+                    <span>
                       Venda atual: R$ {Number(selectedItem.price ?? 0).toFixed(2)}
                     </span>
                   </div>
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="cost"
@@ -366,10 +364,16 @@ export default function ItemPrices() {
               />
 
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={handleCloseDialog}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleCloseDialog}
+                >
                   Cancelar
                 </Button>
-                <Button type="submit">{editing ? 'Salvar' : 'Criar'}</Button>
+                <Button type="submit">
+                  {editing ? 'Salvar Alterações' : 'Criar Preço'}
+                </Button>
               </DialogFooter>
             </form>
           </Form>

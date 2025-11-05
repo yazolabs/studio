@@ -1,45 +1,49 @@
-import { useState } from 'react';
-import { Plus, Pencil, Trash2, Mail, Phone } from 'lucide-react';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
-import { Button } from '@/components/ui/button';
-import { DataTable } from '@/components/DataTable';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Badge } from '@/components/ui/badge';
-import { useToast } from '@/hooks/use-toast';
-import { usePermission } from '@/hooks/usePermission';
-import { useCustomersQuery, useCreateCustomer, useUpdateCustomer, useDeleteCustomer } from '@/hooks/customers/index';
-import { useStatesQuery } from '@/hooks/states';
-import type { Customer } from '@/types/customer';
-import { formatCEP, formatCPF, formatPhone } from '@/utils/formatters';
-import { getAddressByCep } from '@/services/cepService';
+import { useState } from "react";
+import { Plus, Pencil, Trash2, Mail, Phone } from "lucide-react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
+import { Button } from "@/components/ui/button";
+import { DataTable } from "@/components/DataTable";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
+import { usePermission } from "@/hooks/usePermission";
+import { useCustomersQuery, useCreateCustomer, useUpdateCustomer, useDeleteCustomer } from "@/hooks/customers";
+import { useStatesQuery } from "@/hooks/states";
+import type { Customer } from "@/types/customer";
+import { formatCEP, formatCPF, formatPhone } from "@/utils/formatters";
+import { getAddressByCep } from "@/services/cepService";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { cn } from "@/lib/utils";
 
 const customerSchema = z.object({
   name: z.string().trim().min(3).max(160),
-  cpf: z.string().trim().optional().or(z.literal('')),
+  cpf: z.string().trim().optional().or(z.literal("")),
   email: z.string().trim().email().nullable().optional(),
-  phone: z.string().trim().optional().or(z.literal('')),
-  alternate_phone: z.string().trim().optional().or(z.literal('')),
-  address: z.string().trim().optional().or(z.literal('')),
-  number: z.string().trim().optional().or(z.literal('')),
-  complement: z.string().trim().optional().or(z.literal('')),
-  neighborhood: z.string().trim().optional().or(z.literal('')),
-  city: z.string().trim().optional().or(z.literal('')),
-  state: z.string().trim().optional().or(z.literal('')),
-  zip_code: z.string().trim().optional().or(z.literal('')),
-  birth_date: z.string().optional().or(z.literal('')),
-  gender: z.enum(['male', 'female', 'other', 'not_informed']),
-  contact_preferences: z.array(z.enum(['email', 'sms', 'whatsapp'])).default(['email']),
+  phone: z.string().trim().optional().or(z.literal("")),
+  alternate_phone: z.string().trim().optional().or(z.literal("")),
+  address: z.string().trim().optional().or(z.literal("")),
+  number: z.string().trim().optional().or(z.literal("")),
+  complement: z.string().trim().optional().or(z.literal("")),
+  neighborhood: z.string().trim().optional().or(z.literal("")),
+  city: z.string().trim().optional().or(z.literal("")),
+  state: z.string().trim().optional().or(z.literal("")),
+  zip_code: z.string().trim().optional().or(z.literal("")),
+  birth_date: z.string().optional().or(z.literal("")),
+  gender: z.enum(["male", "female", "other", "not_informed"]),
+  contact_preferences: z
+    .array(z.enum(["email", "sms", "whatsapp"]))
+    .default(["email"]),
   accepts_marketing: z.boolean().default(true),
   active: z.boolean().default(true),
-  notes: z.string().trim().max(1000).optional().or(z.literal('')),
+  notes: z.string().trim().max(1000).optional().or(z.literal("")),
 });
 
 type CustomerFormData = z.infer<typeof customerSchema>;
@@ -51,6 +55,7 @@ export default function Customers() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const { toast } = useToast();
   const { can } = usePermission();
+  const isMobile = useIsMobile();
 
   const { data: customersData, isLoading } = useCustomersQuery();
   const { data: states, isLoading: statesLoading } = useStatesQuery();
@@ -61,73 +66,55 @@ export default function Customers() {
   const form = useForm<CustomerFormData>({
     resolver: zodResolver(customerSchema),
     defaultValues: {
-      name: '',
-      cpf: '',
-      email: '',
-      phone: '',
-      alternate_phone: '',
-      address: '',
-      number: '',
-      complement: '',
-      neighborhood: '',
-      city: '',
-      state: '',
-      zip_code: '',
-      birth_date: '',
-      gender: 'not_informed',
-      contact_preferences: ['email'],
+      name: "",
+      cpf: "",
+      email: "",
+      phone: "",
+      alternate_phone: "",
+      address: "",
+      number: "",
+      complement: "",
+      neighborhood: "",
+      city: "",
+      state: "",
+      zip_code: "",
+      birth_date: "",
+      gender: "not_informed",
+      contact_preferences: ["email"],
       accepts_marketing: true,
       active: true,
-      notes: '',
+      notes: "",
     },
   });
 
+  const customers = customersData?.data ?? [];
+
   const onSubmit = (values: CustomerFormData) => {
-    const payload = values as Required<
-      Pick<CustomerFormData, 'name' | 'gender'>
-    > &
+    const payload = values as Required<Pick<CustomerFormData, "name" | "gender">> &
       CustomerFormData;
 
-    if (editingCustomer) {
-      updateMutation.mutate(payload, {
-        onSuccess: () => {
-          toast({ title: 'Cliente atualizado com sucesso!' });
-          handleCloseDialog();
-        },
-        onError: () =>
-          toast({ title: 'Erro ao atualizar cliente', variant: 'destructive' }),
-      });
-    } else {
-      createMutation.mutate(payload, {
-        onSuccess: () => {
-          toast({ title: 'Cliente cadastrado com sucesso!' });
-          handleCloseDialog();
-        },
-        onError: () =>
-          toast({ title: 'Erro ao cadastrar cliente', variant: 'destructive' }),
-      });
-    }
+    const mutation = editingCustomer ? updateMutation : createMutation;
+    mutation.mutate(payload, {
+      onSuccess: () => {
+        toast({ title: editingCustomer ? "Cliente atualizado!" : "Cliente criado!" });
+        handleCloseDialog();
+      },
+      onError: () => toast({ title: "Erro ao salvar cliente", variant: "destructive" }),
+    });
   };
 
   const handleEdit = (customer: Customer) => {
     setEditingCustomer(customer);
 
     const safeGender =
-      customer.gender === 'male' ||
-      customer.gender === 'female' ||
-      customer.gender === 'other' ||
-      customer.gender === 'not_informed'
+      ["male", "female", "other", "not_informed"].includes(customer.gender)
         ? customer.gender
-        : 'not_informed';
+        : "not_informed";
 
     form.reset({
       ...customer,
-      gender: safeGender,
-      contact_preferences: (customer.contact_preferences ?? ['email']) as (
-        | 'email'
-        | 'sms'
-        | 'whatsapp'
-      )[],
+      gender: safeGender as any,
+      contact_preferences: (customer.contact_preferences ?? ["email"]) as any,
       accepts_marketing: customer.accepts_marketing ?? true,
       active: customer.active ?? true,
     });
@@ -138,11 +125,12 @@ export default function Customers() {
   const handleDelete = (id: number) => {
     deleteMutation.mutate(id, {
       onSuccess: () => {
-        toast({ title: 'Cliente excluído com sucesso!' });
+        toast({ title: "Cliente excluído com sucesso!" });
         setDeleteDialogOpen(false);
         setDeletingId(null);
       },
-      onError: () => toast({ title: 'Erro ao excluir cliente', variant: 'destructive' }),
+      onError: () =>
+        toast({ title: "Erro ao excluir cliente", variant: "destructive" }),
     });
   };
 
@@ -152,23 +140,21 @@ export default function Customers() {
     form.reset();
   };
 
-  const customers = customersData?.data ?? [];
-
   const columns = [
-    { key: 'name', header: 'Nome', render: (c: Customer) => c.name },
+    { key: "name", header: "Nome", render: (c: Customer) => c.name },
     {
-      key: 'email',
-      header: 'Email',
+      key: "email",
+      header: "Email",
       render: (c: Customer) => (
         <div className="flex items-center gap-2">
           <Mail className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm">{c.email}</span>
+          <span className="text-sm break-all">{c.email}</span>
         </div>
       ),
     },
     {
-      key: 'phone',
-      header: 'Telefone',
+      key: "phone",
+      header: "Telefone",
       render: (c: Customer) => (
         <div className="flex items-center gap-2">
           <Phone className="h-4 w-4 text-muted-foreground" />
@@ -177,36 +163,34 @@ export default function Customers() {
       ),
     },
     {
-      key: 'accepts_marketing',
-      header: 'Marketing',
-      render: (c: Customer) =>
-        c.accepts_marketing ? (
-          <Badge variant="default">Aceita</Badge>
-        ) : (
-          <Badge variant="outline">Não aceita</Badge>
-        ),
+      key: "accepts_marketing",
+      header: "Marketing",
+      render: (c: Customer) => (
+        <Badge variant={c.accepts_marketing ? "default" : "outline"}>
+          {c.accepts_marketing ? "Aceita" : "Não aceita"}
+        </Badge>
+      ),
     },
     {
-      key: 'active',
-      header: 'Status',
-      render: (c: Customer) =>
-        c.active ? (
-          <Badge variant="default">Ativo</Badge>
-        ) : (
-          <Badge variant="secondary">Inativo</Badge>
-        ),
+      key: "active",
+      header: "Status",
+      render: (c: Customer) => (
+        <Badge variant={c.active ? "success" : "secondary"}>
+          {c.active ? "Ativo" : "Inativo"}
+        </Badge>
+      ),
     },
     {
-      key: 'actions',
-      header: 'Ações',
+      key: "actions",
+      header: "Ações",
       render: (c: Customer) => (
         <div className="flex gap-2">
-          {can('customers', 'update') && (
+          {can("customers", "update") && (
             <Button variant="ghost" size="icon" onClick={() => handleEdit(c)}>
               <Pencil className="h-4 w-4" />
             </Button>
           )}
-          {can('customers', 'delete') && (
+          {can("customers", "delete") && (
             <Button
               variant="ghost"
               size="icon"
@@ -215,7 +199,7 @@ export default function Customers() {
                 setDeleteDialogOpen(true);
               }}
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 className="h-4 w-4 text-destructive" />
             </Button>
           )}
         </div>
@@ -225,31 +209,41 @@ export default function Customers() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold">Clientes</h1>
           <p className="text-muted-foreground">Gerencie seus clientes e preferências de marketing</p>
         </div>
 
-        {can('customers', 'create') && (
+        {can("customers", "create") && (
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button onClick={() => setEditingCustomer(null)}>
+              <Button className={cn("shadow-md", isMobile && "w-full")} onClick={() => setEditingCustomer(null)}>
                 <Plus className="mr-2 h-4 w-4" />
                 Novo Cliente
               </Button>
             </DialogTrigger>
 
-            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogContent
+              className={
+                isMobile
+                  ? "max-w-[95vw] h-[90vh] overflow-y-auto"
+                  : "max-w-4xl max-h-[90vh] overflow-y-auto"
+              }
+            >
               <DialogHeader>
-                <DialogTitle>{editingCustomer ? 'Editar Cliente' : 'Novo Cliente'}</DialogTitle>
+                <DialogTitle>
+                  {editingCustomer ? "Editar Cliente" : "Novo Cliente"}
+                </DialogTitle>
               </DialogHeader>
 
               <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                <form
+                  onSubmit={form.handleSubmit(onSubmit)}
+                  className="space-y-6 pb-4"
+                >
                   <div className="space-y-4">
                     <h3 className="text-lg font-semibold">Dados Pessoais</h3>
-
                     <FormField
                       control={form.control}
                       name="name"
@@ -264,7 +258,7 @@ export default function Customers() {
                       )}
                     />
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <FormField
                         control={form.control}
                         name="cpf"
@@ -274,7 +268,9 @@ export default function Customers() {
                             <FormControl>
                               <Input
                                 {...field}
-                                onChange={(e) => field.onChange(formatCPF(e.target.value))}
+                                onChange={(e) =>
+                                  field.onChange(formatCPF(e.target.value))
+                                }
                                 placeholder="000.000.000-00"
                               />
                             </FormControl>
@@ -303,17 +299,22 @@ export default function Customers() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Gênero</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value}
+                          >
                             <FormControl>
                               <SelectTrigger>
-                                <SelectValue />
+                                <SelectValue placeholder="Selecione" />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
                               <SelectItem value="male">Masculino</SelectItem>
                               <SelectItem value="female">Feminino</SelectItem>
                               <SelectItem value="other">Outro</SelectItem>
-                              <SelectItem value="not_informed">Não informado</SelectItem>
+                              <SelectItem value="not_informed">
+                                Não informado
+                              </SelectItem>
                             </SelectContent>
                           </Select>
                           <FormMessage />
@@ -324,7 +325,6 @@ export default function Customers() {
 
                   <div className="space-y-4">
                     <h3 className="text-lg font-semibold">Contato</h3>
-
                     <FormField
                       control={form.control}
                       name="email"
@@ -339,7 +339,7 @@ export default function Customers() {
                       )}
                     />
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <FormField
                         control={form.control}
                         name="phone"
@@ -349,7 +349,9 @@ export default function Customers() {
                             <FormControl>
                               <Input
                                 {...field}
-                                onChange={(e) => field.onChange(formatPhone(e.target.value))}
+                                onChange={(e) =>
+                                  field.onChange(formatPhone(e.target.value))
+                                }
                                 placeholder="(00) 00000-0000"
                               />
                             </FormControl>
@@ -366,7 +368,9 @@ export default function Customers() {
                             <FormControl>
                               <Input
                                 {...field}
-                                onChange={(e) => field.onChange(formatPhone(e.target.value))}
+                                onChange={(e) =>
+                                  field.onChange(formatPhone(e.target.value))
+                                }
                                 placeholder="(00) 00000-0000"
                               />
                             </FormControl>
@@ -379,8 +383,7 @@ export default function Customers() {
 
                   <div className="space-y-4">
                     <h3 className="text-lg font-semibold">Endereço</h3>
-
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <FormField
                         control={form.control}
                         name="zip_code"
@@ -391,16 +394,21 @@ export default function Customers() {
                               <Input
                                 {...field}
                                 placeholder="00000-000"
-                                onChange={(e) => field.onChange(formatCEP(e.target.value))}
+                                onChange={(e) =>
+                                  field.onChange(formatCEP(e.target.value))
+                                }
                                 onBlur={async (e) => {
-                                  const value = e.target.value.replace(/\D/g, '');
+                                  const value = e.target.value.replace(/\D/g, "");
                                   if (value.length === 8) {
                                     const address = await getAddressByCep(value);
                                     if (address) {
-                                      form.setValue('address', address.address);
-                                      form.setValue('neighborhood', address.neighborhood);
-                                      form.setValue('city', address.city);
-                                      form.setValue('state', address.state);
+                                      form.setValue("address", address.address);
+                                      form.setValue(
+                                        "neighborhood",
+                                        address.neighborhood
+                                      );
+                                      form.setValue("city", address.city);
+                                      form.setValue("state", address.state);
                                     }
                                   }
                                 }}
@@ -410,24 +418,22 @@ export default function Customers() {
                           </FormItem>
                         )}
                       />
-                      <div className="col-span-2">
-                        <FormField
-                          control={form.control}
-                          name="address"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Logradouro</FormLabel>
-                              <FormControl>
-                                <Input {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
+                      <FormField
+                        control={form.control}
+                        name="address"
+                        render={({ field }) => (
+                          <FormItem className="sm:col-span-2">
+                            <FormLabel>Logradouro</FormLabel>
+                            <FormControl>
+                              <Input {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
                     </div>
 
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <FormField
                         control={form.control}
                         name="number"
@@ -441,24 +447,22 @@ export default function Customers() {
                           </FormItem>
                         )}
                       />
-                      <div className="col-span-2">
-                        <FormField
-                          control={form.control}
-                          name="complement"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Complemento</FormLabel>
-                              <FormControl>
-                                <Input {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
+                      <FormField
+                        control={form.control}
+                        name="complement"
+                        render={({ field }) => (
+                          <FormItem className="sm:col-span-2">
+                            <FormLabel>Complemento</FormLabel>
+                            <FormControl>
+                              <Input {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
                     </div>
 
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <FormField
                         control={form.control}
                         name="neighborhood"
@@ -493,12 +497,12 @@ export default function Customers() {
                             <FormLabel>Estado</FormLabel>
                             <Select
                               onValueChange={field.onChange}
-                              value={field.value || ''}
+                              value={field.value || ""}
                               disabled={statesLoading}
                             >
                               <FormControl>
                                 <SelectTrigger>
-                                  <SelectValue placeholder="Selecione o estado" />
+                                  <SelectValue placeholder="Selecione" />
                                 </SelectTrigger>
                               </FormControl>
                               <SelectContent>
@@ -517,8 +521,9 @@ export default function Customers() {
                   </div>
 
                   <div className="space-y-4">
-                    <h3 className="text-lg font-semibold">Marketing e Comunicação</h3>
-
+                    <h3 className="text-lg font-semibold">
+                      Marketing e Comunicação
+                    </h3>
                     <FormField
                       control={form.control}
                       name="contact_preferences"
@@ -526,39 +531,34 @@ export default function Customers() {
                         <FormItem>
                           <FormLabel>Preferências de Contato</FormLabel>
                           <div className="space-y-2">
-                            {['email', 'sms', 'whatsapp'].map((item) => (
+                            {["email", "sms", "whatsapp"].map((item) => (
                               <FormField
                                 key={item}
                                 control={form.control}
                                 name="contact_preferences"
                                 render={({ field }) => (
-                                  <FormItem className="flex items-center space-x-2 space-y-0">
+                                  <FormItem className="flex items-center space-x-2">
                                     <FormControl>
                                       <Checkbox
                                         checked={field.value?.includes(item as any)}
                                         onCheckedChange={(checked) => {
                                           const value = field.value || [];
-                                          if (checked) {
-                                            field.onChange([...value, item]);
-                                          } else {
-                                            field.onChange(value.filter((v) => v !== item));
-                                          }
+                                          field.onChange(
+                                            checked
+                                              ? [...value, item]
+                                              : value.filter((v) => v !== item)
+                                          );
                                         }}
                                       />
                                     </FormControl>
-                                    <FormLabel className="font-normal">
-                                      {item === 'email'
-                                        ? 'Email'
-                                        : item === 'sms'
-                                        ? 'SMS'
-                                        : 'WhatsApp'}
+                                    <FormLabel className="font-normal capitalize">
+                                      {item}
                                     </FormLabel>
                                   </FormItem>
                                 )}
                               />
                             ))}
                           </div>
-                          <FormMessage />
                         </FormItem>
                       )}
                     />
@@ -567,16 +567,19 @@ export default function Customers() {
                       control={form.control}
                       name="accepts_marketing"
                       render={({ field }) => (
-                        <FormItem className="flex items-center space-x-2 space-y-0 rounded-md border p-4">
+                        <FormItem className="flex items-center space-x-2 rounded-md border p-4">
                           <FormControl>
-                            <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                            />
                           </FormControl>
-                          <div className="space-y-1">
+                          <div>
                             <FormLabel className="font-normal">
-                              Aceita receber promoções e campanhas
+                              Aceita receber promoções
                             </FormLabel>
                             <FormDescription>
-                              O cliente autoriza o recebimento de materiais promocionais.
+                              O cliente autoriza o recebimento de campanhas.
                             </FormDescription>
                           </div>
                         </FormItem>
@@ -584,52 +587,53 @@ export default function Customers() {
                     />
                   </div>
 
-                  <div className="space-y-4">
-                    <FormField
-                      control={form.control}
-                      name="notes"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Observações</FormLabel>
+                  <FormField
+                    control={form.control}
+                    name="notes"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Observações</FormLabel>
+                        <FormControl>
+                          <Textarea {...field} rows={3} />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="active"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Status</FormLabel>
+                        <Select
+                          onValueChange={(v) => field.onChange(v === "true")}
+                          value={String(field.value)}
+                        >
                           <FormControl>
-                            <Textarea {...field} rows={3} />
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione" />
+                            </SelectTrigger>
                           </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="active"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Status</FormLabel>
-                          <Select
-                            onValueChange={(v) => field.onChange(v === 'true')}
-                            value={String(field.value)}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Selecione" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="true">Ativo</SelectItem>
-                              <SelectItem value="false">Inativo</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
+                          <SelectContent>
+                            <SelectItem value="true">Ativo</SelectItem>
+                            <SelectItem value="false">Inativo</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </FormItem>
+                    )}
+                  />
 
                   <div className="flex justify-end gap-2">
-                    <Button type="button" variant="outline" onClick={handleCloseDialog}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleCloseDialog}
+                    >
                       Cancelar
                     </Button>
                     <Button type="submit">
-                      {editingCustomer ? 'Salvar' : 'Cadastrar'}
+                      {editingCustomer ? "Salvar" : "Cadastrar"}
                     </Button>
                   </div>
                 </form>
@@ -639,19 +643,22 @@ export default function Customers() {
         )}
       </div>
 
-      <DataTable columns={columns} data={customers} loading={isLoading} />
+      <DataTable data={customers} columns={columns} loading={isLoading} />
 
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja excluir este cliente? Esta ação não pode ser desfeita.
+              Tem certeza que deseja excluir este cliente? Esta ação não pode ser
+              desfeita.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => deletingId && handleDelete(deletingId)}>
+            <AlertDialogAction
+              onClick={() => deletingId && handleDelete(deletingId)}
+            >
               Excluir
             </AlertDialogAction>
           </AlertDialogFooter>

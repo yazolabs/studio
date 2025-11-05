@@ -1,70 +1,35 @@
-import { useEffect, useState } from 'react';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { DataTable } from '@/components/DataTable';
-import { Plus, Edit, Trash2 } from 'lucide-react';
-import { usePermission } from '@/hooks/usePermission';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from '@/components/ui/form';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { useToast } from '@/hooks/use-toast';
-import {
-  listItems,
-  createItem,
-  updateItem,
-  removeItem,
-} from '@/services/itemsService';
-import type { Item, CreateItemDto } from '@/types/item';
+import { useEffect, useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { DataTable } from "@/components/DataTable";
+import { Plus, Edit, Trash2 } from "lucide-react";
+import { usePermission } from "@/hooks/usePermission";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { cn } from "@/lib/utils";
+import { listItems, createItem, updateItem, removeItem } from "@/services/itemsService";
+import type { Item, CreateItemDto } from "@/types/item";
 
-// --------------------
-// SCHEMA
-// --------------------
 const itemSchema = z.object({
-  name: z.string().trim().min(1, 'Nome é obrigatório').max(160),
+  name: z.string().trim().min(1, "Nome é obrigatório").max(160),
   description: z.string().trim().max(500).optional(),
-  category: z.string().trim().optional().default(''),
-  stock: z.coerce.number().min(0, 'Estoque não pode ser negativo'),
-  minStock: z.coerce.number().min(0, 'Estoque mínimo não pode ser negativo'),
+  category: z.string().trim().optional().default(""),
+  stock: z.coerce.number().min(0, "Estoque não pode ser negativo"),
+  minStock: z.coerce.number().min(0, "Estoque mínimo não pode ser negativo"),
   barcode: z.string().trim().max(80).optional(),
-  cost: z.coerce.number().min(0, 'Preço de custo inválido'),
-  price: z.coerce.number().min(0, 'Preço de venda inválido'),
-  commissionType: z.enum(['percentage', 'fixed']),
-  commissionValue: z.coerce.number().min(0, 'Valor da comissão deve ser positivo'),
+  cost: z.coerce.number().min(0, "Preço de custo inválido"),
+  price: z.coerce.number().min(0, "Preço de venda inválido"),
+  commissionType: z.enum(["percentage", "fixed"]),
+  commissionValue: z.coerce.number().min(0, "Valor da comissão deve ser positivo"),
 });
 
 export default function Items() {
@@ -76,19 +41,20 @@ export default function Items() {
   const [deletingItemId, setDeletingItemId] = useState<number | null>(null);
   const { can } = usePermission();
   const { toast } = useToast();
+  const isMobile = useIsMobile();
 
   const form = useForm<z.infer<typeof itemSchema>>({
     resolver: zodResolver(itemSchema),
     defaultValues: {
-      name: '',
-      description: '',
-      category: '',
+      name: "",
+      description: "",
+      category: "",
       stock: 0,
       minStock: 0,
-      barcode: '',
+      barcode: "",
       cost: 0,
       price: 0,
-      commissionType: 'percentage',
+      commissionType: "percentage",
       commissionValue: 0,
     },
   });
@@ -97,13 +63,13 @@ export default function Items() {
     setLoading(true);
     try {
       const result = await listItems({ page: 1, perPage: 50 });
-      const data = Array.isArray(result.data) ? result.data : result;
-      setItems(data);
+      setItems(result.data ?? []);
     } catch (err: any) {
       toast({
-        title: 'Erro ao carregar itens',
-        description: err?.response?.data?.message ?? 'Não foi possível carregar os itens.',
-        variant: 'destructive',
+        title: "Erro ao carregar itens",
+        description:
+          err?.response?.data?.message ?? "Não foi possível carregar os itens.",
+        variant: "destructive",
       });
     } finally {
       setLoading(false);
@@ -124,14 +90,14 @@ export default function Items() {
     setEditingItem(item);
     form.reset({
       name: item.name,
-      description: item.description ?? '',
-      category: item.category ?? '',
+      description: item.description ?? "",
+      category: item.category ?? "",
       stock: item.stock,
       minStock: item.minStock,
-      barcode: item.barcode ?? '',
+      barcode: item.barcode ?? "",
       cost: Number(item.cost),
       price: Number(item.price),
-      commissionType: item.commissionType ?? 'percentage',
+      commissionType: item.commissionType ?? "percentage",
       commissionValue: Number(item.commissionValue),
     });
     setDialogOpen(true);
@@ -146,13 +112,13 @@ export default function Items() {
     if (!deletingItemId) return;
     try {
       await removeItem(deletingItemId);
-      toast({ title: 'Item excluído', description: 'Removido com sucesso.' });
+      toast({ title: "Item excluído", description: "Removido com sucesso." });
       await load();
     } catch (err: any) {
       toast({
-        title: 'Erro ao excluir',
-        description: err?.response?.data?.message ?? 'Tente novamente.',
-        variant: 'destructive',
+        title: "Erro ao excluir",
+        description: err?.response?.data?.message ?? "Tente novamente.",
+        variant: "destructive",
       });
     } finally {
       setDeleteDialogOpen(false);
@@ -178,68 +144,78 @@ export default function Items() {
     try {
       if (editingItem) {
         await updateItem(editingItem.id, payload);
-        toast({ title: 'Item atualizado', description: 'Alterações salvas com sucesso.' });
+        toast({
+          title: "Item atualizado",
+          description: "Alterações salvas com sucesso.",
+        });
       } else {
         await createItem(payload);
-        toast({ title: 'Item criado', description: 'Novo item adicionado com sucesso.' });
+        toast({
+          title: "Item criado",
+          description: "Novo item adicionado com sucesso.",
+        });
       }
       setDialogOpen(false);
       await load();
     } catch (err: any) {
       toast({
-        title: 'Erro ao salvar',
-        description: err?.response?.data?.message ?? 'Verifique os dados e tente novamente.',
-        variant: 'destructive',
+        title: "Erro ao salvar",
+        description:
+          err?.response?.data?.message ?? "Verifique os dados e tente novamente.",
+        variant: "destructive",
       });
     }
   };
+
   const columns = [
-    { key: 'name', header: 'Nome' },
+    { key: "name", header: "Nome" },
     {
-      key: 'category',
-      header: 'Categoria',
+      key: "category",
+      header: "Categoria",
       render: (item: Item) => (
-        <Badge variant="secondary">{item.category ?? '-'}</Badge>
+        <Badge variant="secondary">{item.category ?? "-"}</Badge>
       ),
     },
     {
-      key: 'stock',
-      header: 'Estoque',
+      key: "stock",
+      header: "Estoque",
       render: (item: Item) => (
-        <Badge variant={item.stock < item.minStock ? 'destructive' : 'outline'}>
+        <Badge variant={item.stock < item.minStock ? "destructive" : "outline"}>
           {item.stock}
         </Badge>
       ),
     },
     {
-      key: 'cost',
-      header: 'Custo',
-      render: (item: Item) => `R$ ${Number(item.cost).toFixed(2).replace('.', ',')}`,
-    },
-    {
-      key: 'price',
-      header: 'Venda',
-      render: (item: Item) => `R$ ${Number(item.price).toFixed(2).replace('.', ',')}`,
-    },
-    {
-      key: 'commissionValue',
-      header: 'Comissão',
+      key: "cost",
+      header: "Custo",
       render: (item: Item) =>
-        item.commissionType === 'percentage'
+        `R$ ${Number(item.cost).toFixed(2).replace(".", ",")}`,
+    },
+    {
+      key: "price",
+      header: "Venda",
+      render: (item: Item) =>
+        `R$ ${Number(item.price).toFixed(2).replace(".", ",")}`,
+    },
+    {
+      key: "commissionValue",
+      header: "Comissão",
+      render: (item: Item) =>
+        item.commissionType === "percentage"
           ? `${item.commissionValue}%`
           : `R$ ${Number(item.commissionValue).toFixed(2)}`,
     },
     {
-      key: 'actions',
-      header: 'Ações',
+      key: "actions",
+      header: "Ações",
       render: (item: Item) => (
         <div className="flex gap-2">
-          {can('items', 'update') && (
+          {can("items", "update") && (
             <Button variant="ghost" size="icon" onClick={() => handleEdit(item)}>
               <Edit className="h-4 w-4" />
             </Button>
           )}
-          {can('items', 'delete') && (
+          {can("items", "delete") && (
             <Button
               variant="ghost"
               size="icon"
@@ -255,15 +231,18 @@ export default function Items() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Itens</h1>
           <p className="text-muted-foreground">
             Gerencie o estoque de produtos e materiais
           </p>
         </div>
-        {can('items', 'create') && (
-          <Button className="shadow-md" onClick={handleAdd}>
+        {can("items", "create") && (
+          <Button
+            className={cn("shadow-md", isMobile && "w-full")}
+            onClick={handleAdd}
+          >
             <Plus className="mr-2 h-4 w-4" />
             Novo Item
           </Button>
@@ -274,22 +253,28 @@ export default function Items() {
         data={items}
         columns={columns}
         searchPlaceholder="Buscar itens..."
-        isLoading={loading}
+        loading={loading}
       />
 
-      {/* MODAL */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent
+          className={cn(
+            "max-h-[90vh] overflow-y-auto",
+            isMobile ? "max-w-[95vw]" : "max-w-2xl"
+          )}
+        >
           <DialogHeader>
-            <DialogTitle>{editingItem ? 'Editar Item' : 'Novo Item'}</DialogTitle>
+            <DialogTitle>{editingItem ? "Editar Item" : "Novo Item"}</DialogTitle>
             <DialogDescription>
-              Preencha os dados do item. Campos marcados são obrigatórios.
+              {editingItem
+                ? "Atualize as informações do item."
+                : "Preencha os dados para cadastrar um novo item."}
             </DialogDescription>
           </DialogHeader>
 
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="name"
@@ -303,7 +288,6 @@ export default function Items() {
                     </FormItem>
                   )}
                 />
-
                 <FormField
                   control={form.control}
                   name="category"
@@ -337,7 +321,7 @@ export default function Items() {
                 )}
               />
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <FormField
                   control={form.control}
                   name="barcode"
@@ -351,7 +335,6 @@ export default function Items() {
                     </FormItem>
                   )}
                 />
-
                 <FormField
                   control={form.control}
                   name="stock"
@@ -365,7 +348,6 @@ export default function Items() {
                     </FormItem>
                   )}
                 />
-
                 <FormField
                   control={form.control}
                   name="minStock"
@@ -381,7 +363,7 @@ export default function Items() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="cost"
@@ -395,7 +377,6 @@ export default function Items() {
                     </FormItem>
                   )}
                 />
-
                 <FormField
                   control={form.control}
                   name="price"
@@ -411,7 +392,7 @@ export default function Items() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="commissionType"
@@ -421,7 +402,7 @@ export default function Items() {
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue />
+                            <SelectValue placeholder="Selecione" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -433,21 +414,22 @@ export default function Items() {
                     </FormItem>
                   )}
                 />
-
                 <FormField
                   control={form.control}
                   name="commissionValue"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>
-                        {form.watch('commissionType') === 'percentage'
-                          ? 'Percentual (%)'
-                          : 'Valor Fixo (R$)'}
+                        {form.watch("commissionType") === "percentage"
+                          ? "Percentual (%)"
+                          : "Valor Fixo (R$)"}
                       </FormLabel>
                       <FormControl>
                         <Input
                           type="number"
-                          step={form.watch('commissionType') === 'percentage' ? '1' : '0.01'}
+                          step={
+                            form.watch("commissionType") === "percentage" ? "1" : "0.01"
+                          }
                           {...field}
                         />
                       </FormControl>
@@ -466,7 +448,7 @@ export default function Items() {
                   Cancelar
                 </Button>
                 <Button type="submit">
-                  {editingItem ? 'Salvar Alterações' : 'Criar Item'}
+                  {editingItem ? "Salvar Alterações" : "Criar Item"}
                 </Button>
               </DialogFooter>
             </form>
@@ -474,7 +456,6 @@ export default function Items() {
         </DialogContent>
       </Dialog>
 
-      {/* CONFIRMAR EXCLUSÃO */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -497,6 +478,3 @@ export default function Items() {
     </div>
   );
 }
-
-
-
