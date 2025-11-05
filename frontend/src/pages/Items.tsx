@@ -242,7 +242,22 @@ export default function Items() {
         {can("items", "create") && (
           <Button
             className={cn("shadow-md", isMobile && "w-full")}
-            onClick={handleAdd}
+            onClick={() => {
+              setEditingItem(null);
+              form.reset({
+                name: "",
+                description: "",
+                category: "",
+                stock: 0,
+                minStock: 0,
+                barcode: "",
+                cost: 0,
+                price: 0,
+                commissionType: "percentage",
+                commissionValue: 0,
+              });
+              setDialogOpen(true);
+            }}
           >
             <Plus className="mr-2 h-4 w-4" />
             Novo Item
@@ -257,7 +272,27 @@ export default function Items() {
         loading={loading}
       />
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) {
+            setEditingItem(null);
+            form.reset({
+              name: "",
+              description: "",
+              category: "",
+              stock: 0,
+              minStock: 0,
+              barcode: "",
+              cost: 0,
+              price: 0,
+              commissionType: "percentage",
+              commissionValue: 0,
+            });
+          }
+        }}
+      >
         <DialogContent
           className={cn(
             "max-h-[90vh] overflow-y-auto",
@@ -486,7 +521,22 @@ export default function Items() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setDialogOpen(false)}
+                  onClick={() => {
+                    setDialogOpen(false);
+                    setEditingItem(null);
+                    form.reset({
+                      name: "",
+                      description: "",
+                      category: "",
+                      stock: 0,
+                      minStock: 0,
+                      barcode: "",
+                      cost: 0,
+                      price: 0,
+                      commissionType: "percentage",
+                      commissionValue: 0,
+                    });
+                  }}
                 >
                   Cancelar
                 </Button>

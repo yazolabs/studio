@@ -98,6 +98,8 @@ export default function Customers() {
       onSuccess: () => {
         toast({ title: editingCustomer ? "Cliente atualizado!" : "Cliente criado!" });
         handleCloseDialog();
+        form.reset();
+        setEditingCustomer(null);
       },
       onError: () => toast({ title: "Erro ao salvar cliente", variant: "destructive" }),
     });
@@ -216,9 +218,62 @@ export default function Customers() {
         </div>
 
         {can("customers", "create") && (
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <Dialog
+            open={dialogOpen}
+            onOpenChange={(open) => {
+              setDialogOpen(open);
+              if (!open) {
+                setEditingCustomer(null);
+                form.reset({
+                  name: "",
+                  cpf: "",
+                  email: "",
+                  phone: "",
+                  alternate_phone: "",
+                  address: "",
+                  number: "",
+                  complement: "",
+                  neighborhood: "",
+                  city: "",
+                  state: "",
+                  zip_code: "",
+                  birth_date: "",
+                  gender: "not_informed",
+                  contact_preferences: ["email"],
+                  accepts_marketing: true,
+                  active: true,
+                  notes: "",
+                });
+              }
+            }}
+          >
             <DialogTrigger asChild>
-              <Button className={cn("shadow-md", isMobile && "w-full")} onClick={() => setEditingCustomer(null)}>
+              <Button
+                className={cn("shadow-md", isMobile && "w-full")}
+                onClick={() => {
+                  setEditingCustomer(null);
+                  form.reset({
+                    name: "",
+                    cpf: "",
+                    email: "",
+                    phone: "",
+                    alternate_phone: "",
+                    address: "",
+                    number: "",
+                    complement: "",
+                    neighborhood: "",
+                    city: "",
+                    state: "",
+                    zip_code: "",
+                    birth_date: "",
+                    gender: "not_informed",
+                    contact_preferences: ["email"],
+                    accepts_marketing: true,
+                    active: true,
+                    notes: "",
+                  });
+                }}
+              >
                 <Plus className="mr-2 h-4 w-4" />
                 Novo Cliente
               </Button>

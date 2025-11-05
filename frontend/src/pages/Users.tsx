@@ -54,6 +54,8 @@ export default function Users() {
       toast.success("Usuário criado com sucesso!");
       queryClient.invalidateQueries({ queryKey: ["users"] });
       setDialogOpen(false);
+      setEditingUser(null);
+      form.reset();
     },
     onError: () => toast.error("Erro ao criar usuário."),
   });
@@ -64,6 +66,8 @@ export default function Users() {
       toast.success("Usuário atualizado com sucesso!");
       queryClient.invalidateQueries({ queryKey: ["users"] });
       setDialogOpen(false);
+      setEditingUser(null);
+      form.reset();
     },
     onError: () => toast.error("Erro ao atualizar usuário."),
   });
@@ -90,7 +94,13 @@ export default function Users() {
 
   const handleAdd = () => {
     setEditingUser(null);
-    form.reset();
+    form.reset({
+      name: "",
+      email: "",
+      username: "",
+      password: "",
+      roles: [],
+    });
     setDialogOpen(true);
   };
 
@@ -195,7 +205,22 @@ export default function Users() {
         emptyMessage="Nenhum usuário encontrado."
       />
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) {
+            setEditingUser(null);
+            form.reset({
+              name: "",
+              email: "",
+              username: "",
+              password: "",
+              roles: [],
+            });
+          }
+        }}
+      >
         <DialogContent
           className={cn(
             "max-h-[90vh] overflow-y-auto",
