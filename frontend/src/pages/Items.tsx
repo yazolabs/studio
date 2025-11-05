@@ -18,6 +18,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import { listItems, createItem, updateItem, removeItem } from "@/services/itemsService";
 import type { Item, CreateItemDto } from "@/types/item";
+import { formatCurrencyInput, formatPercentageInput, displayCurrency, displayPercentage } from '@/utils/formatters';
 
 const itemSchema = z.object({
   name: z.string().trim().min(1, "Nome é obrigatório").max(160),
@@ -371,7 +372,20 @@ export default function Items() {
                     <FormItem>
                       <FormLabel>Preço de Custo *</FormLabel>
                       <FormControl>
-                        <Input type="number" step="0.01" {...field} />
+                        <Input
+                          placeholder="Ex: R$ 10,00"
+                          value={
+                            Number(field.value) > 1
+                              ? displayCurrency(field.value)
+                              : formatCurrencyInput(field.value?.toString() || '')
+                          }
+                          onChange={(e) => {
+                            const formatted = formatCurrencyInput(e.target.value);
+                            field.onChange(
+                              formatted.replace(/[^\d,]/g, '').replace(',', '.')
+                            );
+                          }}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -384,7 +398,20 @@ export default function Items() {
                     <FormItem>
                       <FormLabel>Preço de Venda *</FormLabel>
                       <FormControl>
-                        <Input type="number" step="0.01" {...field} />
+                        <Input
+                          placeholder="Ex: R$ 20,00"
+                          value={
+                            Number(field.value) > 1
+                              ? displayCurrency(field.value)
+                              : formatCurrencyInput(field.value?.toString() || '')
+                          }
+                          onChange={(e) => {
+                            const formatted = formatCurrencyInput(e.target.value);
+                            field.onChange(
+                              formatted.replace(/[^\d,]/g, '').replace(',', '.')
+                            );
+                          }}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -414,28 +441,44 @@ export default function Items() {
                     </FormItem>
                   )}
                 />
+
                 <FormField
                   control={form.control}
                   name="commissionValue"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        {form.watch("commissionType") === "percentage"
-                          ? "Percentual (%)"
-                          : "Valor Fixo (R$)"}
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          step={
-                            form.watch("commissionType") === "percentage" ? "1" : "0.01"
-                          }
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+                  render={({ field }) => {
+                    const type = form.watch('commissionType');
+
+                    return (
+                      <FormItem>
+                        <FormLabel>
+                          {type === 'percentage' ? 'Percentual (%)' : 'Valor Fixo (R$)'}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder={type === 'percentage' ? 'Ex: 5,00' : 'Ex: R$ 15,00'}
+                            value={
+                              type === 'percentage'
+                                ? displayPercentage(field.value)
+                                : formatCurrencyInput(field.value?.toString() || '')
+                            }
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              if (type === 'percentage') {
+                                const formatted = formatPercentageInput(value);
+                                field.onChange(formatted.replace(',', '.'));
+                              } else {
+                                const formatted = formatCurrencyInput(value);
+                                field.onChange(
+                                  formatted.replace(/[^\d,]/g, '').replace(',', '.')
+                                );
+                              }
+                            }}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
                 />
               </div>
 

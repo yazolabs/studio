@@ -27,17 +27,51 @@ export function formatPhone(value: string) {
 }
 
 export function formatCurrencyInput(value: string): string {
-  const digits = value.replace(/\D/g, '');
+  const digits = value.replace(/\D/g, '').slice(0, 15);
 
   if (!digits) return 'R$ 0,00';
 
-  const limited = digits.slice(0, 15);
+  const integerPart = digits.slice(0, -2) || '0';
+  const decimalPart = digits.slice(-2).padStart(2, '0');
+  const formattedNumber = `${integerPart},${decimalPart}`;
 
-  const numberValue = parseFloat((parseInt(limited, 10) / 100).toFixed(2));
+  const numberValue = Number(`${integerPart}.${decimalPart}`);
 
   return numberValue.toLocaleString('pt-BR', {
     style: 'currency',
     currency: 'BRL',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+export function formatPercentageInput(value: string): string {
+  const digits = value.replace(/\D/g, '').slice(0, 5);
+  if (!digits) return '0';
+
+  const numberValue = parseFloat((parseInt(digits, 10) / 100).toFixed(2));
+
+  return numberValue.toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+export function displayCurrency(value: string | number | null): string {
+  if (value == null || value === '') return '';
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  return num.toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+export function displayPercentage(value: string | number | null): string {
+  if (value == null || value === '') return '';
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  return num.toLocaleString('pt-BR', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });

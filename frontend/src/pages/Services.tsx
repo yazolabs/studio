@@ -7,51 +7,18 @@ import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/DataTable";
 import { Plus, Edit, Trash2 } from "lucide-react";
 import { usePermission } from "@/hooks/usePermission";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { useIsMobile } from "@/hooks/use-mobile"; // ✅ novo
+import { useIsMobile } from "@/hooks/use-mobile";
 import type { Service, CreateServiceDto } from "@/types/service";
-import {
-  listServices,
-  createService,
-  updateService,
-  removeService,
-} from "@/services/servicesService";
+import { listServices, createService, updateService, removeService } from "@/services/servicesService";
 import { cn } from "@/lib/utils";
+import { formatCurrencyInput, formatPercentageInput, displayCurrency, displayPercentage } from '@/utils/formatters';
 
 const serviceSchema = z.object({
   name: z.string().min(1, "Nome é obrigatório").max(100),
@@ -73,7 +40,7 @@ export default function Services() {
   const [deletingServiceId, setDeletingServiceId] = useState<number | null>(null);
   const { can } = usePermission();
   const { toast } = useToast();
-  const isMobile = useIsMobile(); // ✅ responsividade
+  const isMobile = useIsMobile();
 
   const form = useForm<z.infer<typeof serviceSchema>>({
     resolver: zodResolver(serviceSchema),
@@ -343,7 +310,20 @@ export default function Services() {
                     <FormItem>
                       <FormLabel>Preço (R$)</FormLabel>
                       <FormControl>
-                        <Input type="number" step="0.01" {...field} />
+                        <Input
+                          placeholder="R$ 0,00"
+                          value={
+                            Number(field.value) > 1
+                              ? displayCurrency(field.value)
+                              : formatCurrencyInput(field.value?.toString() || '')
+                          }
+                          onChange={(e) => {
+                            const formatted = formatCurrencyInput(e.target.value);
+                            field.onChange(
+                              formatted.replace(/[^\d,]/g, '').replace(',', '.')
+                            );
+                          }}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -386,9 +366,7 @@ export default function Services() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="percentage">
-                            Percentual (%)
-                          </SelectItem>
+                          <SelectItem value="percentage">Percentual (%)</SelectItem>
                           <SelectItem value="fixed">Valor Fixo (R$)</SelectItem>
                         </SelectContent>
                       </Select>
@@ -397,35 +375,42 @@ export default function Services() {
                   )}
                 />
                 <FormField
-                  control={form.control}
-                  name="commissionValue"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        {form.watch("commissionType") === "percentage"
-                          ? "Percentual (%)"
-                          : "Valor Fixo (R$)"}
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          step={
-                            form.watch("commissionType") === "percentage"
-                              ? "1"
-                              : "0.01"
-                          }
-                          placeholder={
-                            form.watch("commissionType") === "percentage"
-                              ? "Ex: 30"
-                              : "Ex: 15.00"
-                          }
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+  control={form.control}
+  name="commissionValue"
+  render={({ field }) => {
+    const type = form.watch("commissionType");
+
+    return (
+      <FormItem>
+        <FormLabel>
+          {type === "percentage" ? "Percentual (%)" : "Valor Fixo (R$)"}
+        </FormLabel>
+        <FormControl>
+          <Input
+            placeholder={type === "percentage" ? "Ex: 5,00" : "Ex: R$ 15,00"}
+            value={
+              type === "percentage"
+                ? displayPercentage(field.value)
+                : formatCurrencyInput(field.value?.toString() || "")
+            }
+            onChange={(e) => {
+              const value = e.target.value;
+              if (type === "percentage") {
+                const formatted = formatPercentageInput(value);
+                field.onChange(formatted.replace(",", "."));
+              } else {
+                const formatted = formatCurrencyInput(value);
+                field.onChange(formatted.replace(/[^\d,]/g, "").replace(",", "."));
+              }
+            }}
+          />
+        </FormControl>
+        <FormMessage />
+      </FormItem>
+    );
+  }}
+/>
+
               </div>
 
               <FormField

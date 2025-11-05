@@ -21,6 +21,7 @@ import type { User } from "@/types/user";
 import { WorkScheduleDay } from "@/types/work-schedule";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
+import { formatPhone } from '@/utils/formatters';
 
 const mockServices = [
   { id: "1", name: "Corte Feminino" },
@@ -292,7 +293,12 @@ export default function Professionals() {
                   <FormItem>
                     <FormLabel>Telefone</FormLabel>
                     <FormControl>
-                      <Input placeholder="(81) 90011-2233" {...field} />
+                      <Input
+                        placeholder="(81) 90011-2233"
+                        value={field.value || ''}
+                        onChange={(e) => field.onChange(formatPhone(e.target.value))}
+                        maxLength={15}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

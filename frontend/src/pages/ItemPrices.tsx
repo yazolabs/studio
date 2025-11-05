@@ -20,6 +20,7 @@ import type { Item } from '@/types/item';
 import type { ItemPrice, CreateItemPriceDto } from '@/types/item-price';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
+import { formatCurrencyInput, displayCurrency } from '@/utils/formatters';
 
 const priceSchema = z.object({
   itemId: z.string().min(1, 'Item é obrigatório'),
@@ -303,7 +304,20 @@ export default function ItemPrices() {
                     <FormItem>
                       <FormLabel>Preço de Custo *</FormLabel>
                       <FormControl>
-                        <Input type="number" step="0.01" {...field} />
+                        <Input
+                          placeholder="Ex: R$ 10,00"
+                          value={
+                            Number(field.value) > 1
+                              ? displayCurrency(field.value)
+                              : formatCurrencyInput(field.value?.toString() || '')
+                          }
+                          onChange={(e) => {
+                            const formatted = formatCurrencyInput(e.target.value);
+                            field.onChange(
+                              formatted.replace(/[^\d,]/g, '').replace(',', '.')
+                            );
+                          }}
+                        />
                       </FormControl>
                       <FormDescription>Preço pago ao fornecedor</FormDescription>
                       <FormMessage />
@@ -318,7 +332,20 @@ export default function ItemPrices() {
                     <FormItem>
                       <FormLabel>Preço de Venda *</FormLabel>
                       <FormControl>
-                        <Input type="number" step="0.01" {...field} />
+                        <Input
+                          placeholder="Ex: R$ 25,00"
+                          value={
+                            Number(field.value) > 1
+                              ? displayCurrency(field.value)
+                              : formatCurrencyInput(field.value?.toString() || '')
+                          }
+                          onChange={(e) => {
+                            const formatted = formatCurrencyInput(e.target.value);
+                            field.onChange(
+                              formatted.replace(/[^\d,]/g, '').replace(',', '.')
+                            );
+                          }}
+                        />
                       </FormControl>
                       <FormDescription>Preço cobrado ao cliente</FormDescription>
                       <FormMessage />

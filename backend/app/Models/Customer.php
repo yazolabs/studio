@@ -42,14 +42,6 @@ class Customer extends Model
         'active' => 'boolean',
     ];
 
-    /*
-    |--------------------------------------------------------------------------
-    | ACCESSORS & MUTATORS
-    |--------------------------------------------------------------------------
-    | Esses métodos garantem que CPF, telefones e CEP sejam salvos limpos
-    | e que possam ser formatados automaticamente ao serem exibidos.
-    */
-
     protected function cpf(): Attribute
     {
         return Attribute::make(
@@ -82,11 +74,6 @@ class Customer extends Model
         );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | FORMAT HELPERS
-    |--------------------------------------------------------------------------
-    */
     private function formatCpf(?string $cpf): ?string
     {
         if (!$cpf || strlen($cpf) !== 11) return $cpf;
@@ -112,11 +99,6 @@ class Customer extends Model
         return preg_replace('/(\d{5})(\d{3})/', '$1-$2', $cep);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | RELACIONAMENTOS
-    |--------------------------------------------------------------------------
-    */
     public function appointments()
     {
         return $this->hasMany(Appointment::class);
