@@ -23,7 +23,7 @@ import { cn } from '@/lib/utils';
 import { formatCurrencyInput, displayCurrency } from '@/utils/formatters';
 
 const priceSchema = z.object({
-  itemId: z.string().min(1, 'Item é obrigatório'),
+  item_id: z.string().min(1, 'Item é obrigatório'),
   cost: z.coerce.number().min(0, 'Preço de custo inválido'),
   price: z.coerce.number().min(0, 'Preço de venda inválido'),
   margin: z.coerce.number().optional(),
@@ -42,7 +42,7 @@ export default function ItemPrices() {
   const form = useForm<z.infer<typeof priceSchema>>({
     resolver: zodResolver(priceSchema),
     defaultValues: {
-      itemId: '',
+      item_id: '',
       cost: 0,
       price: 0,
       margin: 0,
@@ -86,7 +86,7 @@ export default function ItemPrices() {
     if (price) {
       setEditing(price);
       form.reset({
-        itemId: String(price.itemId),
+        item_id: String(price.item_id),
         cost: Number(price.cost ?? 0),
         price: Number(price.price ?? 0),
         margin: Number(price.margin ?? 0),
@@ -95,7 +95,7 @@ export default function ItemPrices() {
     } else {
       setEditing(null);
       form.reset({
-        itemId: '',
+        item_id: '',
         cost: 0,
         price: 0,
         margin: 0,
@@ -117,11 +117,11 @@ export default function ItemPrices() {
         : 0;
 
     const payload: CreateItemPriceDto = {
-      itemId: Number(values.itemId),
+      item_id: Number(values.item_id),
       price: values.price.toFixed(2),
       cost: values.cost.toFixed(2),
       margin: marginPercent.toFixed(2),
-      effectiveDate: format(new Date(), 'yyyy-MM-dd'),
+      effective_date: format(new Date(), 'yyyy-MM-dd'),
       notes: values.notes ?? null,
     };
 
@@ -154,9 +154,9 @@ export default function ItemPrices() {
 
   const columns = [
     {
-      key: 'itemId',
+      key: 'item_id',
       header: 'Item',
-      render: (p: ItemPrice) => items.find((i) => i.id === p.itemId)?.name ?? '-',
+      render: (p: ItemPrice) => items.find((i) => i.id === p.item_id)?.name ?? '-',
     },
     {
       key: 'price',
@@ -175,11 +175,11 @@ export default function ItemPrices() {
         p.margin ? `${Number(p.margin).toFixed(1)}%` : '-',
     },
     {
-      key: 'effectiveDate',
+      key: 'effective_date',
       header: 'Vigência',
       render: (p: ItemPrice) =>
-        p.effectiveDate
-          ? new Date(p.effectiveDate).toLocaleDateString('pt-BR')
+        p.effective_date
+          ? new Date(p.effective_date).toLocaleDateString('pt-BR')
           : '-',
     },
     {
@@ -206,8 +206,8 @@ export default function ItemPrices() {
     },
   ];
 
-  const selectedItemId = form.watch('itemId');
-  const selectedItem = items.find((i) => String(i.id) === selectedItemId);
+  const selecteditem_id = form.watch('item_id');
+  const selectedItem = items.find((i) => String(i.id) === selecteditem_id);
 
   return (
     <div className="space-y-6">
@@ -255,7 +255,7 @@ export default function ItemPrices() {
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <FormField
                 control={form.control}
-                name="itemId"
+                name="item_id"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Item *</FormLabel>

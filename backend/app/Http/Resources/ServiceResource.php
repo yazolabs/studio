@@ -16,11 +16,11 @@ class ServiceResource extends JsonResource
             'price' => $this->price,
             'duration' => $this->duration,
             'category' => $this->category,
-            'commissionType' => $this->commission_type,
-            'commissionValue' => $this->commission_value,
+            'commission_type' => $this->commission_type,
+            'commission_value' => $this->commission_value,
             'active' => $this->active,
-            'createdAt' => $this->created_at?->toISOString(),
-            'updatedAt' => $this->updated_at?->toISOString(),
+            'created_at' => $this->created_at?->toISOString(),
+            'updated_at' => $this->updated_at?->toISOString(),
         ];
     }
 }

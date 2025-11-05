@@ -25,12 +25,12 @@ const itemSchema = z.object({
   description: z.string().trim().max(500).optional(),
   category: z.string().trim().optional().default(""),
   stock: z.coerce.number().min(0, "Estoque não pode ser negativo"),
-  minStock: z.coerce.number().min(0, "Estoque mínimo não pode ser negativo"),
+  min_stock: z.coerce.number().min(0, "Estoque mínimo não pode ser negativo"),
   barcode: z.string().trim().max(80).optional(),
   cost: z.coerce.number().min(0, "Preço de custo inválido"),
   price: z.coerce.number().min(0, "Preço de venda inválido"),
-  commissionType: z.enum(["percentage", "fixed"]),
-  commissionValue: z.coerce.number().min(0, "Valor da comissão deve ser positivo"),
+  commission_type: z.enum(["percentage", "fixed"]),
+  commission_value: z.coerce.number().min(0, "Valor da comissão deve ser positivo"),
 });
 
 export default function Items() {
@@ -51,12 +51,12 @@ export default function Items() {
       description: "",
       category: "",
       stock: 0,
-      minStock: 0,
+      min_stock: 0,
       barcode: "",
       cost: 0,
       price: 0,
-      commissionType: "percentage",
-      commissionValue: 0,
+      commission_type: "percentage",
+      commission_value: 0,
     },
   });
 
@@ -94,12 +94,12 @@ export default function Items() {
       description: item.description ?? "",
       category: item.category ?? "",
       stock: item.stock,
-      minStock: item.minStock,
+      min_stock: item.min_stock,
       barcode: item.barcode ?? "",
       cost: Number(item.cost),
       price: Number(item.price),
-      commissionType: item.commissionType ?? "percentage",
-      commissionValue: Number(item.commissionValue),
+      commission_type: item.commission_type ?? "percentage",
+      commission_value: Number(item.commission_value),
     });
     setDialogOpen(true);
   };
@@ -133,13 +133,13 @@ export default function Items() {
       description: values.description || null,
       category: values.category || null,
       stock: values.stock,
-      minStock: values.minStock,
+      min_stock: values.min_stock,
       barcode: values.barcode || null,
       cost: values.cost.toFixed(2),
       price: values.price.toFixed(2),
-      commissionType: values.commissionType,
-      commissionValue: values.commissionValue.toFixed(2),
-      supplierId: null,
+      commission_type: values.commission_type,
+      commission_value: values.commission_value.toFixed(2),
+      supplier_id: null,
     };
 
     try {
@@ -181,7 +181,7 @@ export default function Items() {
       key: "stock",
       header: "Estoque",
       render: (item: Item) => (
-        <Badge variant={item.stock < item.minStock ? "destructive" : "outline"}>
+        <Badge variant={item.stock < item.min_stock ? "destructive" : "outline"}>
           {item.stock}
         </Badge>
       ),
@@ -199,12 +199,12 @@ export default function Items() {
         `R$ ${Number(item.price).toFixed(2).replace(".", ",")}`,
     },
     {
-      key: "commissionValue",
+      key: "commission_value",
       header: "Comissão",
       render: (item: Item) =>
-        item.commissionType === "percentage"
-          ? `${item.commissionValue}%`
-          : `R$ ${Number(item.commissionValue).toFixed(2)}`,
+        item.commission_type === "percentage"
+          ? `${item.commission_value}%`
+          : `R$ ${Number(item.commission_value).toFixed(2)}`,
     },
     {
       key: "actions",
@@ -249,12 +249,12 @@ export default function Items() {
                 description: "",
                 category: "",
                 stock: 0,
-                minStock: 0,
+                min_stock: 0,
                 barcode: "",
                 cost: 0,
                 price: 0,
-                commissionType: "percentage",
-                commissionValue: 0,
+                commission_type: "percentage",
+                commission_value: 0,
               });
               setDialogOpen(true);
             }}
@@ -283,12 +283,12 @@ export default function Items() {
               description: "",
               category: "",
               stock: 0,
-              minStock: 0,
+              min_stock: 0,
               barcode: "",
               cost: 0,
               price: 0,
-              commissionType: "percentage",
-              commissionValue: 0,
+              commission_type: "percentage",
+              commission_value: 0,
             });
           }
         }}
@@ -386,7 +386,7 @@ export default function Items() {
                 />
                 <FormField
                   control={form.control}
-                  name="minStock"
+                  name="min_stock"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Estoque Mínimo *</FormLabel>
@@ -457,7 +457,7 @@ export default function Items() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
-                  name="commissionType"
+                  name="commission_type"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Tipo de Comissão *</FormLabel>
@@ -479,9 +479,9 @@ export default function Items() {
 
                 <FormField
                   control={form.control}
-                  name="commissionValue"
+                  name="commission_value"
                   render={({ field }) => {
-                    const type = form.watch('commissionType');
+                    const type = form.watch('commission_type');
 
                     return (
                       <FormItem>
@@ -529,12 +529,12 @@ export default function Items() {
                       description: "",
                       category: "",
                       stock: 0,
-                      minStock: 0,
+                      min_stock: 0,
                       barcode: "",
                       cost: 0,
                       price: 0,
-                      commissionType: "percentage",
-                      commissionValue: 0,
+                      commission_type: "percentage",
+                      commission_value: 0,
                     });
                   }}
                 >

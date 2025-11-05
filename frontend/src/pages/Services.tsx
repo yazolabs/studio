@@ -27,8 +27,8 @@ const serviceSchema = z.object({
   price: z.coerce.number().min(0, "Preço deve ser positivo"),
   description: z.string().min(1, "Descrição é obrigatória").max(500),
   status: z.enum(["active", "inactive"]),
-  commissionType: z.enum(["percentage", "fixed"]),
-  commissionValue: z.coerce.number().min(0, "Valor da comissão deve ser positivo"),
+  commission_type: z.enum(["percentage", "fixed"]),
+  commission_value: z.coerce.number().min(0, "Valor da comissão deve ser positivo"),
 });
 
 export default function Services() {
@@ -51,8 +51,8 @@ export default function Services() {
       price: 0,
       description: "",
       status: "active",
-      commissionType: "percentage",
-      commissionValue: 0,
+      commission_type: "percentage",
+      commission_value: 0,
     },
   });
 
@@ -85,8 +85,8 @@ export default function Services() {
       price: 0,
       description: "",
       status: "active",
-      commissionType: "percentage",
-      commissionValue: 0,
+      commission_type: "percentage",
+      commission_value: 0,
     });
     setDialogOpen(true);
   };
@@ -100,8 +100,8 @@ export default function Services() {
       price: Number(s.price),
       description: s.description ?? "",
       status: s.active ? "active" : "inactive",
-      commissionType: s.commissionType,
-      commissionValue: Number(s.commissionValue),
+      commission_type: s.commission_type,
+      commission_value: Number(s.commission_value),
     });
     setDialogOpen(true);
   };
@@ -136,8 +136,8 @@ export default function Services() {
       price: values.price.toString(),
       duration: values.duration,
       category: values.category || null,
-      commissionType: values.commissionType,
-      commissionValue: values.commissionValue.toString(),
+      commission_type: values.commission_type,
+      commission_value: values.commission_value.toString(),
       active: values.status === "active",
     };
 
@@ -355,7 +355,7 @@ export default function Services() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
-                  name="commissionType"
+                  name="commission_type"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Tipo de Comissão</FormLabel>
@@ -375,42 +375,41 @@ export default function Services() {
                   )}
                 />
                 <FormField
-  control={form.control}
-  name="commissionValue"
-  render={({ field }) => {
-    const type = form.watch("commissionType");
+                  control={form.control}
+                  name="commission_value"
+                  render={({ field }) => {
+                    const type = form.watch("commission_type");
 
-    return (
-      <FormItem>
-        <FormLabel>
-          {type === "percentage" ? "Percentual (%)" : "Valor Fixo (R$)"}
-        </FormLabel>
-        <FormControl>
-          <Input
-            placeholder={type === "percentage" ? "Ex: 5,00" : "Ex: R$ 15,00"}
-            value={
-              type === "percentage"
-                ? displayPercentage(field.value)
-                : formatCurrencyInput(field.value?.toString() || "")
-            }
-            onChange={(e) => {
-              const value = e.target.value;
-              if (type === "percentage") {
-                const formatted = formatPercentageInput(value);
-                field.onChange(formatted.replace(",", "."));
-              } else {
-                const formatted = formatCurrencyInput(value);
-                field.onChange(formatted.replace(/[^\d,]/g, "").replace(",", "."));
-              }
-            }}
-          />
-        </FormControl>
-        <FormMessage />
-      </FormItem>
-    );
-  }}
-/>
-
+                    return (
+                      <FormItem>
+                        <FormLabel>
+                          {type === "percentage" ? "Percentual (%)" : "Valor Fixo (R$)"}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder={type === "percentage" ? "Ex: 5,00" : "Ex: R$ 15,00"}
+                            value={
+                              type === "percentage"
+                                ? displayPercentage(field.value)
+                                : formatCurrencyInput(field.value?.toString() || "")
+                            }
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              if (type === "percentage") {
+                                const formatted = formatPercentageInput(value);
+                                field.onChange(formatted.replace(",", "."));
+                              } else {
+                                const formatted = formatCurrencyInput(value);
+                                field.onChange(formatted.replace(/[^\d,]/g, "").replace(",", "."));
+                              }
+                            }}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
+                />
               </div>
 
               <FormField

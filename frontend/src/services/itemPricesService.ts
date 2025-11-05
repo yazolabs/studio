@@ -13,11 +13,11 @@ type ItemPriceQueryParams = {
 
 function mapPayload(payload: CreateItemPriceDto | UpdateItemPriceDto) {
   const body = {
-    item_id: payload.itemId,
+    item_id: payload.item_id,
     price: payload.price,
     cost: payload.cost,
     margin: payload.margin,
-    effective_date: payload.effectiveDate,
+    effective_date: payload.effective_date,
     notes: payload.notes,
   };
 

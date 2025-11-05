@@ -11,14 +11,14 @@ class ItemPriceResource extends JsonResource
     {
         return [
             'id' => $this->id,
-            'itemId' => $this->item_id,
+            'item_id' => $this->item_id,
             'price' => $this->price,
             'cost' => $this->cost,
             'margin' => $this->margin,
-            'effectiveDate' => $this->effective_date?->toDateString(),
+            'effective_date' => $this->effective_date?->toDateString(),
             'notes' => $this->notes,
-            'createdAt' => $this->created_at?->toISOString(),
-            'updatedAt' => $this->updated_at?->toISOString(),
+            'created_at' => $this->created_at?->toISOString(),
+            'updated_at' => $this->updated_at?->toISOString(),
         ];
     }
 }
