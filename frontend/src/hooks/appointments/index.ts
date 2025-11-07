@@ -1,17 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../../services/api';
-import {
-  createAppointment,
-  getAppointment,
-  listAppointments,
-  removeAppointment,
-  updateAppointment,
-} from '../../services/appointmentsService';
-import type {
-  Appointment,
-  CreateAppointmentDto,
-  UpdateAppointmentDto,
-} from '../../types/appointment';
+import { createAppointment, getAppointment, listAppointments, removeAppointment, updateAppointment } from '../../services/appointmentsService';
+import type { Appointment, CreateAppointmentDto, UpdateAppointmentDto } from '../../types/appointment';
+import { useCreateCommission } from '../commissions';
+import { useCreateAccountPayable } from '../accounts-payable';
+import { toast } from 'sonner';
 
 export function useAppointmentsQuery(params?: Parameters<typeof listAppointments>[0]) {
   return useQuery({
@@ -55,6 +48,107 @@ export function useDeleteAppointment() {
     mutationFn: (id) => removeAppointment(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.appointments });
+    },
+  });
+}
+
+export function useAppointmentCheckout() {
+  const { mutateAsync: createCommission } = useCreateCommission();
+  const { mutateAsync: createAccountPayable } = useCreateAccountPayable();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      appointment,
+      services,
+    }: {
+      appointment: Appointment;
+      services: Array<{
+        id: number;
+        name: string;
+        price: number;
+        professionals: number[];
+        commission_type: string;
+        commission_value: number;
+      }>;
+    }) => {
+      if (!appointment?.id) throw new Error('Agendamento inválido.');
+
+      await updateAppointment(appointment.id, { status: 'completed' });
+
+      const commissionsPayload: any[] = [];
+      const accountsPayload: any[] = [];
+
+      for (const service of services) {
+        for (const professional_id of service.professionals) {
+          const commissionAmount =
+            service.commission_type === 'percentage'
+              ? (service.price * service.commission_value) / 100
+              : service.commission_value;
+
+          const dividedAmount = commissionAmount / service.professionals.length;
+
+          const commissionDto = {
+            professional_id,
+            appointment_id: appointment.id,
+            service_id: service.id,
+            customer_id: appointment.customer?.id ?? null,
+            date: new Date().toISOString().split('T')[0],
+            service_price: service.price,
+            commission_type: service.commission_type,
+            commission_value: service.commission_value,
+            commission_amount: dividedAmount,
+            status: 'pending',
+          };
+
+          const accountDto = {
+            description: `Comissão - ${service.name}`,
+            amount: dividedAmount,
+            due_date: new Date().toISOString().split('T')[0],
+            status: 'pending',
+            category: 'Comissão',
+            professional_id,
+            appointment_id: appointment.id,
+            notes: `Cliente: ${appointment.customer?.name ?? 'N/A'}\nServiço: ${
+              service.name
+            }\nValor do Serviço: R$ ${service.price.toFixed(2)}`,
+          };
+
+          commissionsPayload.push(commissionDto);
+          accountsPayload.push(accountDto);
+        }
+      }
+
+      await Promise.all([
+        ...commissionsPayload.map((c) => createCommission(c)),
+        ...accountsPayload.map((a) => createAccountPayable(a)),
+      ]);
+
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+
+      const totalCommissions = commissionsPayload.reduce(
+        (sum, c) => sum + Number(c.commission_amount),
+        0
+      );
+
+      return {
+        totalCommissions,
+        commissionCount: commissionsPayload.length,
+      };
+    },
+
+    onSuccess: ({ totalCommissions, commissionCount }) => {
+      toast.success(
+        `Atendimento finalizado com sucesso!\n` +
+          `Comissões geradas: R$ ${totalCommissions.toFixed(2)} (${commissionCount} conta${
+            commissionCount > 1 ? 's' : ''
+          } a pagar)`
+      );
+    },
+
+    onError: (err: any) => {
+      console.error(err);
+      toast.error('Erro ao finalizar atendimento. Verifique os dados e tente novamente.');
     },
   });
 }

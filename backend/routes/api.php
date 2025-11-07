@@ -103,6 +103,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/{appointment}', 'show')->middleware('permission:appointments,read');
         Route::put('/{appointment}', 'update')->middleware('permission:appointments,update');
         Route::delete('/{appointment}', 'destroy')->middleware('permission:appointments,delete');
+        Route::get('/calendar', [AppointmentController::class, 'calendar'])->middleware('permission:appointments,read');
     });
 
     Route::prefix('commissions')->controller(CommissionController::class)->group(function () {

@@ -4,7 +4,6 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Resources\Json\JsonResource;
 
-/** @mixin \App\Models\AccountPayable */
 class AccountPayableResource extends JsonResource
 {
     public function toArray($request): array
@@ -13,18 +12,18 @@ class AccountPayableResource extends JsonResource
             'id' => $this->id,
             'description' => $this->description,
             'amount' => $this->amount,
-            'dueDate' => $this->due_date?->toDateString(),
+            'due_date' => $this->due_date?->toDateString(),
             'status' => $this->status,
             'category' => $this->category,
-            'supplierId' => $this->supplier_id,
-            'professionalId' => $this->professional_id,
-            'appointmentId' => $this->appointment_id,
-            'paymentDate' => $this->payment_date?->toDateString(),
-            'paymentMethod' => $this->payment_method,
+            'supplier_id' => $this->supplier_id,
+            'professional_id' => $this->professional_id,
+            'appointment_id' => $this->appointment_id,
+            'payment_date' => $this->payment_date?->toDateString(),
+            'payment_method' => $this->payment_method,
             'reference' => $this->reference,
             'notes' => $this->notes,
-            'createdAt' => $this->created_at?->toISOString(),
-            'updatedAt' => $this->updated_at?->toISOString(),
+            'created_at' => $this->created_at?->toISOString(),
+            'updated_at' => $this->updated_at?->toISOString(),
         ];
     }
 }

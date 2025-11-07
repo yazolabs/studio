@@ -54,11 +54,6 @@ class Professional extends Model
         return $this->belongsTo(User::class);
     }
 
-    public function appointments()
-    {
-        return $this->hasMany(Appointment::class);
-    }
-
     public function commissions()
     {
         return $this->hasMany(Commission::class);
@@ -67,5 +62,12 @@ class Professional extends Model
     public function accountsPayable()
     {
         return $this->hasMany(AccountPayable::class);
+    }
+
+    public function appointments()
+    {
+        return $this->belongsToMany(Appointment::class, 'appointment_professional')
+            ->withPivot(['commission_percentage', 'commission_fixed'])
+            ->withTimestamps();
     }
 }

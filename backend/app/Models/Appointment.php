@@ -12,14 +12,18 @@ class Appointment extends Model
 
     protected $fillable = [
         'customer_id',
-        'professional_id',
         'date',
         'start_time',
+        'end_time',
+        'duration',
         'status',
         'total_price',
         'discount_amount',
         'final_price',
         'payment_method',
+        'card_brand',
+        'installments',
+        'installment_fee',
         'promotion_id',
         'notes',
     ];
@@ -27,20 +31,19 @@ class Appointment extends Model
     protected $casts = [
         'date' => 'date',
         'start_time' => 'datetime:H:i:s',
+        'end_time' => 'datetime:H:i:s',
         'status' => AppointmentStatus::class,
+        'duration' => 'integer',
         'total_price' => 'decimal:2',
         'discount_amount' => 'decimal:2',
         'final_price' => 'decimal:2',
+        'installments' => 'integer',
+        'installment_fee' => 'decimal:2',
     ];
 
     public function customer()
     {
         return $this->belongsTo(Customer::class);
-    }
-
-    public function professional()
-    {
-        return $this->belongsTo(Professional::class);
     }
 
     public function promotion()
@@ -52,6 +55,20 @@ class Appointment extends Model
     {
         return $this->belongsToMany(Service::class, 'appointment_service')
             ->withPivot(['service_price', 'commission_type', 'commission_value', 'professional_id'])
+            ->withTimestamps();
+    }
+
+    public function items()
+    {
+        return $this->belongsToMany(Item::class, 'appointment_item')
+            ->withPivot(['price', 'quantity'])
+            ->withTimestamps();
+    }
+
+    public function professionals()
+    {
+        return $this->belongsToMany(Professional::class, 'appointment_professional')
+            ->withPivot(['commission_percentage', 'commission_fixed'])
             ->withTimestamps();
     }
 
