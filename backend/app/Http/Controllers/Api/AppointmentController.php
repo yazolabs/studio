@@ -13,7 +13,7 @@ class AppointmentController extends Controller
 {
     public function index(Request $request)
     {
-        $appointments = Appointment::with(['customer', 'professionals', 'services', 'items', 'promotion'])
+        $appointments = Appointment::with(['customer', 'services', 'items', 'promotion'])
             ->orderByDesc('date')
             ->paginate($request->get('per_page', 15));
 
@@ -44,13 +44,12 @@ class AppointmentController extends Controller
 
         $this->syncServices($appointment, $request->input('services', []));
         $this->syncItems($appointment, $request->input('items', []));
-        $this->syncProfessionals($appointment, $request->input('professionals', []));
 
         $totalDuration = $appointment->services()->sum('duration');
         $appointment->update(['duration' => $totalDuration]);
 
         return (new AppointmentResource(
-            $appointment->load(['customer', 'professionals', 'services', 'items', 'promotion'])
+            $appointment->load(['customer', 'services', 'items', 'promotion'])
         ))
             ->response()
             ->setStatusCode(Response::HTTP_CREATED);
@@ -59,7 +58,7 @@ class AppointmentController extends Controller
     public function show(Appointment $appointment)
     {
         return new AppointmentResource(
-            $appointment->load(['customer', 'professionals', 'services', 'items', 'promotion'])
+            $appointment->load(['customer', 'services', 'items', 'promotion'])
         );
     }
 
@@ -93,15 +92,11 @@ class AppointmentController extends Controller
             $this->syncItems($appointment, $request->input('items', []));
         }
 
-        if ($request->has('professionals')) {
-            $this->syncProfessionals($appointment, $request->input('professionals', []));
-        }
-
         $totalDuration = $appointment->services()->sum('duration');
         $appointment->update(['duration' => $totalDuration]);
 
         return new AppointmentResource(
-            $appointment->load(['customer', 'professionals', 'services', 'items', 'promotion'])
+            $appointment->load(['customer', 'services', 'items', 'promotion'])
         );
     }
 
@@ -109,13 +104,12 @@ class AppointmentController extends Controller
     {
         if ($appointment->status === 'completed') {
             return response()->json([
-                'message' => 'Não é possível excluir um agendamento já concluído.'
+                'message' => 'Não é possível excluir um agendamento já concluído.',
             ], 422);
         }
 
         $appointment->services()->detach();
         $appointment->items()->detach();
-        $appointment->professionals()->detach();
         $appointment->delete();
 
         return response()->noContent();
@@ -161,30 +155,11 @@ class AppointmentController extends Controller
         $appointment->items()->sync($pivotData);
     }
 
-    private function syncProfessionals(Appointment $appointment, $professionals): void
-    {
-        $pivotData = [];
-
-        foreach ((array) $professionals as $professional) {
-            $professionalId = $professional['professional_id'] ?? $professional['id'] ?? null;
-            if (!$professionalId) {
-                continue;
-            }
-
-            $pivotData[$professionalId] = [
-                'commission_percentage' => $professional['commission_percentage'] ?? null,
-                'commission_fixed' => $professional['commission_fixed'] ?? null,
-            ];
-        }
-
-        $appointment->professionals()->sync($pivotData);
-    }
-
     public function calendar(Request $request)
     {
-        $query = Appointment::with(['customer', 'professionals', 'services'])
+        $query = Appointment::with(['customer', 'services'])
             ->when($request->filled('professional_id'), function ($q) use ($request) {
-                $q->whereHas('professionals', fn($sub) =>
+                $q->whereHas('services', fn($sub) =>
                     $sub->where('professional_id', $request->professional_id)
                 );
             })

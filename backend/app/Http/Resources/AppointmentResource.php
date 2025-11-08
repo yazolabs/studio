@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Professional;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class AppointmentResource extends JsonResource
@@ -16,14 +17,20 @@ class AppointmentResource extends JsonResource
                 'name' => $this->customer->name,
             ]),
 
-            'professionals' => $this->whenLoaded('professionals', fn() =>
-                $this->professionals->map(fn($professional) => [
-                    'id' => $professional->id,
-                    'name' => $professional->name,
-                    'commission_percentage' => $professional->pivot->commission_percentage,
-                    'commission_fixed' => $professional->pivot->commission_fixed,
-                ])
-            ),
+            'professionals' => $this->whenLoaded('services', function () {
+                return $this->services
+                    ->pluck('pivot.professional_id')
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->map(function ($id) {
+                        $prof = Professional::with('user')->find($id);
+                        return [
+                            'id' => $prof->id,
+                            'name' => $prof->user->name ?? $prof->name ?? null,
+                        ];
+                    });
+            }),
 
             'services' => $this->whenLoaded('services', fn() =>
                 $this->services->map(fn($service) => [

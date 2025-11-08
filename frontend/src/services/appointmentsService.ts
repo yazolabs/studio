@@ -1,10 +1,6 @@
 import { api } from './api';
 import type { Paginated } from '../types/pagination';
-import type {
-  Appointment,
-  CreateAppointmentDto,
-  UpdateAppointmentDto,
-} from '../types/appointment';
+import type { Appointment, CreateAppointmentDto, UpdateAppointmentDto } from '../types/appointment';
 
 const basePath = '/appointments';
 
@@ -43,11 +39,6 @@ function mapPayload(payload: CreateAppointmentDto | UpdateAppointmentDto) {
       commission_value: s.commission_value,
       professional_id: s.professional_id,
     })),
-    professionals: payload.professionals?.map((p) => ({
-      professional_id: p.id,
-      commission_percentage: p.commission_percentage,
-      commission_fixed: p.commission_fixed,
-    })),
     items: payload.items?.map((i) => ({
       item_id: i.id,
       price: i.price,
@@ -64,8 +55,8 @@ export async function listAppointments(params?: AppointmentQueryParams) {
 }
 
 export async function getAppointment(id: number) {
-  const { data } = await api.get<Appointment>(`${basePath}/${id}`);
-  return data;
+  const { data } = await api.get(`/appointments/${id}`);
+  return data.data;
 }
 
 export async function createAppointment(payload: CreateAppointmentDto) {
