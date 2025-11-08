@@ -18,12 +18,12 @@ function mapPayload(payload: CreateItemDto | UpdateItemDto) {
     price: payload.price,
     cost: payload.cost,
     stock: payload.stock,
-    min_stock: payload.minStock,
+    min_stock: payload.min_stock,
     category: payload.category,
-    supplier_id: payload.supplierId,
+    supplier_id: payload.supplier_id,
     barcode: payload.barcode,
-    commission_type: payload.commissionType,
-    commission_value: payload.commissionValue,
+    commission_type: payload.commission_type,
+    commission_value: payload.commission_value,
   };
 
   return Object.fromEntries(

@@ -5,14 +5,14 @@ export type Item = {
   price: string;
   cost: string | null;
   stock: number;
-  minStock: number;
+  min_stock: number;
   category: string | null;
-  supplierId: number | null;
+  supplier_id: number | null;
   barcode: string | null;
-  commissionType: 'percentage' | 'fixed' | null;
-  commissionValue: string;
-  createdAt: string | null;
-  updatedAt: string | null;
+  commission_type: 'percentage' | 'fixed' | null;
+  commission_value: string;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
 export type CreateItemDto = Pick<
@@ -22,12 +22,12 @@ export type CreateItemDto = Pick<
   | 'price'
   | 'cost'
   | 'stock'
-  | 'minStock'
+  | 'min_stock'
   | 'category'
-  | 'supplierId'
+  | 'supplier_id'
   | 'barcode'
-  | 'commissionType'
-  | 'commissionValue'
+  | 'commission_type'
+  | 'commission_value'
 >;
 
 export type UpdateItemDto = Partial<CreateItemDto>;

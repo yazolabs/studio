@@ -1,18 +1,18 @@
 export type ItemPrice = {
   id: number;
-  itemId: number;
+  item_id: number;
   price: string;
   cost: string | null;
   margin: string | null;
-  effectiveDate: string | null;
+  effective_date: string | null;
   notes: string | null;
-  createdAt: string | null;
-  updatedAt: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
 export type CreateItemPriceDto = Pick<
   ItemPrice,
-  'itemId' | 'price' | 'cost' | 'margin' | 'effectiveDate' | 'notes'
+  'item_id' | 'price' | 'cost' | 'margin' | 'effective_date' | 'notes'
 >;
 
 export type UpdateItemPriceDto = Partial<CreateItemPriceDto>;

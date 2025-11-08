@@ -1,10 +1,10 @@
 import type { WorkScheduleDay } from './work-schedule';
-import type { User } from './user';
 
 export type Professional = {
   id: number;
   userId: number;
-  user: Pick<User, 'id' | 'name' | 'email'>;
+  name: string | null;
+  email: string | null;
   phone: string | null;
   specialties: string[] | null;
   active: boolean;

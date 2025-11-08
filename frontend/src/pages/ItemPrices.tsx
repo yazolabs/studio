@@ -4,30 +4,9 @@ import { Badge } from '@/components/ui/badge';
 import { DataTable } from '@/components/DataTable';
 import { Plus, Edit } from 'lucide-react';
 import { usePermission } from '@/hooks/usePermission';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-  FormDescription,
-} from '@/components/ui/form';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useForm } from 'react-hook-form';
@@ -36,16 +15,15 @@ import * as z from 'zod';
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { listItems } from '@/services/itemsService';
-import {
-  listItemPrices,
-  createItemPrice,
-  updateItemPrice,
-} from '@/services/itemPricesService';
+import { listItemPrices, createItemPrice, updateItemPrice } from '@/services/itemPricesService';
 import type { Item } from '@/types/item';
 import type { ItemPrice, CreateItemPriceDto } from '@/types/item-price';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { cn } from '@/lib/utils';
+import { formatCurrencyInput, displayCurrency } from '@/utils/formatters';
 
 const priceSchema = z.object({
-  itemId: z.string().min(1, 'Item é obrigatório'),
+  item_id: z.string().min(1, 'Item é obrigatório'),
   cost: z.coerce.number().min(0, 'Preço de custo inválido'),
   price: z.coerce.number().min(0, 'Preço de venda inválido'),
   margin: z.coerce.number().optional(),
@@ -59,17 +37,24 @@ export default function ItemPrices() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editing, setEditing] = useState<ItemPrice | null>(null);
   const { can } = usePermission();
+  const isMobile = useIsMobile();
 
   const form = useForm<z.infer<typeof priceSchema>>({
     resolver: zodResolver(priceSchema),
     defaultValues: {
-      itemId: '',
+      item_id: '',
       cost: 0,
       price: 0,
       margin: 0,
       notes: '',
     },
   });
+
+  function extractData<T>(response: T[] | { data: T[] }): T[] {
+    return Array.isArray((response as any).data)
+      ? (response as { data: T[] }).data
+      : (response as T[]);
+  }
 
   async function load() {
     setLoading(true);
@@ -78,8 +63,9 @@ export default function ItemPrices() {
         listItems({ perPage: 100 }),
         listItemPrices({ perPage: 100 }),
       ]);
-      setItems(Array.isArray(itemsData.data) ? itemsData.data : itemsData);
-      setItemPrices(Array.isArray(pricesData.data) ? pricesData.data : pricesData);
+
+      setItems(extractData<Item>(itemsData));
+      setItemPrices(extractData<ItemPrice>(pricesData));
     } catch (err: any) {
       toast({
         title: 'Erro ao carregar dados',
@@ -100,7 +86,7 @@ export default function ItemPrices() {
     if (price) {
       setEditing(price);
       form.reset({
-        itemId: String(price.itemId),
+        item_id: String(price.item_id),
         cost: Number(price.cost ?? 0),
         price: Number(price.price ?? 0),
         margin: Number(price.margin ?? 0),
@@ -109,7 +95,7 @@ export default function ItemPrices() {
     } else {
       setEditing(null);
       form.reset({
-        itemId: '',
+        item_id: '',
         cost: 0,
         price: 0,
         margin: 0,
@@ -131,11 +117,11 @@ export default function ItemPrices() {
         : 0;
 
     const payload: CreateItemPriceDto = {
-      itemId: Number(values.itemId),
+      item_id: Number(values.item_id),
       price: values.price.toFixed(2),
       cost: values.cost.toFixed(2),
       margin: marginPercent.toFixed(2),
-      effectiveDate: format(new Date(), 'yyyy-MM-dd'),
+      effective_date: format(new Date(), 'yyyy-MM-dd'),
       notes: values.notes ?? null,
     };
 
@@ -168,9 +154,9 @@ export default function ItemPrices() {
 
   const columns = [
     {
-      key: 'itemId',
+      key: 'item_id',
       header: 'Item',
-      render: (p: ItemPrice) => items.find((i) => i.id === p.itemId)?.name ?? '-',
+      render: (p: ItemPrice) => items.find((i) => i.id === p.item_id)?.name ?? '-',
     },
     {
       key: 'price',
@@ -189,11 +175,11 @@ export default function ItemPrices() {
         p.margin ? `${Number(p.margin).toFixed(1)}%` : '-',
     },
     {
-      key: 'effectiveDate',
+      key: 'effective_date',
       header: 'Vigência',
       render: (p: ItemPrice) =>
-        p.effectiveDate
-          ? new Date(p.effectiveDate).toLocaleDateString('pt-BR')
+        p.effective_date
+          ? new Date(p.effective_date).toLocaleDateString('pt-BR')
           : '-',
     },
     {
@@ -207,7 +193,11 @@ export default function ItemPrices() {
       render: (p: ItemPrice) => (
         <div className="flex gap-2">
           {can('item-prices', 'update') && (
-            <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(p)}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => handleOpenDialog(p)}
+            >
               <Edit className="h-4 w-4" />
             </Button>
           )}
@@ -216,12 +206,12 @@ export default function ItemPrices() {
     },
   ];
 
-  const selectedItemId = form.watch('itemId');
-  const selectedItem = items.find((i) => String(i.id) === selectedItemId);
+  const selecteditem_id = form.watch('item_id');
+  const selectedItem = items.find((i) => String(i.id) === selecteditem_id);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Preços de Itens</h1>
           <p className="text-muted-foreground">
@@ -229,7 +219,10 @@ export default function ItemPrices() {
           </p>
         </div>
         {can('item-prices', 'create') && (
-          <Button className="shadow-md" onClick={() => handleOpenDialog()}>
+          <Button
+            className={cn('shadow-md', isMobile && 'w-full')}
+            onClick={() => handleOpenDialog()}
+          >
             <Plus className="mr-2 h-4 w-4" />
             Novo Preço
           </Button>
@@ -240,11 +233,17 @@ export default function ItemPrices() {
         data={itemPrices}
         columns={columns}
         searchPlaceholder="Buscar preços..."
-        isLoading={loading}
+        loading={loading}
       />
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent
+          className={
+            isMobile
+              ? 'max-w-[95vw] h-[90vh] overflow-y-auto'
+              : 'max-w-lg max-h-[90vh] overflow-y-auto'
+          }
+        >
           <DialogHeader>
             <DialogTitle>{editing ? 'Editar Preço' : 'Novo Preço'}</DialogTitle>
             <DialogDescription>
@@ -256,7 +255,7 @@ export default function ItemPrices() {
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <FormField
                 control={form.control}
-                name="itemId"
+                name="item_id"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Item *</FormLabel>
@@ -286,18 +285,18 @@ export default function ItemPrices() {
               {selectedItem && (
                 <div className="p-3 bg-muted rounded-md text-sm">
                   <p className="font-medium">{selectedItem.name}</p>
-                  <div className="flex justify-between mt-2">
-                    <span className="text-muted-foreground">
+                  <div className="flex justify-between mt-2 text-muted-foreground text-sm">
+                    <span>
                       Custo atual: R$ {Number(selectedItem.cost ?? 0).toFixed(2)}
                     </span>
-                    <span className="text-muted-foreground">
+                    <span>
                       Venda atual: R$ {Number(selectedItem.price ?? 0).toFixed(2)}
                     </span>
                   </div>
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="cost"
@@ -305,7 +304,20 @@ export default function ItemPrices() {
                     <FormItem>
                       <FormLabel>Preço de Custo *</FormLabel>
                       <FormControl>
-                        <Input type="number" step="0.01" {...field} />
+                        <Input
+                          placeholder="Ex: R$ 10,00"
+                          value={
+                            Number(field.value) > 1
+                              ? displayCurrency(field.value)
+                              : formatCurrencyInput(field.value?.toString() || '')
+                          }
+                          onChange={(e) => {
+                            const formatted = formatCurrencyInput(e.target.value);
+                            field.onChange(
+                              formatted.replace(/[^\d,]/g, '').replace(',', '.')
+                            );
+                          }}
+                        />
                       </FormControl>
                       <FormDescription>Preço pago ao fornecedor</FormDescription>
                       <FormMessage />
@@ -320,7 +332,20 @@ export default function ItemPrices() {
                     <FormItem>
                       <FormLabel>Preço de Venda *</FormLabel>
                       <FormControl>
-                        <Input type="number" step="0.01" {...field} />
+                        <Input
+                          placeholder="Ex: R$ 25,00"
+                          value={
+                            Number(field.value) > 1
+                              ? displayCurrency(field.value)
+                              : formatCurrencyInput(field.value?.toString() || '')
+                          }
+                          onChange={(e) => {
+                            const formatted = formatCurrencyInput(e.target.value);
+                            field.onChange(
+                              formatted.replace(/[^\d,]/g, '').replace(',', '.')
+                            );
+                          }}
+                        />
                       </FormControl>
                       <FormDescription>Preço cobrado ao cliente</FormDescription>
                       <FormMessage />
@@ -366,10 +391,16 @@ export default function ItemPrices() {
               />
 
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={handleCloseDialog}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleCloseDialog}
+                >
                   Cancelar
                 </Button>
-                <Button type="submit">{editing ? 'Salvar' : 'Criar'}</Button>
+                <Button type="submit">
+                  {editing ? 'Salvar Alterações' : 'Criar Preço'}
+                </Button>
               </DialogFooter>
             </form>
           </Form>

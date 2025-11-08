@@ -1,48 +1,83 @@
+export type AppointmentProfessional = {
+  id: number;
+  name: string;
+  commission_percentage?: string | null;
+  commission_fixed?: string | null;
+};
+
 export type AppointmentServiceItem = {
   id: number;
   name: string;
-  servicePrice: string;
-  commissionType: 'percentage' | 'fixed' | null;
-  commissionValue: string;
-  professionalId: number | null;
+  service_price: string;
+  commission_type: 'percentage' | 'fixed' | null;
+  commission_value: string;
+  professional_id: number | null;
+  duration?: number | null;
+};
+
+export type AppointmentItem = {
+  id: number;
+  name: string;
+  price: string;
+  quantity: number;
 };
 
 export type Appointment = {
   id: number;
   customer: { id: number; name: string } | null;
-  professional: { id: number; name: string } | null;
+  professionals?: AppointmentProfessional[] | null;
   services?: AppointmentServiceItem[] | null;
+  items?: AppointmentItem[] | null;
+  promotion?: { id: number; name: string } | null;
   date: string | null;
-  time: string | null;
-  status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled';
-  totalPrice: string;
-  discountAmount: string;
-  finalPrice: string;
-  paymentMethod: string | null;
-  promotion: { id: number; name: string } | null;
+  start_time: string | null;
+  end_time: string | null;
+  duration: number | null;
+  status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show';
+  total_price: string;
+  discount_amount: string;
+  final_price: string;
+  payment_method: string | null;
+  card_brand: string | null;
+  installments: number | null;
+  installment_fee: string | null;
   notes: string | null;
-  createdAt: string | null;
-  updatedAt: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
 export type CreateAppointmentDto = {
-  customerId: number;
-  professionalId: number;
+  customer_id: number;
   date: string;
-  startTime: string;
+  start_time: string;
+  end_time?: string | null;
+  duration?: number | null;
   status: Appointment['status'];
-  totalPrice: string;
-  discountAmount: string;
-  finalPrice: string;
-  paymentMethod?: string | null;
-  promotionId?: number | null;
+  total_price: string;
+  discount_amount: string;
+  final_price: string;
+  payment_method?: string | null;
+  card_brand?: string | null;
+  installments?: number | null;
+  installment_fee?: string | null;
+  promotion_id?: number | null;
   notes?: string | null;
   services?: Array<{
     id: number;
-    servicePrice: string;
-    commissionType?: 'percentage' | 'fixed' | null;
-    commissionValue?: string;
-    professionalId?: number | null;
+    service_price: string;
+    commission_type?: 'percentage' | 'fixed' | null;
+    commission_value?: string;
+    professional_id?: number | null;
+  }>;
+  professionals?: Array<{
+    id: number;
+    commission_percentage?: string | null;
+    commission_fixed?: string | null;
+  }>;
+  items?: Array<{
+    id: number;
+    price: string;
+    quantity: number;
   }>;
 };
 

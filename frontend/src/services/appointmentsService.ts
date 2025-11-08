@@ -13,35 +13,49 @@ type AppointmentQueryParams = {
   perPage?: number;
   search?: string;
   status?: string;
-  professionalId?: number;
-  customerId?: number;
+  professional_id?: number;
+  customer_id?: number;
+  start_date?: string;
+  end_date?: string;
 };
 
 function mapPayload(payload: CreateAppointmentDto | UpdateAppointmentDto) {
   const body = {
-    customer_id: payload.customerId,
-    professional_id: payload.professionalId,
+    customer_id: payload.customer_id,
     date: payload.date,
-    start_time: payload.startTime,
+    start_time: payload.start_time,
+    end_time: payload.end_time,
+    duration: payload.duration,
     status: payload.status,
-    total_price: payload.totalPrice,
-    discount_amount: payload.discountAmount,
-    final_price: payload.finalPrice,
-    payment_method: payload.paymentMethod,
-    promotion_id: payload.promotionId,
+    total_price: payload.total_price,
+    discount_amount: payload.discount_amount,
+    final_price: payload.final_price,
+    payment_method: payload.payment_method,
+    card_brand: payload.card_brand,
+    installments: payload.installments,
+    installment_fee: payload.installment_fee,
+    promotion_id: payload.promotion_id,
     notes: payload.notes,
-    services: payload.services?.map((service) => ({
-      service_id: service.id,
-      service_price: service.servicePrice,
-      commission_type: service.commissionType,
-      commission_value: service.commissionValue,
-      professional_id: service.professionalId,
+    services: payload.services?.map((s) => ({
+      service_id: s.id,
+      service_price: s.service_price,
+      commission_type: s.commission_type,
+      commission_value: s.commission_value,
+      professional_id: s.professional_id,
+    })),
+    professionals: payload.professionals?.map((p) => ({
+      professional_id: p.id,
+      commission_percentage: p.commission_percentage,
+      commission_fixed: p.commission_fixed,
+    })),
+    items: payload.items?.map((i) => ({
+      item_id: i.id,
+      price: i.price,
+      quantity: i.quantity,
     })),
   };
 
-  return Object.fromEntries(
-    Object.entries(body).filter(([, value]) => value !== undefined),
-  );
+  return Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined));
 }
 
 export async function listAppointments(params?: AppointmentQueryParams) {
@@ -66,4 +80,13 @@ export async function updateAppointment(id: number, payload: UpdateAppointmentDt
 
 export async function removeAppointment(id: number) {
   await api.delete(`${basePath}/${id}`);
+}
+
+export async function listAppointmentsCalendar(params?: {
+  start_date?: string;
+  end_date?: string;
+  professional_id?: number;
+}) {
+  const { data } = await api.get<Appointment[]>(`${basePath}/calendar`, { params });
+  return data;
 }

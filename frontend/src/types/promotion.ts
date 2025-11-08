@@ -2,33 +2,33 @@ export type Promotion = {
   id: number;
   name: string;
   description: string | null;
-  discountType: 'percentage' | 'fixed';
-  discountValue: string;
-  startDate: string | null;
-  endDate: string | null;
+  discount_type: 'percentage' | 'fixed';
+  discount_value: string;
+  start_date: string | null;
+  end_date: string | null;
   active: boolean;
-  minPurchaseAmount: string | null;
-  maxDiscount: string | null;
-  applicableServices?: number[];
-  applicableItems?: number[];
-  createdAt: string | null;
-  updatedAt: string | null;
+  min_purchase_amount: string | null;
+  max_discount: string | null;
+  applicable_services?: number[];
+  applicable_items?: number[];
+  created_at: string | null;
+  updated_at: string | null;
 };
 
 export type CreatePromotionDto = Pick<
   Promotion,
   | 'name'
   | 'description'
-  | 'discountType'
-  | 'discountValue'
-  | 'startDate'
-  | 'endDate'
+  | 'discount_type'
+  | 'discount_value'
+  | 'start_date'
+  | 'end_date'
   | 'active'
-  | 'minPurchaseAmount'
-  | 'maxDiscount'
+  | 'min_purchase_amount'
+  | 'max_discount'
 > & {
-  applicableServices?: number[];
-  applicableItems?: number[];
+  applicable_services?: number[];
+  applicable_items?: number[];
 };
 
 export type UpdatePromotionDto = Partial<CreatePromotionDto>;

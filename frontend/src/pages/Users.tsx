@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { listUsers, createUser, updateUser, deleteUser } from "@/services/userService";
 import { listRoles } from "@/services/roleService";
-import { User, CreateUserDto, UpdateUserDto } from "@/types/user";
+import type { User, CreateUserDto, UpdateUserDto } from "@/types/user";
 import type { Role } from "@/types/role";
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
@@ -36,11 +36,7 @@ export default function Users() {
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
 
-  const {
-    data: usersData,
-    isLoading,
-    isError,
-  } = useQuery({
+  const { data: usersData, isLoading, isError } = useQuery({
     queryKey: ["users"],
     queryFn: () => listUsers(),
   });
@@ -58,17 +54,20 @@ export default function Users() {
       toast.success("Usuário criado com sucesso!");
       queryClient.invalidateQueries({ queryKey: ["users"] });
       setDialogOpen(false);
+      setEditingUser(null);
+      form.reset();
     },
     onError: () => toast.error("Erro ao criar usuário."),
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: UpdateUserDto }) =>
-      updateUser(id, data),
+    mutationFn: ({ id, data }: { id: number; data: UpdateUserDto }) => updateUser(id, data),
     onSuccess: () => {
       toast.success("Usuário atualizado com sucesso!");
       queryClient.invalidateQueries({ queryKey: ["users"] });
       setDialogOpen(false);
+      setEditingUser(null);
+      form.reset();
     },
     onError: () => toast.error("Erro ao atualizar usuário."),
   });
@@ -95,7 +94,13 @@ export default function Users() {
 
   const handleAdd = () => {
     setEditingUser(null);
-    form.reset();
+    form.reset({
+      name: "",
+      email: "",
+      username: "",
+      password: "",
+      roles: [],
+    });
     setDialogOpen(true);
   };
 
@@ -106,35 +111,32 @@ export default function Users() {
       email: user.email ?? "",
       username: user.username,
       password: "",
-      roles: user.roles.map((role) => role.id),
+      roles: user.roles.map((r) => r.id),
     });
     setDialogOpen(true);
   };
 
-  const handleDelete = (id: number) => {
-    deleteMutation.mutate(id);
-  };
+  const handleDelete = (id: number) => deleteMutation.mutate(id);
 
   const onSubmit = (data: z.infer<typeof userSchema>) => {
     if (editingUser) {
-      updateMutation.mutate({
-        id: editingUser.id,
-        data: {
-          name: data.name,
-          email: data.email,
-          username: data.username,
-          password: data.password,
-          roles: data.roles ?? [],
-        },
-      });
-    } else {
-      createMutation.mutate({
+      const payload: UpdateUserDto = {
         name: data.name,
         email: data.email,
         username: data.username,
-        password: data.password,
         roles: data.roles ?? [],
-      });
+      };
+      if (data.password?.trim()) payload.password = data.password;
+      updateMutation.mutate({ id: editingUser.id, data: payload });
+    } else {
+      const payload: CreateUserDto = {
+        name: data.name,
+        email: data.email,
+        username: data.username,
+        password: data.password ?? "",
+        roles: data.roles ?? [],
+      };
+      createMutation.mutate(payload);
     }
   };
 
@@ -160,14 +162,14 @@ export default function Users() {
       render: (user: User) => (
         <div className="flex gap-2">
           {can("users", "update") && (
-            <Button variant="ghost" size="icon" onClick={() => handleEdit(user)}>
+            <Button variant="ghost" size={isMobile ? "sm" : "icon"} onClick={() => handleEdit(user)}>
               <Edit className="h-4 w-4" />
             </Button>
           )}
           {can("users", "delete") && (
             <Button
               variant="ghost"
-              size="icon"
+              size={isMobile ? "sm" : "icon"}
               onClick={() => handleDelete(user.id)}
             >
               <Trash2 className="h-4 w-4 text-destructive" />
@@ -178,25 +180,18 @@ export default function Users() {
     },
   ];
 
-  if (isLoading) {
-    return <p>Carregando usuários...</p>;
-  }
-
-  if (isError) {
-    return <p className="text-destructive">Erro ao carregar usuários.</p>;
-  }
+  if (isLoading) return <p>Carregando usuários...</p>;
+  if (isError) return <p className="text-destructive">Erro ao carregar usuários.</p>;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Usuários</h1>
-          <p className="text-muted-foreground">
-            Gerencie os usuários do sistema
-          </p>
+          <p className="text-muted-foreground">Gerencie os usuários do sistema</p>
         </div>
         {can("users", "create") && (
-          <Button className="shadow-md" onClick={handleAdd}>
+          <Button className={cn("shadow-md", isMobile && "w-full")} onClick={handleAdd}>
             <Plus className="mr-2 h-4 w-4" />
             Novo Usuário
           </Button>
@@ -210,12 +205,30 @@ export default function Users() {
         emptyMessage="Nenhum usuário encontrado."
       />
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) {
+            setEditingUser(null);
+            form.reset({
+              name: "",
+              email: "",
+              username: "",
+              password: "",
+              roles: [],
+            });
+          }
+        }}
+      >
+        <DialogContent
+          className={cn(
+            "max-h-[90vh] overflow-y-auto",
+            isMobile ? "w-[95vw] max-w-full p-4" : "max-w-4xl"
+          )}
+        >
           <DialogHeader>
-            <DialogTitle>
-              {editingUser ? "Editar Usuário" : "Novo Usuário"}
-            </DialogTitle>
+            <DialogTitle>{editingUser ? "Editar Usuário" : "Novo Usuário"}</DialogTitle>
             <DialogDescription>
               Preencha os dados do usuário e defina seus perfis de acesso.
             </DialogDescription>
@@ -237,7 +250,7 @@ export default function Users() {
                 )}
               />
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className={cn("grid gap-4", isMobile ? "grid-cols-1" : "grid-cols-2")}>
                 <FormField
                   control={form.control}
                   name="email"
@@ -245,17 +258,12 @@ export default function Users() {
                     <FormItem>
                       <FormLabel>Email</FormLabel>
                       <FormControl>
-                        <Input
-                          type="email"
-                          placeholder="email@example.com"
-                          {...field}
-                        />
+                        <Input type="email" placeholder="email@example.com" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-
                 <FormField
                   control={form.control}
                   name="username"
@@ -278,11 +286,7 @@ export default function Users() {
                   <FormItem>
                     <FormLabel>Senha</FormLabel>
                     <FormControl>
-                      <Input
-                        type="password"
-                        placeholder="Senha do usuário"
-                        {...field}
-                      />
+                      <Input type="password" placeholder="Senha do usuário" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -302,21 +306,21 @@ export default function Users() {
                           variant="outline"
                           role="combobox"
                           className={cn(
-                            "w-full justify-between",
+                            "justify-between",
+                            "w-full",
                             !field.value?.length && "text-muted-foreground"
                           )}
                         >
                           {field.value?.length
-                            ? `${field.value.length} perfil${field.value.length > 1 ? "es" : ""} selecionado${field.value.length > 1 ? "s" : ""}`
+                            ? `${field.value.length} perfil${
+                                field.value.length > 1 ? "es" : ""
+                              } selecionado${field.value.length > 1 ? "s" : ""}`
                             : "Selecionar perfis"}
                           <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent
-                        className={cn(
-                          "p-0 w-[300px]",
-                          isMobile && "w-[90vw]"
-                        )}
+                        className={cn("p-0", isMobile ? "w-[90vw]" : "w-[300px]")}
                       >
                         <Command>
                           <CommandInput placeholder="Buscar perfil..." />
@@ -358,17 +362,21 @@ export default function Users() {
                 )}
               />
 
-              <DialogFooter>
+              <DialogFooter
+                className={cn(isMobile && "flex-col space-y-2", "pt-2")}
+              >
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => setDialogOpen(false)}
+                  className={cn(isMobile && "w-full")}
                 >
                   Cancelar
                 </Button>
                 <Button
                   type="submit"
                   disabled={createMutation.isPending || updateMutation.isPending}
+                  className={cn(isMobile && "w-full")}
                 >
                   {editingUser ? "Atualizar" : "Cadastrar"}
                 </Button>

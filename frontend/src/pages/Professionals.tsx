@@ -8,42 +8,20 @@ import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/DataTable";
 import { Plus, Edit, Trash2 } from "lucide-react";
 import { usePermission } from "@/hooks/usePermission";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectTrigger,
-  SelectContent,
-  SelectItem,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import {
-  listProfessionals,
-  createProfessional,
-  updateProfessional,
-  removeProfessional,
-} from "@/services/professionalsService";
+import { listProfessionals, createProfessional, updateProfessional, removeProfessional } from "@/services/professionalsService";
 import { listUsers } from "@/services/userService";
-import type { Professional } from "@/types/professional";
+import type { Professional, CreateProfessionalDto } from "@/types/professional";
 import type { User } from "@/types/user";
 import { WorkScheduleDay } from "@/types/work-schedule";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { cn } from "@/lib/utils";
+import { formatPhone } from '@/utils/formatters';
 
 const mockServices = [
   { id: "1", name: "Corte Feminino" },
@@ -57,69 +35,13 @@ const mockServices = [
 ];
 
 const defaultSchedule: WorkScheduleDay[] = [
-  {
-    day: "Segunda-feira",
-    isWorkingDay: true,
-    isDayOff: false,
-    startTime: "09:00",
-    endTime: "18:00",
-    lunchStart: "12:00",
-    lunchEnd: "13:00",
-  },
-  {
-    day: "Terça-feira",
-    isWorkingDay: true,
-    isDayOff: false,
-    startTime: "09:00",
-    endTime: "18:00",
-    lunchStart: "12:00",
-    lunchEnd: "13:00",
-  },
-  {
-    day: "Quarta-feira",
-    isWorkingDay: true,
-    isDayOff: false,
-    startTime: "09:00",
-    endTime: "18:00",
-    lunchStart: "12:00",
-    lunchEnd: "13:00",
-  },
-  {
-    day: "Quinta-feira",
-    isWorkingDay: true,
-    isDayOff: false,
-    startTime: "09:00",
-    endTime: "18:00",
-    lunchStart: "12:00",
-    lunchEnd: "13:00",
-  },
-  {
-    day: "Sexta-feira",
-    isWorkingDay: true,
-    isDayOff: false,
-    startTime: "09:00",
-    endTime: "17:00",
-    lunchStart: "12:00",
-    lunchEnd: "13:00",
-  },
-  {
-    day: "Sábado",
-    isWorkingDay: true,
-    isDayOff: false,
-    startTime: "09:00",
-    endTime: "16:00",
-    lunchStart: "12:00",
-    lunchEnd: "13:00",
-  },
-  {
-    day: "Domingo",
-    isWorkingDay: false,
-    isDayOff: true,
-    startTime: "",
-    endTime: "",
-    lunchStart: "",
-    lunchEnd: "",
-  },
+  { day: "Segunda-feira", isWorkingDay: true, isDayOff: false, startTime: "09:00", endTime: "18:00", lunchStart: "12:00", lunchEnd: "13:00" },
+  { day: "Terça-feira", isWorkingDay: true, isDayOff: false, startTime: "09:00", endTime: "18:00", lunchStart: "12:00", lunchEnd: "13:00" },
+  { day: "Quarta-feira", isWorkingDay: true, isDayOff: false, startTime: "09:00", endTime: "18:00", lunchStart: "12:00", lunchEnd: "13:00" },
+  { day: "Quinta-feira", isWorkingDay: true, isDayOff: false, startTime: "09:00", endTime: "18:00", lunchStart: "12:00", lunchEnd: "13:00" },
+  { day: "Sexta-feira", isWorkingDay: true, isDayOff: false, startTime: "09:00", endTime: "17:00", lunchStart: "12:00", lunchEnd: "13:00" },
+  { day: "Sábado", isWorkingDay: true, isDayOff: false, startTime: "09:00", endTime: "16:00", lunchStart: "12:00", lunchEnd: "13:00" },
+  { day: "Domingo", isWorkingDay: false, isDayOff: true, startTime: "09:00", endTime: "18:00", lunchStart: "12:00", lunchEnd: "13:00" },
 ];
 
 const professionalSchema = z.object({
@@ -144,17 +66,18 @@ const professionalSchema = z.object({
 
 export default function Professionals() {
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingProfessional, setEditingProfessional] =
-    useState<Professional | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editingProfessional, setEditingProfessional] = useState<Professional | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
   const { can } = usePermission();
+  const isMobile = useIsMobile();
 
-  const { data: professionalsData, refetch } = useQuery({
+  const { data: professionalsData, refetch, isLoading } = useQuery({
     queryKey: ["professionals"],
     queryFn: () => listProfessionals(),
   });
   const professionals = professionalsData?.data ?? [];
 
-  const [users, setUsers] = useState<User[]>([]);
 
   const form = useForm<z.infer<typeof professionalSchema>>({
     resolver: zodResolver(professionalSchema),
@@ -168,21 +91,19 @@ export default function Professionals() {
   });
 
   const openDialog = async (professional?: Professional) => {
-    setEditingProfessional(professional ?? null);
-    setDialogOpen(true);
-
     if (users.length === 0) {
       try {
         const userResponse = await listUsers({ perPage: 100 });
         setUsers(userResponse.data);
       } catch {
         toast.error("Erro ao carregar usuários.");
+        return;
       }
     }
 
     if (professional) {
       form.reset({
-        user_id: professional.user?.id ?? undefined,
+        user_id: professional.userId ?? undefined,
         phone: professional.phone ?? "",
         specialties: professional.specialties ?? [],
         active: professional.active ?? true,
@@ -197,6 +118,9 @@ export default function Professionals() {
         work_schedule: defaultSchedule,
       });
     }
+
+    setEditingProfessional(professional ?? null);
+    setDialogOpen(true);
   };
 
   const handleDelete = async (id: number) => {
@@ -210,19 +134,30 @@ export default function Professionals() {
   };
 
   const onSubmit = async (data: z.infer<typeof professionalSchema>) => {
-    console.log("Payload enviado:", data); // 👈 log útil
+    setIsSubmitting(true);
+    const payload: CreateProfessionalDto = {
+      user_id: data.user_id,
+      phone: data.phone ?? null,
+      specialties: data.specialties ?? [],
+      active: data.active ?? true,
+      work_schedule: data.work_schedule as WorkScheduleDay[],
+    };
+
     try {
       if (editingProfessional) {
-        await updateProfessional(editingProfessional.id, data);
+        await updateProfessional(editingProfessional.id, payload);
         toast.success("Profissional atualizado com sucesso!");
       } else {
-        await createProfessional(data);
+        await createProfessional(payload);
         toast.success("Profissional criado com sucesso!");
       }
+
       refetch();
       setDialogOpen(false);
     } catch {
       toast.error("Erro ao salvar profissional.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -230,15 +165,15 @@ export default function Professionals() {
     {
       key: "user",
       header: "Usuário",
-      render: (professional: Professional) => professional.user?.name ?? "-",
+      render: (p: Professional) => p.name ?? "-",
     },
     { key: "phone", header: "Telefone" },
     {
       key: "specialties",
       header: "Especializações",
-      render: (professional: Professional) => (
+      render: (p: Professional) => (
         <div className="flex flex-wrap gap-1">
-          {(professional.specialties ?? []).map((spec) => (
+          {(p.specialties ?? []).map((spec) => (
             <Badge key={spec} variant="secondary">
               {spec}
             </Badge>
@@ -249,23 +184,19 @@ export default function Professionals() {
     {
       key: "active",
       header: "Status",
-      render: (professional: Professional) => (
-        <Badge variant={professional.active ? "success" : "outline"}>
-          {professional.active ? "Ativo" : "Inativo"}
+      render: (p: Professional) => (
+        <Badge variant={p.active ? "success" : "outline"}>
+          {p.active ? "Ativo" : "Inativo"}
         </Badge>
       ),
     },
     {
       key: "actions",
       header: "Ações",
-      render: (professional: Professional) => (
+      render: (p: Professional) => (
         <div className="flex gap-2">
           {can("professionals", "update") && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => openDialog(professional)}
-            >
+            <Button variant="ghost" size="icon" onClick={() => openDialog(p)}>
               <Edit className="h-4 w-4" />
             </Button>
           )}
@@ -273,7 +204,7 @@ export default function Professionals() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => handleDelete(professional.id)}
+              onClick={() => handleDelete(p.id)}
             >
               <Trash2 className="h-4 w-4 text-destructive" />
             </Button>
@@ -285,15 +216,13 @@ export default function Professionals() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Profissionais</h1>
-          <p className="text-muted-foreground">
-            Gerencie os profissionais do salão
-          </p>
+          <p className="text-muted-foreground">Gerencie os profissionais do salão</p>
         </div>
         {can("professionals", "create") && (
-          <Button className="shadow-md" onClick={() => openDialog()}>
+          <Button className={cn("shadow-md", isMobile && "w-full")} onClick={() => openDialog()}>
             <Plus className="mr-2 h-4 w-4" />
             Novo Profissional
           </Button>
@@ -303,21 +232,21 @@ export default function Professionals() {
       <DataTable
         data={professionals}
         columns={columns}
+        loading={isLoading}
         searchPlaceholder="Buscar profissionais..."
         emptyMessage="Nenhum profissional encontrado."
       />
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent
+          className={isMobile ? "max-w-[95vw] h-[90vh] overflow-y-auto" : "max-w-4xl max-h-[90vh] overflow-y-auto"}
+        >
           <DialogHeader>
             <DialogTitle>
-              {editingProfessional
-                ? "Editar Profissional"
-                : "Novo Profissional"}
+              {editingProfessional ? "Editar Profissional" : "Novo Profissional"}
             </DialogTitle>
             <DialogDescription>
-              Selecione o usuário, defina as especializações e configure o
-              horário de trabalho.
+              Selecione o usuário, defina as especializações e configure o horário de trabalho.
             </DialogDescription>
           </DialogHeader>
 
@@ -338,11 +267,17 @@ export default function Professionals() {
                           <SelectValue placeholder="Selecione um usuário" />
                         </SelectTrigger>
                         <SelectContent>
-                          {users.map((user) => (
-                            <SelectItem key={user.id} value={String(user.id)}>
-                              {user.name} ({user.email})
-                            </SelectItem>
-                          ))}
+                          {users.length === 0 ? (
+                            <div className="p-2 text-sm text-muted-foreground">
+                              Carregando usuários...
+                            </div>
+                          ) : (
+                            users.map((user) => (
+                              <SelectItem key={user.id} value={String(user.id)}>
+                                {user.name} ({user.email})
+                              </SelectItem>
+                            ))
+                          )}
                         </SelectContent>
                       </Select>
                     </FormControl>
@@ -358,7 +293,12 @@ export default function Professionals() {
                   <FormItem>
                     <FormLabel>Telefone</FormLabel>
                     <FormControl>
-                      <Input placeholder="(81) 90011-2233" {...field} />
+                      <Input
+                        placeholder="(81) 90011-2233"
+                        value={field.value || ''}
+                        onChange={(e) => field.onChange(formatPhone(e.target.value))}
+                        maxLength={15}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -371,7 +311,7 @@ export default function Professionals() {
                 render={() => (
                   <FormItem>
                     <FormLabel>Especializações / Serviços</FormLabel>
-                    <div className="grid grid-cols-2 gap-3 mt-2">
+                    <div className="grid grid-cols-2 gap-3 mt-2 sm:grid-cols-3">
                       {mockServices.map((service) => (
                         <FormField
                           key={service.id}
@@ -409,18 +349,29 @@ export default function Professionals() {
                 )}
               />
 
+              <FormField
+                control={form.control}
+                name="active"
+                render={({ field }) => (
+                  <FormItem className="flex items-center justify-between border p-3 rounded-lg">
+                    <FormLabel>Status do Profissional</FormLabel>
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
               <div className="space-y-4 border-t pt-4">
                 <FormLabel className="text-base">Horário de Trabalho</FormLabel>
                 {form.watch("work_schedule")?.map((day, index) => (
-                  <div
-                    key={day.day}
-                    className="border rounded-lg p-4 space-y-3"
-                  >
-                    <div className="flex items-center justify-between">
-                      <FormLabel className="text-sm font-medium">
-                        {day.day}
-                      </FormLabel>
-                      <div className="flex gap-4">
+                  <div key={day.day} className="border rounded-lg p-4 space-y-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <FormLabel className="text-sm font-medium">{day.day}</FormLabel>
+                      <div className="flex gap-4 flex-wrap">
                         <FormField
                           control={form.control}
                           name={`work_schedule.${index}.isWorkingDay`}
@@ -460,79 +411,24 @@ export default function Professionals() {
 
                     {form.watch(`work_schedule.${index}.isWorkingDay`) &&
                       !form.watch(`work_schedule.${index}.isDayOff`) && (
-                        <div className="grid grid-cols-2 gap-4">
-                          <FormField
-                            control={form.control}
-                            name={`work_schedule.${index}.startTime`}
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs text-muted-foreground">
-                                  Entrada
-                                </FormLabel>
-                                <FormControl>
-                                  <Input
-                                    type="time"
-                                    value={field.value ?? ""}
-                                    onChange={field.onChange}
-                                  />
-                                </FormControl>
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={form.control}
-                            name={`work_schedule.${index}.endTime`}
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs text-muted-foreground">
-                                  Saída
-                                </FormLabel>
-                                <FormControl>
-                                  <Input
-                                    type="time"
-                                    value={field.value ?? ""}
-                                    onChange={field.onChange}
-                                  />
-                                </FormControl>
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={form.control}
-                            name={`work_schedule.${index}.lunchStart`}
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs text-muted-foreground">
-                                  Início do Almoço
-                                </FormLabel>
-                                <FormControl>
-                                  <Input
-                                    type="time"
-                                    value={field.value ?? ""}
-                                    onChange={field.onChange}
-                                  />
-                                </FormControl>
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={form.control}
-                            name={`work_schedule.${index}.lunchEnd`}
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs text-muted-foreground">
-                                  Fim do Almoço
-                                </FormLabel>
-                                <FormControl>
-                                  <Input
-                                    type="time"
-                                    value={field.value ?? ""}
-                                    onChange={field.onChange}
-                                  />
-                                </FormControl>
-                              </FormItem>
-                            )}
-                          />
+                        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                          {["startTime", "endTime", "lunchStart", "lunchEnd"].map((key, i) => (
+                            <FormField
+                              key={key}
+                              control={form.control}
+                              name={`work_schedule.${index}.${key}` as any}
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel className="text-xs text-muted-foreground">
+                                    {["Entrada", "Saída", "Início do Almoço", "Fim do Almoço"][i]}
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Input type="time" value={field.value ?? ""} onChange={field.onChange} />
+                                  </FormControl>
+                                </FormItem>
+                              )}
+                            />
+                          ))}
                         </div>
                       )}
                   </div>
@@ -547,8 +443,12 @@ export default function Professionals() {
                 >
                   Cancelar
                 </Button>
-                <Button type="submit">
-                  {editingProfessional ? "Atualizar" : "Cadastrar"}
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting
+                    ? "Salvando..."
+                    : editingProfessional
+                    ? "Atualizar"
+                    : "Cadastrar"}
                 </Button>
               </DialogFooter>
             </form>

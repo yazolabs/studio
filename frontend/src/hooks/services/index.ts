@@ -1,12 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../../services/api';
-import {
-  createService,
-  getService,
-  listServices,
-  removeService,
-  updateService,
-} from '../../services/servicesService';
+import { createService, getService, listServices, removeService, updateService } from '../../services/servicesService';
 import type { CreateServiceDto, Service, UpdateServiceDto } from '../../types/service';
 
 export function useServicesQuery(params?: Parameters<typeof listServices>[0]) {

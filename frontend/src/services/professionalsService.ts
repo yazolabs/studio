@@ -36,7 +36,6 @@ export async function getProfessional(id: number) {
 
 export async function createProfessional(payload: CreateProfessionalDto) {
   const { data } = await api.post<Professional>(basePath, mapPayload(payload));
-  console.log(data)
   return data;
 }
 
