@@ -4,7 +4,6 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Resources\Json\JsonResource;
 
-/** @mixin \App\Models\Customer */
 class CustomerResource extends JsonResource
 {
     public function toArray($request): array
@@ -12,18 +11,26 @@ class CustomerResource extends JsonResource
         return [
             'id' => $this->id,
             'name' => $this->name,
+            'cpf' => $this->cpf,
+            'gender' => $this->gender,
+            'active' => $this->active,
             'email' => $this->email,
             'phone' => $this->phone,
-            'alternatePhone' => $this->alternate_phone,
+            'alternate_phone' => $this->alternate_phone,
             'address' => $this->address,
+            'number' => $this->number,
+            'complement' => $this->complement,
+            'neighborhood' => $this->neighborhood,
             'city' => $this->city,
             'state' => $this->state,
-            'zipCode' => $this->zip_code,
-            'birthDate' => $this->birth_date?->toDateString(),
+            'zip_code' => $this->zip_code,
+            'birth_date' => $this->birth_date?->toDateString(),
+            'last_visit' => $this->last_visit?->toISOString(),
             'notes' => $this->notes,
-            'lastVisit' => $this->last_visit?->toISOString(),
-            'createdAt' => $this->created_at?->toISOString(),
-            'updatedAt' => $this->updated_at?->toISOString(),
+            'contact_preferences' => $this->contact_preferences ?? [],
+            'accepts_marketing' => $this->accepts_marketing,
+            'created_at' => $this->created_at?->toISOString(),
+            'updated_at' => $this->updated_at?->toISOString(),
         ];
     }
 }

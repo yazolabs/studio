@@ -73,4 +73,3 @@ class ServiceController extends Controller
         return response()->noContent();
     }
 }
-

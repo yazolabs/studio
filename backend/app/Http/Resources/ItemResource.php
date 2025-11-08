@@ -16,14 +16,14 @@ class ItemResource extends JsonResource
             'price' => $this->price,
             'cost' => $this->cost,
             'stock' => $this->stock,
-            'minStock' => $this->min_stock,
+            'min_stock' => $this->min_stock,
             'category' => $this->category,
-            'supplierId' => $this->supplier_id,
+            'supplier_id' => $this->supplier_id,
             'barcode' => $this->barcode,
-            'commissionType' => $this->commission_type,
-            'commissionValue' => $this->commission_value,
-            'createdAt' => $this->created_at?->toISOString(),
-            'updatedAt' => $this->updated_at?->toISOString(),
+            'commission_type' => $this->commission_type,
+            'commission_value' => $this->commission_value,
+            'created_at' => $this->created_at?->toISOString(),
+            'updated_at' => $this->updated_at?->toISOString(),
         ];
     }
 }

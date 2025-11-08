@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\ProfessionalResource;
 use App\Models\Professional;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -98,8 +97,6 @@ class ProfessionalController extends Controller
     {
         $professional->delete();
 
-        return response()->json([
-            'message' => 'Profissional excluído com sucesso.'
-        ], Response::HTTP_NO_CONTENT);
+        return response()->noContent();
     }
 }

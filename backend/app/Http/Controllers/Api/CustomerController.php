@@ -5,41 +5,53 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\CustomerResource;
 use App\Models\Customer;
-use App\Services\CustomerService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Symfony\Component\HttpFoundation\Response;
 
 class CustomerController extends Controller
 {
-    public function __construct(private readonly CustomerService $service)
-    {
-    }
-
     public function index(Request $request)
     {
-        $customers = $this->service->paginate($request->all());
+        $query = Customer::query()->orderBy('name');
+
+        if ($search = trim($request->get('search', ''))) {
+            $query->where('name', 'like', "%{$search}%")
+                  ->orWhere('email', 'like', "%{$search}%")
+                  ->orWhere('phone', 'like', "%{$search}%");
+        }
+
+        $perPage = min(100, max(1, (int) $request->get('per_page', 10)));
+        $customers = $query->paginate($perPage)->appends($request->all());
 
         return CustomerResource::collection($customers);
     }
 
     public function store(Request $request)
     {
-        $data = Arr::only($request->all(), [
-            'name',
-            'email',
-            'phone',
-            'alternate_phone',
-            'address',
-            'city',
-            'state',
-            'zip_code',
-            'birth_date',
-            'notes',
-            'last_visit',
+        $data = $request->validate([
+            'name' => 'required|string|max:160',
+            'cpf' => 'nullable|string|max:20',
+            'gender' => 'nullable|string|max:20',
+            'active' => 'boolean',
+            'email' => 'nullable|email|max:160',
+            'phone' => 'nullable|string|max:40',
+            'alternate_phone' => 'nullable|string|max:40',
+            'address' => 'nullable|string|max:255',
+            'number' => 'nullable|string|max:20',
+            'complement' => 'nullable|string|max:120',
+            'neighborhood' => 'nullable|string|max:120',
+            'city' => 'nullable|string|max:120',
+            'state' => 'nullable|string|max:60',
+            'zip_code' => 'nullable|string|max:20',
+            'birth_date' => 'nullable|date',
+            'last_visit' => 'nullable|date',
+            'notes' => 'nullable|string',
+            'contact_preferences' => 'nullable|array',
+            'accepts_marketing' => 'boolean',
         ]);
 
-        $customer = $this->service->create($data);
+        $customer = Customer::create($data);
 
         return (new CustomerResource($customer))
             ->response()
@@ -53,29 +65,39 @@ class CustomerController extends Controller
 
     public function update(Request $request, Customer $customer)
     {
-        $data = Arr::only($request->all(), [
-            'name',
-            'email',
-            'phone',
-            'alternate_phone',
-            'address',
-            'city',
-            'state',
-            'zip_code',
-            'birth_date',
-            'notes',
-            'last_visit',
+        $data = $request->validate([
+            'name' => 'sometimes|string|max:160',
+            'cpf' => 'nullable|string|max:20',
+            'gender' => 'nullable|string|max:20',
+            'active' => 'boolean',
+            'email' => 'nullable|email|max:160',
+            'phone' => 'nullable|string|max:40',
+            'alternate_phone' => 'nullable|string|max:40',
+            'address' => 'nullable|string|max:255',
+            'number' => 'nullable|string|max:20',
+            'complement' => 'nullable|string|max:120',
+            'neighborhood' => 'nullable|string|max:120',
+            'city' => 'nullable|string|max:120',
+            'state' => 'nullable|string|max:60',
+            'zip_code' => 'nullable|string|max:20',
+            'birth_date' => 'nullable|date',
+            'last_visit' => 'nullable|date',
+            'notes' => 'nullable|string',
+            'contact_preferences' => 'nullable|array',
+            'accepts_marketing' => 'boolean',
         ]);
 
-        $updated = $this->service->update($customer, $data);
+        $customer->update($data);
 
-        return new CustomerResource($updated);
+        return new CustomerResource($customer);
     }
 
     public function destroy(Customer $customer)
     {
-        $this->service->delete($customer);
+        $customer->delete();
 
-        return response()->noContent();
+        return response()->json([
+            'message' => 'Cliente excluído com sucesso.'
+        ], Response::HTTP_NO_CONTENT);
     }
 }

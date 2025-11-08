@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\Api\{ AccountPayableController, ActionController, AppointmentController, AuthController, CashierTransactionController, CommissionController, CustomerController, ItemController, ItemPriceController, ItemPriceHistoryController, PermissionController, ProfessionalController, PromotionController, RoleController, ScreenController, ServiceController, SupplierController, UserController};
+use App\Http\Controllers\Api\{ AccountPayableController, ActionController, AppointmentController, AuthController, CashierTransactionController, CommissionController, CustomerController, ItemController, ItemPriceController, ItemPriceHistoryController, PermissionController, ProfessionalController, PromotionController, RoleController, ScreenController, ServiceController, StateController, SupplierController, UserController};
 use Illuminate\Support\Facades\Route;
 
 Route::post('/login', [AuthController::class, 'login']);
@@ -103,6 +103,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/{appointment}', 'show')->middleware('permission:appointments,read');
         Route::put('/{appointment}', 'update')->middleware('permission:appointments,update');
         Route::delete('/{appointment}', 'destroy')->middleware('permission:appointments,delete');
+        Route::get('/calendar', [AppointmentController::class, 'calendar'])->middleware('permission:appointments,read');
     });
 
     Route::prefix('commissions')->controller(CommissionController::class)->group(function () {
@@ -143,5 +144,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/{itemPriceHistory}', 'show')->middleware('permission:item-price-histories,read');
         Route::put('/{itemPriceHistory}', 'update')->middleware('permission:item-price-histories,update');
         Route::delete('/{itemPriceHistory}', 'destroy')->middleware('permission:item-price-histories,delete');
+    });
+
+    Route::prefix('states')->controller(StateController::class)->group(function () {
+        Route::get('/', 'index');
     });
 });

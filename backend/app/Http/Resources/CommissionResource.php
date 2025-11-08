@@ -4,7 +4,6 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Resources\Json\JsonResource;
 
-/** @mixin \App\Models\Commission */
 class CommissionResource extends JsonResource
 {
     public function toArray($request): array
@@ -29,16 +28,16 @@ class CommissionResource extends JsonResource
                     'name' => $this->service->name,
                 ];
             }),
-            'appointmentId' => $this->appointment_id,
+            'appointment_id' => $this->appointment_id,
             'date' => $this->date?->toDateString(),
-            'servicePrice' => $this->service_price,
-            'commissionType' => $this->commission_type,
-            'commissionValue' => $this->commission_value,
-            'commissionAmount' => $this->commission_amount,
+            'service_price' => $this->service_price,
+            'commission_type' => $this->commission_type,
+            'commission_value' => $this->commission_value,
+            'commission_amount' => $this->commission_amount,
             'status' => $this->status,
-            'paymentDate' => $this->payment_date?->toDateString(),
-            'createdAt' => $this->created_at?->toISOString(),
-            'updatedAt' => $this->updated_at?->toISOString(),
+            'payment_date' => $this->payment_date?->toDateString(),
+            'created_at' => $this->created_at?->toISOString(),
+            'updated_at' => $this->updated_at?->toISOString(),
         ];
     }
 }

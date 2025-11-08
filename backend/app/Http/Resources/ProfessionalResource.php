@@ -17,8 +17,8 @@ class ProfessionalResource extends JsonResource
             'specialties' => $this->specialties,
             'active' => $this->active,
             'work_schedule' => $this->work_schedule ?? [],
-            'createdAt' => $this->created_at?->toISOString(),
-            'updatedAt' => $this->updated_at?->toISOString(),
+            'created_at' => $this->created_at?->toISOString(),
+            'updated_at' => $this->updated_at?->toISOString(),
         ];
     }
 }

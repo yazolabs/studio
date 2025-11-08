@@ -47,4 +47,11 @@ class Item extends Model
     {
         return $this->hasMany(ItemPriceHistory::class);
     }
+
+    public function appointments()
+    {
+        return $this->belongsToMany(Appointment::class, 'appointment_item')
+            ->withPivot(['price', 'quantity'])
+            ->withTimestamps();
+    }
 }
