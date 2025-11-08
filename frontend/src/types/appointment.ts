@@ -1,10 +1,3 @@
-export type AppointmentProfessional = {
-  id: number;
-  name: string;
-  commission_percentage?: string | null;
-  commission_fixed?: string | null;
-};
-
 export type AppointmentServiceItem = {
   id: number;
   name: string;
@@ -25,7 +18,8 @@ export type AppointmentItem = {
 export type Appointment = {
   id: number;
   customer: { id: number; name: string } | null;
-  professionals?: AppointmentProfessional[] | null;
+  // profissionais agora vêm derivados via services
+  professionals?: { id: number; name: string }[] | null;
   services?: AppointmentServiceItem[] | null;
   items?: AppointmentItem[] | null;
   promotion?: { id: number; name: string } | null;
@@ -62,6 +56,7 @@ export type CreateAppointmentDto = {
   installment_fee?: string | null;
   promotion_id?: number | null;
   notes?: string | null;
+
   services?: Array<{
     id: number;
     service_price: string;
@@ -69,11 +64,7 @@ export type CreateAppointmentDto = {
     commission_value?: string;
     professional_id?: number | null;
   }>;
-  professionals?: Array<{
-    id: number;
-    commission_percentage?: string | null;
-    commission_fixed?: string | null;
-  }>;
+
   items?: Array<{
     id: number;
     price: string;

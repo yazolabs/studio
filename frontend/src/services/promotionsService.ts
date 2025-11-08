@@ -15,15 +15,15 @@ function mapPayload(payload: CreatePromotionDto | UpdatePromotionDto) {
   const body = {
     name: payload.name,
     description: payload.description,
-    discount_type: payload.discountType,
-    discount_value: payload.discountValue,
-    start_date: payload.startDate,
-    end_date: payload.endDate,
+    discount_type: payload.discount_type,
+    discount_value: payload.discount_value,
+    start_date: payload.start_date,
+    end_date: payload.end_date,
     active: payload.active,
-    min_purchase_amount: payload.minPurchaseAmount,
-    max_discount: payload.maxDiscount,
-    applicable_services: payload.applicableServices,
-    applicable_items: payload.applicableItems,
+    min_purchase_amount: payload.min_purchase_amount,
+    max_discount: payload.max_discount,
+    applicable_services: payload.applicable_services,
+    applicable_items: payload.applicable_items,
   };
 
   return Object.fromEntries(

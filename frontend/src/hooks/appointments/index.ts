@@ -62,12 +62,12 @@ export function useAppointmentCheckout() {
       appointment,
       services,
     }: {
-      appointment: Appointment;
+      appointment: { id: number; customer?: { id: number; name: string } | null };
       services: Array<{
         id: number;
         name: string;
         price: number;
-        professionals: number[];
+        professional_id: number | null;
         commission_type: string;
         commission_value: number;
       }>;
@@ -80,43 +80,41 @@ export function useAppointmentCheckout() {
       const accountsPayload: any[] = [];
 
       for (const service of services) {
-        for (const professional_id of service.professionals) {
-          const commissionAmount =
-            service.commission_type === 'percentage'
-              ? (service.price * service.commission_value) / 100
-              : service.commission_value;
+        if (!service.professional_id) continue; // serviço sem profissional
 
-          const dividedAmount = commissionAmount / service.professionals.length;
+        const commissionAmount =
+          service.commission_type === 'percentage'
+            ? (service.price * service.commission_value) / 100
+            : service.commission_value;
 
-          const commissionDto = {
-            professional_id,
-            appointment_id: appointment.id,
-            service_id: service.id,
-            customer_id: appointment.customer?.id ?? null,
-            date: new Date().toISOString().split('T')[0],
-            service_price: service.price,
-            commission_type: service.commission_type,
-            commission_value: service.commission_value,
-            commission_amount: dividedAmount,
-            status: 'pending',
-          };
+        const commissionDto = {
+          professional_id: service.professional_id,
+          appointment_id: appointment.id,
+          service_id: service.id,
+          customer_id: appointment.customer?.id ?? null,
+          date: new Date().toISOString().split('T')[0],
+          service_price: service.price,
+          commission_type: service.commission_type,
+          commission_value: service.commission_value,
+          commission_amount: commissionAmount,
+          status: 'pending',
+        };
 
-          const accountDto = {
-            description: `Comissão - ${service.name}`,
-            amount: dividedAmount,
-            due_date: new Date().toISOString().split('T')[0],
-            status: 'pending',
-            category: 'Comissão',
-            professional_id,
-            appointment_id: appointment.id,
-            notes: `Cliente: ${appointment.customer?.name ?? 'N/A'}\nServiço: ${
-              service.name
-            }\nValor do Serviço: R$ ${service.price.toFixed(2)}`,
-          };
+        const accountDto = {
+          description: `Comissão - ${service.name}`,
+          amount: commissionAmount,
+          due_date: new Date().toISOString().split('T')[0],
+          status: 'pending',
+          category: 'Comissão',
+          professional_id: service.professional_id,
+          appointment_id: appointment.id,
+          notes: `Cliente: ${appointment.customer?.name ?? 'N/A'}\nServiço: ${
+            service.name
+          }\nValor do Serviço: R$ ${service.price.toFixed(2)}`,
+        };
 
-          commissionsPayload.push(commissionDto);
-          accountsPayload.push(accountDto);
-        }
+        commissionsPayload.push(commissionDto);
+        accountsPayload.push(accountDto);
       }
 
       await Promise.all([

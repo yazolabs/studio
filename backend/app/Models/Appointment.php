@@ -65,13 +65,6 @@ class Appointment extends Model
             ->withTimestamps();
     }
 
-    public function professionals()
-    {
-        return $this->belongsToMany(Professional::class, 'appointment_professional')
-            ->withPivot(['commission_percentage', 'commission_fixed'])
-            ->withTimestamps();
-    }
-
     public function commissions()
     {
         return $this->hasMany(Commission::class);

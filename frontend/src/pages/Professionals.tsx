@@ -103,7 +103,7 @@ export default function Professionals() {
 
     if (professional) {
       form.reset({
-        user_id: professional.userId ?? undefined,
+        user_id: professional.user_id ?? undefined,
         phone: professional.phone ?? "",
         specialties: professional.specialties ?? [],
         active: professional.active ?? true,

@@ -1,93 +1,98 @@
-import { useState, useEffect } from 'react';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Separator } from '@/components/ui/separator';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { X, Plus, Printer, Tag } from 'lucide-react';
-import { toast } from 'sonner';
-import { useAppointmentCheckout } from '@/hooks/appointments/index';
-import { useProfessionalsQuery } from '@/hooks/professionals/index';
-import { useServicesQuery } from '@/hooks/services/index';
-import { usePromotionsQuery } from '@/hooks/promotions/index';
-import { useItemsQuery } from '@/hooks/items/index';
+import { useState, useEffect, useMemo } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { X, Plus, Printer, Tag, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import {
+  useAppointmentCheckout,
+  useAppointmentQuery,
+} from "@/hooks/appointments";
+import { useProfessionalsQuery } from "@/hooks/professionals";
+import { useServicesQuery } from "@/hooks/services";
+import { usePromotionsQuery } from "@/hooks/promotions";
+import { useItemsQuery } from "@/hooks/items";
 
 const checkoutSchema = z.object({
   discount: z.number().min(0).max(100),
-  paymentMethod: z.string().min(1, 'Forma de pagamento é obrigatória'),
+  paymentMethod: z.string().min(1, "Forma de pagamento é obrigatória"),
   cardBrand: z.string().optional(),
   installments: z.number().min(1).optional(),
   installmentFee: z.number().min(0).optional(),
 });
 
-interface Appointment {
-  id: number;
-  customer_id: number;
-  client: string;
-  clientPhone?: string;
-  service: string;
-  professionals: number[];
-  date: string;
-  time: string;
-  duration?: number;
-  status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show';
-  notes?: string;
-  price?: number;
-}
-
-interface AppointmentLegacy {
-  id: string;
-  client: string;
-  clientPhone?: string;
-  service: string;
-  professionals: string[];
-  date: string;
-  time: string;
-  duration?: number;
-  status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show';
-  notes?: string;
-  price?: number;
-}
-
 interface AppointmentCheckoutDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  appointment: Appointment | AppointmentLegacy | null;
+  appointmentId: number | null;
 }
 
 export function AppointmentCheckoutDialog({
   open,
   onOpenChange,
-  appointment,
+  appointmentId,
 }: AppointmentCheckoutDialogProps) {
+  const {
+    data: appointmentData,
+    isLoading,
+    refetch,
+  } = useAppointmentQuery(appointmentId ?? 0, !!appointmentId);
+
   const { data: professionalsData } = useProfessionalsQuery();
   const { data: servicesData } = useServicesQuery();
   const { data: promotionsData } = usePromotionsQuery();
   const { data: itemsData } = useItemsQuery();
+
   const professionals = professionalsData?.data ?? [];
   const servicesList = servicesData ?? [];
   const promotions = promotionsData?.data ?? [];
   const productsList = itemsData?.data ?? [];
+
   const [services, setServices] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
-  const [selectedService, setSelectedService] = useState('');
-  const [selectedProfessionals, setSelectedProfessionals] = useState<number[]>([]);
-  const [selectedProduct, setSelectedProduct] = useState('');
+  const [selectedService, setSelectedService] = useState("");
+  const [selectedProfessionals, setSelectedProfessionals] = useState<number[]>(
+    []
+  );
+  const [selectedProduct, setSelectedProduct] = useState("");
   const [productQuantity, setProductQuantity] = useState(1);
-  const [selectedPromotion, setSelectedPromotion] = useState<string>('');
+  const [selectedPromotion, setSelectedPromotion] = useState<string>("");
+  const [loadingAppointment, setLoadingAppointment] = useState(false);
 
   const form = useForm<z.infer<typeof checkoutSchema>>({
     resolver: zodResolver(checkoutSchema),
     defaultValues: {
       discount: 0,
-      paymentMethod: '',
-      cardBrand: '',
+      paymentMethod: "",
+      cardBrand: "",
       installments: 1,
       installmentFee: 0,
     },
@@ -95,50 +100,90 @@ export function AppointmentCheckoutDialog({
 
   const { mutateAsync: checkout, isPending } = useAppointmentCheckout();
 
-  const activePromotions = promotions.filter((promo: any) => {
-    if (!promo.active) return false;
-    const today = new Date();
-    const startDate = new Date(promo.start_date);
-    const endDate = new Date(promo.end_date);
-    return today >= startDate && today <= endDate;
-  });
+  // 🧠 carregamento assíncrono de dados do agendamento real
+  useEffect(() => {
+    if (!open || !appointmentId) return;
+
+    const loadAppointmentData = async () => {
+      try {
+        setLoadingAppointment(true);
+        const { data } = await refetch(); // força o reload do backend
+        if (!data) return;
+
+        // popula serviços
+        setServices(
+          data.services?.map((s: any) => ({
+            id: s.id,
+            name: s.name,
+            price: Number(s.service_price ?? s.price ?? 0),
+            commission_type: s.commission_type ?? "percentage",
+            commission_value: Number(s.commission_value ?? 0),
+            professionals: s.professional_id ? [s.professional_id] : [],
+          })) ?? []
+        );
+
+        // popula produtos
+        setProducts(
+          data.items?.map((i: any) => ({
+            id: i.id,
+            name: i.name,
+            price: Number(i.price ?? 0),
+            quantity: i.quantity ?? 1,
+          })) ?? []
+        );
+
+        // popula formulário
+        form.reset({
+          discount: Number(data.discount_amount ?? 0),
+          paymentMethod: data.payment_method ?? "",
+          cardBrand: data.card_brand ?? "",
+          installments: data.installments ?? 1,
+          installmentFee: Number(data.installment_fee ?? 0),
+        });
+      } catch (err) {
+        console.error("Erro ao carregar dados do agendamento:", err);
+        toast.error("Não foi possível carregar os dados do atendimento.");
+      } finally {
+        setLoadingAppointment(false);
+      }
+    };
+
+    loadAppointmentData();
+  }, [open, appointmentId, refetch]);
+
+  const activePromotions = useMemo(() => {
+    return (promotions ?? []).filter((promo: any) => {
+      if (!promo.active) return false;
+      const today = new Date();
+      const startDate = new Date(promo.start_date);
+      const endDate = new Date(promo.end_date);
+      return today >= startDate && today <= endDate;
+    });
+  }, [promotions]);
 
   const handlePromotionChange = (promotionId: string) => {
     setSelectedPromotion(promotionId);
-    if (promotionId && promotionId !== 'none') {
+    if (promotionId && promotionId !== "none") {
       const promotion = activePromotions.find((p: any) => p.id === promotionId);
       if (promotion?.discount_value) {
-        form.setValue('discount', Number(promotion.discount_value));
+        form.setValue("discount", Number(promotion.discount_value));
       }
     } else {
-      form.setValue('discount', 0);
+      form.setValue("discount", 0);
     }
   };
 
-  useEffect(() => {
-    if (open && appointment) {
-      setServices([]);
-      setProducts([]);
-      form.reset({
-        discount: 0,
-        paymentMethod: '',
-        cardBrand: '',
-        installments: 1,
-        installmentFee: 0,
-      });
-    }
-  }, [open, appointment, form]);
-
   const addService = () => {
     if (!selectedService || selectedProfessionals.length === 0) {
-      toast.error('Selecione um serviço e pelo menos um profissional');
+      toast.error("Selecione um serviço e pelo menos um profissional");
       return;
     }
-
-    const service = servicesList.find((s: any) => s.id.toString() === selectedService);
+    const service = servicesList.find(
+      (s: any) => s.id.toString() === selectedService
+    );
     if (service) {
-      setServices([
-        ...services,
+      setServices((prev) => [
+        ...prev,
         {
           id: service.id,
           name: service.name,
@@ -148,106 +193,126 @@ export function AppointmentCheckoutDialog({
           professionals: selectedProfessionals,
         },
       ]);
-      setSelectedService('');
+      setSelectedService("");
       setSelectedProfessionals([]);
     }
   };
 
-  const removeService = (index: number) => {
-    setServices(services.filter((_, i) => i !== index));
-  };
+  const removeService = (index: number) =>
+    setServices((prev) => prev.filter((_, i) => i !== index));
 
   const addProduct = () => {
     if (!selectedProduct || productQuantity < 1) {
-      toast.error('Selecione um produto e quantidade válida');
+      toast.error("Selecione um produto e quantidade válida");
       return;
     }
-
-    const product = productsList.find((p: any) => p.id.toString() === selectedProduct);
+    const product = productsList.find(
+      (p: any) => p.id.toString() === selectedProduct
+    );
     if (product) {
-      const existing = products.find((p) => p.id === product.id);
-      if (existing) {
-        setProducts(
-          products.map((p) =>
+      setProducts((prev) => {
+        const existing = prev.find((p) => p.id === product.id);
+        if (existing) {
+          return prev.map((p) =>
             p.id === product.id
               ? { ...p, quantity: p.quantity + productQuantity }
               : p
-          )
-        );
-      } else {
-        setProducts([
-          ...products,
+          );
+        }
+        return [
+          ...prev,
           {
             id: product.id,
             name: product.name,
             price: Number(product.price),
             quantity: productQuantity,
           },
-        ]);
-      }
-      setSelectedProduct('');
+        ];
+      });
+      setSelectedProduct("");
       setProductQuantity(1);
     }
   };
 
-  const removeProduct = (index: number) => {
-    setProducts(products.filter((_, i) => i !== index));
-  };
+  const removeProduct = (index: number) =>
+    setProducts((prev) => prev.filter((_, i) => i !== index));
 
   const toggleProfessional = (id: number) => {
-    if (selectedProfessionals.includes(id)) {
-      setSelectedProfessionals(selectedProfessionals.filter((p) => p !== id));
-    } else {
-      setSelectedProfessionals([...selectedProfessionals, id]);
-    }
+    setSelectedProfessionals((prev) =>
+      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
+    );
   };
 
   const servicesTotal = services.reduce((sum, s) => sum + s.price, 0);
-  const productsTotal = products.reduce((sum, p) => sum + p.price * p.quantity, 0);
+  const productsTotal = products.reduce(
+    (sum, p) => sum + p.price * p.quantity,
+    0
+  );
   const subtotal = servicesTotal + productsTotal;
-  const discount = form.watch('discount') || 0;
-  const paymentMethod = form.watch('paymentMethod');
-  const installments = form.watch('installments') || 1;
-  const installmentFee = form.watch('installmentFee') || 0;
-
+  const discount = form.watch("discount") || 0;
+  const paymentMethod = form.watch("paymentMethod");
+  const installments = form.watch("installments") || 1;
+  const installmentFee = form.watch("installmentFee") || 0;
   let totalAfterDiscount = subtotal - (subtotal * discount) / 100;
-  if (paymentMethod === 'credit' && installments > 1) {
-    totalAfterDiscount = totalAfterDiscount + (totalAfterDiscount * installmentFee) / 100;
+  if (paymentMethod === "credit" && installments > 1) {
+    totalAfterDiscount += (totalAfterDiscount * installmentFee) / 100;
   }
+
   const total = totalAfterDiscount;
 
+  const normalizedAppointment = useMemo(() => {
+    if (!appointmentData) return null;
+    return {
+      id: Number(appointmentData.id),
+      customer: appointmentData.customer ?? null,
+    };
+  }, [appointmentData]);
+
   const onSubmit = async (data: z.infer<typeof checkoutSchema>) => {
-    if (!appointment) return;
+    if (!normalizedAppointment) return;
     if (services.length === 0) {
-      toast.error('Adicione pelo menos um serviço');
+      toast.error("Adicione pelo menos um serviço");
       return;
     }
 
     try {
       await checkout({
-        appointment,
+        appointment: normalizedAppointment,
         services: services.map((s) => ({
           id: s.id,
           name: s.name,
-          price: s.price,
-          professionals: s.professionals,
+          price: Number(s.price),
+          professional_id: Number(s.professional_id),
           commission_type: s.commission_type,
-          commission_value: s.commission_value,
+          commission_value: Number(s.commission_value ?? 0),
         })),
       });
 
-      toast.success(`Atendimento finalizado com sucesso!`);
+      toast.success("Atendimento finalizado com sucesso!");
       onOpenChange(false);
       setServices([]);
       setProducts([]);
       form.reset();
     } catch (err) {
       console.error(err);
-      toast.error('Erro ao finalizar atendimento.');
+      toast.error("Erro ao finalizar atendimento.");
     }
   };
 
-  if (!appointment) return null;
+  if (isLoading || loadingAppointment) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-md flex flex-col items-center justify-center gap-4 py-10">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">
+            Requisitando dados do sistema...
+          </p>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  if (!open || !appointmentData) return null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -255,8 +320,10 @@ export function AppointmentCheckoutDialog({
         <DialogHeader>
           <DialogTitle>Finalizar Atendimento</DialogTitle>
           <DialogDescription>
-            Cliente: {appointment.client} • {new Date(appointment.date).toLocaleDateString('pt-BR')} às{' '}
-            {appointment.time}
+            Cliente:{" "}
+            {appointmentData.customer?.name ?? "Cliente não identificado"} •{" "}
+            {new Date(appointmentData.date).toLocaleDateString("pt-BR")} às{" "}
+            {appointmentData.start_time?.slice(0, 5) ?? "--:--"}
           </DialogDescription>
         </DialogHeader>
 
@@ -266,7 +333,10 @@ export function AppointmentCheckoutDialog({
               <Tag className="h-5 w-5 text-primary" />
               <h3 className="font-semibold">Promoção/Campanha</h3>
             </div>
-            <Select value={selectedPromotion} onValueChange={handlePromotionChange}>
+            <Select
+              value={selectedPromotion}
+              onValueChange={handlePromotionChange}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Selecione uma promoção (opcional)" />
               </SelectTrigger>
@@ -286,10 +356,15 @@ export function AppointmentCheckoutDialog({
                 ))}
               </SelectContent>
             </Select>
-            {selectedPromotion && selectedPromotion !== 'none' && (
+            {selectedPromotion && selectedPromotion !== "none" && (
               <Alert className="border-success/50 bg-success/5">
                 <AlertDescription className="text-sm text-success">
-                  ✓ Promoção aplicada: {activePromotions.find((p: any) => p.id.toString() === selectedPromotion)?.description}
+                  ✓ Promoção aplicada:{" "}
+                  {
+                    activePromotions.find(
+                      (p: any) => p.id.toString() === selectedPromotion
+                    )?.description
+                  }
                 </AlertDescription>
               </Alert>
             )}
@@ -332,7 +407,11 @@ export function AppointmentCheckoutDialog({
                 {professionals.map((p: any) => (
                   <Badge
                     key={p.id}
-                    variant={selectedProfessionals.includes(p.id) ? 'default' : 'outline'}
+                    variant={
+                      selectedProfessionals.includes(p.id)
+                        ? "default"
+                        : "outline"
+                    }
                     className="cursor-pointer"
                     onClick={() => toggleProfessional(p.id)}
                   >
@@ -346,16 +425,25 @@ export function AppointmentCheckoutDialog({
           {services.length > 0 && (
             <div className="space-y-2">
               {services.map((s, i) => (
-                <div key={i} className="flex items-start justify-between p-3 border rounded-lg">
+                <div
+                  key={i}
+                  className="flex items-start justify-between p-3 border rounded-lg"
+                >
                   <div className="flex-1">
                     <p className="font-medium">{s.name}</p>
                     <p className="text-sm text-muted-foreground">
-                      Profissionais:{' '}
+                      Profissionais:{" "}
                       {s.professionals
-                        .map((id: number) => professionals.find((p: any) => p.id === id)?.user?.name || '')
-                        .join(', ')}
+                        .map(
+                          (id: number) =>
+                            professionals.find((p: any) => p.id === id)?.user
+                              ?.name || ""
+                        )
+                        .join(", ")}
                     </p>
-                    <p className="text-sm font-medium mt-1">R$ {s.price.toFixed(2)}</p>
+                    <p className="text-sm font-medium mt-1">
+                      R$ {s.price.toFixed(2)}
+                    </p>
                   </div>
                   <Button
                     type="button"
@@ -394,7 +482,9 @@ export function AppointmentCheckoutDialog({
               type="number"
               min="1"
               value={productQuantity}
-              onChange={(e) => setProductQuantity(parseInt(e.target.value) || 1)}
+              onChange={(e) =>
+                setProductQuantity(parseInt(e.target.value) || 1)
+              }
               placeholder="Qtd"
             />
 
@@ -461,7 +551,9 @@ export function AppointmentCheckoutDialog({
                         min="0"
                         max="100"
                         {...field}
-                        onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                        onChange={(e) =>
+                          field.onChange(parseFloat(e.target.value) || 0)
+                        }
                       />
                     </FormControl>
                     <FormMessage />
@@ -483,7 +575,9 @@ export function AppointmentCheckoutDialog({
                       </FormControl>
                       <SelectContent>
                         <SelectItem value="cash">Dinheiro</SelectItem>
-                        <SelectItem value="credit">Cartão de Crédito</SelectItem>
+                        <SelectItem value="credit">
+                          Cartão de Crédito
+                        </SelectItem>
                         <SelectItem value="debit">Cartão de Débito</SelectItem>
                         <SelectItem value="pix">PIX</SelectItem>
                       </SelectContent>
@@ -494,7 +588,7 @@ export function AppointmentCheckoutDialog({
               />
             </div>
 
-            {paymentMethod === 'credit' && (
+            {paymentMethod === "credit" && (
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
@@ -536,7 +630,9 @@ export function AppointmentCheckoutDialog({
                           max="100"
                           step="0.01"
                           {...field}
-                          onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                          onChange={(e) =>
+                            field.onChange(parseFloat(e.target.value) || 0)
+                          }
                         />
                       </FormControl>
                     </FormItem>
@@ -577,11 +673,15 @@ export function AppointmentCheckoutDialog({
                 Imprimir Comanda
               </Button>
               <div className="flex gap-2 flex-1 justify-end">
-                <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => onOpenChange(false)}
+                >
                   Cancelar
                 </Button>
                 <Button type="submit" disabled={isPending}>
-                  {isPending ? 'Finalizando...' : 'Finalizar Atendimento'}
+                  {isPending ? "Finalizando..." : "Finalizar Atendimento"}
                 </Button>
               </div>
             </DialogFooter>
