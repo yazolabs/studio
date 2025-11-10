@@ -60,7 +60,7 @@ export type CreateAppointmentDto = {
   services?: Array<{
     id: number;
     service_price: string;
-    commission_type?: 'percentage' | 'fixed' | null;
+    commission_type?: 'percentage' | 'fixed' | string;
     commission_value?: string;
     professional_id?: number | null;
   }>;
