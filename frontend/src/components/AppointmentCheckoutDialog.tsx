@@ -220,16 +220,20 @@ export function AppointmentCheckoutDialog({
     0
   );
   const subtotal = servicesTotal + productsTotal;
-  const discount = form.watch("discount") || 0;
+  const discountPercent = form.watch("discount") || 0;
   const paymentMethod = form.watch("paymentMethod");
   const installments = form.watch("installments") || 1;
-  const installmentFee = form.watch("installmentFee") || 0;
-  let totalAfterDiscount = subtotal - (subtotal * discount) / 100;
-  if (paymentMethod === "credit" && installments > 1) {
-    totalAfterDiscount += (totalAfterDiscount * installmentFee) / 100;
-  }
+  const installmentFeePercent = form.watch("installmentFee") || 0;
 
-  const total = totalAfterDiscount;
+  const discountValue = (subtotal * discountPercent) / 100;
+  let totalAfterDiscount = subtotal - discountValue;
+
+  const installmentFeeValue =
+    paymentMethod === "credit" && installments > 1
+      ? (totalAfterDiscount * installmentFeePercent) / 100
+      : 0;
+
+  const total = totalAfterDiscount + installmentFeeValue;
 
   const normalizedAppointment = useMemo(() => {
     if (!appointmentData) return null;
@@ -249,14 +253,16 @@ export function AppointmentCheckoutDialog({
     try {
       await checkout({
         appointment: normalizedAppointment,
-        services: services.map((s) => ({
-          id: s.id,
-          name: s.name,
-          price: Number(s.price),
-          professional_id: Number(s.professional_id),
-          commission_type: s.commission_type,
-          commission_value: Number(s.commission_value ?? 0),
-        })),
+        services,
+        products,
+        formValues: {
+          discount: data.discount,
+          paymentMethod: data.paymentMethod,
+          cardBrand: data.cardBrand,
+          installments: data.installments,
+          installmentFee: data.installmentFee,
+          promotionId: selectedPromotion ? Number(selectedPromotion) : null,
+        },
       });
 
       toast.success("Atendimento finalizado com sucesso!");
@@ -607,30 +613,51 @@ export function AppointmentCheckoutDialog({
               </div>
             )}
 
-            <div className="space-y-2 p-4 bg-muted rounded-lg">
+            <div className="space-y-2 p-4 bg-muted rounded-lg border border-border">
               <div className="flex justify-between text-sm">
                 <span>Serviços:</span>
                 <span>R$ {servicesTotal.toFixed(2)}</span>
               </div>
+
               <div className="flex justify-between text-sm">
                 <span>Produtos:</span>
                 <span>R$ {productsTotal.toFixed(2)}</span>
               </div>
+
+              <Separator className="my-1" />
+
               <div className="flex justify-between text-sm">
                 <span>Subtotal:</span>
                 <span>R$ {subtotal.toFixed(2)}</span>
               </div>
-              {discount > 0 && (
+
+              {discountPercent > 0 && (
                 <div className="flex justify-between text-sm text-destructive">
-                  <span>Desconto ({discount}%):</span>
-                  <span>- R$ {((subtotal * discount) / 100).toFixed(2)}</span>
+                  <span>Desconto ({discountPercent}%):</span>
+                  <span>- R$ {discountValue.toFixed(2)}</span>
                 </div>
               )}
-              <Separator />
+
+              {installmentFeeValue > 0 && (
+                <div className="flex justify-between text-sm text-primary">
+                  <span>Acréscimo Maquininha ({installmentFeePercent}%):</span>
+                  <span>+ R$ {installmentFeeValue.toFixed(2)}</span>
+                </div>
+              )}
+
+              <Separator className="my-1" />
+
               <div className="flex justify-between text-lg font-bold">
                 <span>Total:</span>
                 <span>R$ {total.toFixed(2)}</span>
               </div>
+
+              {paymentMethod === "credit" && installments > 1 && (
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>{installments}x de:</span>
+                  <span>R$ {(total / installments).toFixed(2)}</span>
+                </div>
+              )}
             </div>
 
             <DialogFooter className="flex-col sm:flex-row gap-2">

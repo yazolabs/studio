@@ -59,9 +59,7 @@ class AppointmentController extends Controller
     public function show(Appointment $appointment)
     {
         $appointment->load(['customer', 'services', 'items', 'promotion']);
-        Log::info('DEBUG Appointment Resource:', [
-            'appointment' => $appointment->toArray()
-        ]);
+
         return new AppointmentResource($appointment);
     }
 
@@ -193,5 +191,39 @@ class AppointmentController extends Controller
             ->orderBy('start_time');
 
         return AppointmentResource::collection($query->get());
+    }
+
+    public function checkout(Request $request, Appointment $appointment)
+    {
+        $data = $request->validate([
+            'discount_amount' => ['nullable', 'numeric', 'min:0'],
+            'payment_method' => ['required', 'string', 'max:50'],
+            'card_brand' => ['nullable', 'string', 'max:50'],
+            'installments' => ['nullable', 'integer', 'min:1'],
+            'installment_fee' => ['nullable', 'numeric', 'min:0'],
+            'promotion_id' => ['nullable', 'exists:promotions,id'],
+        ]);
+
+        $appointment->fill($data);
+
+        if (!$appointment->end_time) {
+            $appointment->end_time = now();
+        }
+
+        if ($appointment->status !== 'completed') {
+            $appointment->status = 'completed';
+        }
+
+        $appointment->final_price = 
+            ($appointment->total_price + ($appointment->installment_fee ?? 0))
+            - ($appointment->discount_amount ?? 0);
+
+        $appointment->save();
+
+        $appointment->load(['customer', 'services', 'items', 'promotion']);
+
+        return (new AppointmentResource($appointment))
+            ->response()
+            ->setStatusCode(Response::HTTP_OK);
     }
 }

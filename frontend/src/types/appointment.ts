@@ -18,7 +18,6 @@ export type AppointmentItem = {
 export type Appointment = {
   id: number;
   customer: { id: number; name: string } | null;
-  // profissionais agora vêm derivados via services
   professionals?: { id: number; name: string }[] | null;
   services?: AppointmentServiceItem[] | null;
   items?: AppointmentItem[] | null;
