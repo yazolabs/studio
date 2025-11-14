@@ -29,8 +29,7 @@ services:
       DB_USERNAME: laravel
       DB_PASSWORD: laravel
     depends_on:
-      studio-db:
-        condition: service_healthy
+      - studio-db
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost"]
       interval: 30s
@@ -63,8 +62,7 @@ services:
       PMA_USER: laravel
       PMA_PASSWORD: laravel
     depends_on:
-      studio-db:
-        condition: service_healthy
+      - studio-db
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost"]
       interval: 30s
