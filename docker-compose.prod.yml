@@ -5,6 +5,8 @@ services:
       dockerfile: Dockerfile.prod
     container_name: studio-frontend
     restart: unless-stopped
+    networks:
+      - wkoccokcs4ggsw44wo0s880g
 
   studio-backend:
     build:
@@ -24,6 +26,8 @@ services:
       DB_PASSWORD: a0adff46cc4d1838816a42b1d1ad14e8
     depends_on:
       - studio-db
+    networks:
+      - wkoccokcs4ggsw44wo0s880g
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/api/health"]
       interval: 30s
@@ -44,6 +48,7 @@ services:
     volumes:
       - studio_db_data:/var/lib/mysql
     networks:
+      - wkoccokcs4ggsw44wo0s880g
       - shared-db-network
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
@@ -54,3 +59,9 @@ services:
 
 volumes:
   studio_db_data:
+
+networks:
+  wkoccokcs4ggsw44wo0s880g:
+    external: true
+  shared-db-network:
+    external: true
