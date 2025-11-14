@@ -16,8 +16,20 @@ class AccountPayableResource extends JsonResource
             'status' => $this->status,
             'category' => $this->category,
             'supplier_id' => $this->supplier_id,
-            'professional_id' => $this->professional_id,
-            'appointment_id' => $this->appointment_id,
+            'professional' => $this->whenLoaded('professional', fn() => [
+                'id' => $this->professional->id,
+                'name' => $this->professional->name ?? $this->professional->user->name ?? null,
+            ]),
+            'appointment' => $this->whenLoaded('appointment', fn() => [
+                'id' => $this->appointment->id,
+                'date' => $this->appointment->date?->toDateString(),
+                'payment_method' => $this->appointment->payment_method,
+            ]),
+            'commission' => $this->whenLoaded('commission', fn() => [
+                'id' => $this->commission->id,
+                'status' => $this->commission->status,
+                'payment_date' => $this->commission->payment_date?->toDateString(),
+            ]),
             'payment_date' => $this->payment_date?->toDateString(),
             'payment_method' => $this->payment_method,
             'reference' => $this->reference,

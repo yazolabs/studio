@@ -81,3 +81,8 @@ export async function listAppointmentsCalendar(params?: {
   const { data } = await api.get<Appointment[]>(`${basePath}/calendar`, { params });
   return data;
 }
+
+export async function checkoutAppointment(id: number, payload: any) {
+  const { data } = await api.patch(`/appointments/${id}/checkout`, payload);
+  return data;
+}

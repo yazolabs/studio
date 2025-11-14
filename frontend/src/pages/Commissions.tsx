@@ -5,146 +5,72 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DataTable } from '@/components/DataTable';
-import { 
-  DollarSign, 
-  TrendingUp, 
-  Users,
-  Download,
-  FileText,
-} from 'lucide-react';
+import { DollarSign, TrendingUp, Users, Download, FileText, Check } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
-import { format } from 'date-fns';
-
-interface CommissionRecord {
-  id: string;
-  professional: string;
-  date: string;
-  customer: string;
-  service: string;
-  servicePrice: number;
-  commissionType: 'percentage' | 'fixed';
-  commissionValue: number;
-  commissionAmount: number;
-}
-
-// Mock data - substituir por dados reais
-const mockCommissions: CommissionRecord[] = [
-  {
-    id: '1',
-    professional: 'João Santos',
-    date: '2025-10-17 09:00',
-    customer: 'Maria Silva',
-    service: 'Corte Feminino',
-    servicePrice: 150.00,
-    commissionType: 'percentage',
-    commissionValue: 30,
-    commissionAmount: 45.00,
-  },
-  {
-    id: '2',
-    professional: 'João Santos',
-    date: '2025-10-17 14:00',
-    customer: 'Carlos Souza',
-    service: 'Corte Masculino',
-    servicePrice: 50.00,
-    commissionType: 'percentage',
-    commissionValue: 30,
-    commissionAmount: 15.00,
-  },
-  {
-    id: '3',
-    professional: 'Pedro Lima',
-    date: '2025-10-17 10:30',
-    customer: 'Ana Costa',
-    service: 'Coloração',
-    servicePrice: 280.00,
-    commissionType: 'percentage',
-    commissionValue: 25,
-    commissionAmount: 70.00,
-  },
-  {
-    id: '4',
-    professional: 'Pedro Lima',
-    date: '2025-10-15 11:00',
-    customer: 'Roberto Dias',
-    service: 'Barba',
-    servicePrice: 45.00,
-    commissionType: 'fixed',
-    commissionValue: 15,
-    commissionAmount: 15.00,
-  },
-  {
-    id: '5',
-    professional: 'Mariana Alves',
-    date: '2025-10-16 15:00',
-    customer: 'Juliana Mendes',
-    service: 'Hidratação',
-    servicePrice: 120.00,
-    commissionType: 'percentage',
-    commissionValue: 20,
-    commissionAmount: 24.00,
-  },
-];
+import { format, parseISO } from 'date-fns';
+import { useCommissionsQuery } from '@/hooks/commissions';
+import { useMarkCommissionAsPaid } from '@/hooks/commissions';
+import { toast } from 'sonner';
+import { Skeleton } from '@/components/ui/skeleton';
+import type { Commission } from '@/types/commission';
 
 export default function Commissions() {
   const [selectedProfessional, setSelectedProfessional] = useState<string>('all');
-  const [startDate, setStartDate] = useState(format(new Date(), 'yyyy-MM-01'));
-  const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [start_date, setStartDate] = useState(format(new Date(), 'yyyy-MM-01'));
+  const [end_date, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+
+  const { data, isLoading } = useCommissionsQuery({
+    start_date,
+    end_date,
+    professional_id: selectedProfessional !== 'all' ? Number(selectedProfessional) : undefined,
+  });
+
+  const { mutate: markAsPaid, isPending: isMarkingPaid } = useMarkCommissionAsPaid();
+
+  const commissions = data?.data ?? [];
 
   const uniqueProfessionals = useMemo(() => {
-    const professionals = new Set(mockCommissions.map(c => c.professional));
-    return Array.from(professionals).sort();
-  }, []);
+    const names = new Map<number, string>();
+    commissions.forEach(c => {
+      if (c.professional) names.set(c.professional.id, c.professional.name);
+    });
+    return Array.from(names.entries());
+  }, [commissions]);
 
   const filteredCommissions = useMemo(() => {
-    return mockCommissions.filter((commission) => {
-      const commissionDate = new Date(commission.date);
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
+    return commissions.filter((c) => {
+      const byProf =
+        selectedProfessional === 'all' ||
+        c.professional?.id === Number(selectedProfessional);
 
-      const professionalMatch = selectedProfessional === 'all' || commission.professional === selectedProfessional;
-      const dateMatch = commissionDate >= start && commissionDate <= end;
-
-      return professionalMatch && dateMatch;
+      return byProf;
     });
-  }, [selectedProfessional, startDate, endDate]);
+  }, [commissions, selectedProfessional]);
 
   const summary = useMemo(() => {
-    const totalCommissions = filteredCommissions.reduce((sum, c) => sum + c.commissionAmount, 0);
-    const totalServices = filteredCommissions.reduce((sum, c) => sum + c.servicePrice, 0);
+    const totalCommissions = filteredCommissions.reduce((sum, c) => sum + Number(c.commission_amount || 0), 0);
+    const totalServices = filteredCommissions.reduce((sum, c) => sum + Number(c.service_price || 0), 0);
     const serviceCount = filteredCommissions.length;
-    
+
     const byProfessional = filteredCommissions.reduce((acc, c) => {
-      if (!acc[c.professional]) {
-        acc[c.professional] = {
-          total: 0,
-          services: 0,
-        };
-      }
-      acc[c.professional].total += c.commissionAmount;
-      acc[c.professional].services += 1;
+      const name = c.professional?.name ?? 'Sem profissional';
+      if (!acc[name]) acc[name] = { total: 0, services: 0 };
+      acc[name].total += Number(c.commission_amount || 0);
+      acc[name].services += 1;
       return acc;
     }, {} as Record<string, { total: number; services: number }>);
 
-    return {
-      totalCommissions,
-      totalServices,
-      serviceCount,
-      byProfessional,
-    };
+    return { totalCommissions, totalServices, serviceCount, byProfessional };
   }, [filteredCommissions]);
 
   const exportToPDF = () => {
     const doc = new jsPDF();
-    
     doc.setFontSize(18);
     doc.text('Relatório de Comissões', 14, 22);
-    
     doc.setFontSize(11);
-    doc.text(`Período: ${format(new Date(startDate), 'dd/MM/yyyy')} a ${format(new Date(endDate), 'dd/MM/yyyy')}`, 14, 32);
+    doc.text(`Período: ${format(new Date(start_date), 'dd/MM/yyyy')} a ${format(new Date(end_date), 'dd/MM/yyyy')}`, 14, 32);
     doc.text(`Profissional: ${selectedProfessional === 'all' ? 'Todos' : selectedProfessional}`, 14, 40);
     doc.text(`Total em Comissões: R$ ${summary.totalCommissions.toFixed(2)}`, 14, 48);
     doc.text(`Total em Serviços: R$ ${summary.totalServices.toFixed(2)}`, 14, 56);
@@ -153,89 +79,123 @@ export default function Commissions() {
       startY: 65,
       head: [['Data', 'Profissional', 'Cliente', 'Serviço', 'Valor Serv.', 'Comissão']],
       body: filteredCommissions.map(c => [
-        format(new Date(c.date), 'dd/MM/yyyy HH:mm'),
-        c.professional,
-        c.customer,
-        c.service,
-        `R$ ${c.servicePrice.toFixed(2)}`,
-        `R$ ${c.commissionAmount.toFixed(2)}`,
+        c.date ? format(parseISO(c.date), 'dd/MM/yyyy HH:mm') : '-',
+        c.professional?.name ?? '-',
+        c.customer?.name ?? '-',
+        c.service?.name ?? '-',
+        `R$ ${Number(c.service_price || 0).toFixed(2)}`,
+        `R$ ${Number(c.commission_amount || 0).toFixed(2)}`,
       ]),
     });
 
-    doc.save(`comissoes-${startDate}-${endDate}.pdf`);
+    doc.save(`comissoes-${start_date}-${end_date}.pdf`);
   };
 
   const exportToExcel = () => {
     const ws = XLSX.utils.json_to_sheet(
       filteredCommissions.map(c => ({
-        Data: format(new Date(c.date), 'dd/MM/yyyy HH:mm'),
-        Profissional: c.professional,
-        Cliente: c.customer,
-        Serviço: c.service,
-        'Valor do Serviço': c.servicePrice.toFixed(2),
-        'Tipo Comissão': c.commissionType === 'percentage' ? 'Percentual' : 'Fixo',
-        'Valor Comissão': c.commissionType === 'percentage' ? `${c.commissionValue}%` : `R$ ${c.commissionValue.toFixed(2)}`,
-        'Total Comissão': c.commissionAmount.toFixed(2),
+        Data: c.date ? format(parseISO(c.date), 'dd/MM/yyyy HH:mm') : '-',
+        Profissional: c.professional?.name ?? '-',
+        Cliente: c.customer?.name ?? '-',
+        Serviço: c.service?.name ?? '-',
+        'Valor do Serviço': Number(c.service_price || 0).toFixed(2),
+        'Tipo Comissão': c.commission_type === 'percentage' ? 'Percentual' : 'Fixa',
+        'Valor Comissão': c.commission_type === 'percentage'
+          ? `${c.commission_value}%`
+          : `R$ ${Number(c.commission_value || 0).toFixed(2)}`,
+        'Total Comissão': Number(c.commission_amount || 0).toFixed(2),
+        Status: c.status === 'paid' ? 'Paga' : 'Pendente',
       }))
     );
-
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Comissões');
 
-    // Add summary sheet
-    const summaryData = Object.entries(summary.byProfessional).map(([professional, data]) => ({
-      Profissional: professional,
+    const summaryData = Object.entries(summary.byProfessional).map(([prof, data]) => ({
+      Profissional: prof,
       'Qtd Atendimentos': data.services,
       'Total em Comissões': `R$ ${data.total.toFixed(2)}`,
     }));
-    
     const wsSummary = XLSX.utils.json_to_sheet(summaryData);
     XLSX.utils.book_append_sheet(wb, wsSummary, 'Resumo por Profissional');
+    XLSX.writeFile(wb, `comissoes-${start_date}-${end_date}.xlsx`);
+  };
 
-    XLSX.writeFile(wb, `comissoes-${startDate}-${endDate}.xlsx`);
+  const handleMarkAsPaid = (id: number) => {
+    markAsPaid(id, {
+      onSuccess: () => toast.success('Comissão marcada como paga!'),
+      onError: () => toast.error('Erro ao marcar comissão como paga.'),
+    });
   };
 
   const columns = [
     {
       key: 'date',
       header: 'Data/Hora',
-      render: (record: CommissionRecord) => format(new Date(record.date), 'dd/MM/yyyy HH:mm'),
+      render: (c: Commission) => (c.date ? format(parseISO(c.date), 'dd/MM/yyyy HH:mm') : '-'),
     },
     {
       key: 'professional',
       header: 'Profissional',
-      render: (record: CommissionRecord) => record.professional,
+      render: (c: Commission) => c.professional?.name ?? '-',
     },
     {
       key: 'customer',
       header: 'Cliente',
-      render: (record: CommissionRecord) => record.customer,
+      render: (c: Commission) => c.customer?.name ?? '-',
     },
     {
       key: 'service',
       header: 'Serviço',
-      render: (record: CommissionRecord) => record.service,
+      render: (c: Commission) => c.service?.name ?? '-',
     },
     {
-      key: 'servicePrice',
+      key: 'service_price',
       header: 'Valor Serviço',
-      render: (record: CommissionRecord) => `R$ ${record.servicePrice.toFixed(2)}`,
+      render: (c: Commission) => `R$ ${Number(c.service_price || 0).toFixed(2)}`,
     },
     {
-      key: 'commission',
+      key: 'commission_amount',
       header: 'Comissão',
-      render: (record: CommissionRecord) => (
+      render: (c: Commission) => (
         <div className="space-y-1">
-          <div className="font-medium text-green-600">R$ {record.commissionAmount.toFixed(2)}</div>
+          <div className="font-medium text-green-600">R$ {Number(c.commission_amount || 0).toFixed(2)}</div>
           <div className="text-xs text-muted-foreground">
-            {record.commissionType === 'percentage' 
-              ? `${record.commissionValue}%` 
-              : `Fixo: R$ ${record.commissionValue.toFixed(2)}`}
+            {c.commission_type === 'percentage'
+              ? `${c.commission_value}%`
+              : `Fixo: R$ ${Number(c.commission_value || 0).toFixed(2)}`}
           </div>
         </div>
       ),
     },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (c: Commission) =>
+        c.status === 'paid' ? (
+          <span className="text-green-600 font-medium">Paga</span>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={isMarkingPaid}
+            onClick={() => handleMarkAsPaid(c.id)}
+          >
+            <Check className="w-4 h-4 mr-1" />
+            Marcar como Paga
+          </Button>
+        ),
+    },
   ];
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        {[...Array(5)].map((_, i) => (
+          <Skeleton key={i} className="w-full h-24" />
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -256,7 +216,6 @@ export default function Commissions() {
         </div>
       </div>
 
-      {/* Filters */}
       <Card>
         <CardHeader>
           <CardTitle>Filtros</CardTitle>
@@ -265,47 +224,36 @@ export default function Commissions() {
         <CardContent>
           <div className="grid gap-4 md:grid-cols-3">
             <div className="space-y-2">
-              <Label htmlFor="professional">Profissional</Label>
+              <Label>Profissional</Label>
               <Select value={selectedProfessional} onValueChange={setSelectedProfessional}>
-                <SelectTrigger id="professional">
-                  <SelectValue />
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Todos os Profissionais</SelectItem>
-                  {uniqueProfessionals.map((professional) => (
-                    <SelectItem key={professional} value={professional}>
-                      {professional}
+                  <SelectItem value="all">Todos</SelectItem>
+                  {uniqueProfessionals.map(([id, name]) => (
+                    <SelectItem key={id} value={String(id)}>
+                      {name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="startDate">Data Início</Label>
-              <Input
-                id="startDate"
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-              />
+              <Label>Data Início</Label>
+              <Input type="date" value={start_date} onChange={(e) => setStartDate(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="endDate">Data Fim</Label>
-              <Input
-                id="endDate"
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-              />
+              <Label>Data Fim</Label>
+              <Input type="date" value={end_date} onChange={(e) => setEndDate(e.target.value)} />
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardHeader className="flex justify-between pb-2">
             <CardTitle className="text-sm font-medium">Total em Comissões</CardTitle>
             <DollarSign className="h-4 w-4 text-green-600" />
           </CardHeader>
@@ -315,7 +263,7 @@ export default function Commissions() {
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardHeader className="flex justify-between pb-2">
             <CardTitle className="text-sm font-medium">Total em Serviços</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
@@ -325,7 +273,7 @@ export default function Commissions() {
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardHeader className="flex justify-between pb-2">
             <CardTitle className="text-sm font-medium">Atendimentos</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
@@ -336,7 +284,6 @@ export default function Commissions() {
         </Card>
       </div>
 
-      {/* Commission Details */}
       <Card>
         <CardHeader>
           <CardTitle>Detalhamento de Comissões</CardTitle>
@@ -347,12 +294,11 @@ export default function Commissions() {
             data={filteredCommissions}
             columns={columns}
             searchPlaceholder="Buscar por profissional, cliente ou serviço..."
-            emptyMessage="Nenhuma comissão encontrada no período"
+            emptyMessage="Nenhuma comissão encontrada"
           />
         </CardContent>
       </Card>
 
-      {/* Summary by Professional */}
       <Card>
         <CardHeader>
           <CardTitle>Resumo por Profissional</CardTitle>
@@ -362,10 +308,10 @@ export default function Commissions() {
           <div className="space-y-4">
             {Object.entries(summary.byProfessional)
               .sort(([, a], [, b]) => b.total - a.total)
-              .map(([professional, data]) => (
-                <div key={professional} className="flex items-center justify-between border-b pb-3">
+              .map(([prof, data]) => (
+                <div key={prof} className="flex items-center justify-between border-b pb-3">
                   <div>
-                    <p className="font-medium">{professional}</p>
+                    <p className="font-medium">{prof}</p>
                     <p className="text-sm text-muted-foreground">{data.services} atendimento(s)</p>
                   </div>
                   <div className="text-right">

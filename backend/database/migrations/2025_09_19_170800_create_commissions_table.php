@@ -25,6 +25,7 @@ return new class extends Migration {
 
             $table->index(['professional_id', 'status']);
             $table->index('date');
+            $table->index(['appointment_id', 'professional_id']);
         });
     }
 

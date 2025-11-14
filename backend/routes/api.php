@@ -113,6 +113,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/{commission}', 'show')->middleware('permission:commissions,read');
         Route::put('/{commission}', 'update')->middleware('permission:commissions,update');
         Route::delete('/{commission}', 'destroy')->middleware('permission:commissions,delete');
+        Route::patch('/{commission}/mark-paid', 'markAsPaid')->middleware('permission:commissions,update');
     });
 
     Route::prefix('cashier')->controller(CashierTransactionController::class)->group(function () {
@@ -129,6 +130,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/{accountPayable}', 'show')->middleware('permission:accounts-payable,read');
         Route::put('/{accountPayable}', 'update')->middleware('permission:accounts-payable,update');
         Route::delete('/{accountPayable}', 'destroy')->middleware('permission:accounts-payable,delete');
+        Route::patch('/{accountPayable}/mark-paid', 'markAsPaid')->middleware('permission:accounts-payable,update');
     });
 
     Route::prefix('item-prices')->controller(ItemPriceController::class)->group(function () {

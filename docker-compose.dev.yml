@@ -1,7 +1,29 @@
 services:
+  teste-integracao-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: teste-integracao-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_DEV_HOST=0.0.0.0
+      - CHOKIDAR_USEPOLLING=1
+      - WATCHPACK_POLLING=true
+    volumes:
+      - ./frontend:/app
+      - teste_integracao_node_modules:/app/node_modules
+    command: >
+      sh -lc "
+        mkdir -p /app/node_modules &&
+        chown -R node:node /app /app/node_modules &&
+        su node -s /bin/sh -c 'npm ci && npm run dev -- --host 0.0.0.0 --port 5173'
+      "
+
   teste-integracao-backend:
     build:
       context: ./backend
+      dockerfile: Dockerfile.dev
       args:
         UID: ${UID}
         GID: ${GID}
@@ -40,26 +62,6 @@ services:
       PMA_HOST: teste-integracao-db
       PMA_USER: laravel
       PMA_PASSWORD: laravel
-
-  teste-integracao-frontend:
-    build:
-      context: ./frontend
-    container_name: teste-integracao-frontend
-    volumes:
-      - ./frontend:/app
-      - teste_integracao_node_modules:/app/node_modules
-    ports:
-      - "5173:5173"
-    environment:
-      - CHOKIDAR_USEPOLLING=1
-      - WATCHPACK_POLLING=true
-      - VITE_DEV_HOST=0.0.0.0
-    command: >
-      sh -lc "
-        mkdir -p /app/node_modules &&
-        chown -R node:node /app /app/node_modules &&
-        su node -s /bin/sh -c 'npm ci && npm run dev -- --host 0.0.0.0 --port 5173'
-      "
 
 volumes:
   teste_integracao_db_data:

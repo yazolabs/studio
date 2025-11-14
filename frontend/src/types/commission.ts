@@ -3,30 +3,34 @@ export type Commission = {
   professional: { id: number; name: string } | null;
   customer: { id: number; name: string } | null;
   service: { id: number; name: string } | null;
-  appointmentId: number;
+  appointment_id: number;
   date: string | null;
-  servicePrice: string;
-  commissionType: 'percentage' | 'fixed';
-  commissionValue: string;
-  commissionAmount: string;
+  service_price: string;
+  commission_type: 'percentage' | 'fixed';
+  commission_value: string;
+  commission_amount: string;
   status: 'pending' | 'paid';
-  paymentDate: string | null;
-  createdAt: string | null;
-  updatedAt: string | null;
+  payment_date: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
 export type CreateCommissionDto = {
-  professionalId: number;
-  appointmentId: number;
-  serviceId: number;
-  customerId: number;
+  professional_id: number;
+  appointment_id: number;
+  service_id: number;
+  customer_id: number;
   date: string;
-  servicePrice: string;
-  commissionType: 'percentage' | 'fixed';
-  commissionValue: string;
-  commissionAmount: string;
+  service_price: string;
+  commission_type: 'percentage' | 'fixed';
+  commission_value: string;
+  commission_amount: string;
   status: 'pending' | 'paid';
-  paymentDate?: string | null;
+  payment_date?: string | null;
 };
 
 export type UpdateCommissionDto = Partial<CreateCommissionDto>;
+
+export type MarkCommissionAsPaidDto = {
+  id: number;
+};
