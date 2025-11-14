@@ -42,6 +42,8 @@ services:
       MYSQL_PASSWORD: a0adff46cc4d1838816a42b1d1ad14e8
     volumes:
       - studio_db_data:/var/lib/mysql
+    ports:
+      - "3307:3306"
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 30s
