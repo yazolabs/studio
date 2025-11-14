@@ -4,9 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AppointmentResource;
-use App\Models\Appointment;
+use App\Models\{Appointment, Service};
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
 class AppointmentController extends Controller
@@ -57,9 +58,9 @@ class AppointmentController extends Controller
 
     public function show(Appointment $appointment)
     {
-        return new AppointmentResource(
-            $appointment->load(['customer', 'services', 'items', 'promotion'])
-        );
+        $appointment->load(['customer', 'services', 'items', 'promotion']);
+
+        return new AppointmentResource($appointment);
     }
 
     public function update(Request $request, Appointment $appointment)
@@ -125,11 +126,25 @@ class AppointmentController extends Controller
                 continue;
             }
 
+            $serviceModel = Service::find($serviceId);
+
+            $commissionType = !empty($service['commission_type'])
+                ? $service['commission_type']
+                : ($serviceModel?->commission_type ?? 'percentage');
+
+            $commissionValue = isset($service['commission_value']) && $service['commission_value'] !== null && $service['commission_value'] !== ''
+                ? $service['commission_value']
+                : ($serviceModel?->commission_value ?? 0);
+
+            $servicePrice = isset($service['service_price']) && $service['service_price'] !== null && $service['service_price'] !== ''
+                ? $service['service_price']
+                : ($serviceModel?->price ?? 0);
+
             $pivotData[$serviceId] = [
-                'service_price' => $service['service_price'] ?? $service['price'] ?? 0,
-                'commission_type' => $service['commission_type'] ?? $service['commissionType'] ?? null,
-                'commission_value' => $service['commission_value'] ?? $service['commissionValue'] ?? 0,
-                'professional_id' => $service['professional_id'] ?? $service['professionalId'] ?? null,
+                'service_price'    => $servicePrice,
+                'commission_type'  => $commissionType,
+                'commission_value' => $commissionValue,
+                'professional_id'  => $service['professional_id'] ?? null,
             ];
         }
 
@@ -176,5 +191,39 @@ class AppointmentController extends Controller
             ->orderBy('start_time');
 
         return AppointmentResource::collection($query->get());
+    }
+
+    public function checkout(Request $request, Appointment $appointment)
+    {
+        $data = $request->validate([
+            'discount_amount' => ['nullable', 'numeric', 'min:0'],
+            'payment_method' => ['required', 'string', 'max:50'],
+            'card_brand' => ['nullable', 'string', 'max:50'],
+            'installments' => ['nullable', 'integer', 'min:1'],
+            'installment_fee' => ['nullable', 'numeric', 'min:0'],
+            'promotion_id' => ['nullable', 'exists:promotions,id'],
+        ]);
+
+        $appointment->fill($data);
+
+        if (!$appointment->end_time) {
+            $appointment->end_time = now();
+        }
+
+        if ($appointment->status !== 'completed') {
+            $appointment->status = 'completed';
+        }
+
+        $appointment->final_price = 
+            ($appointment->total_price + ($appointment->installment_fee ?? 0))
+            - ($appointment->discount_amount ?? 0);
+
+        $appointment->save();
+
+        $appointment->load(['customer', 'services', 'items', 'promotion']);
+
+        return (new AppointmentResource($appointment))
+            ->response()
+            ->setStatusCode(Response::HTTP_OK);
     }
 }

@@ -122,6 +122,8 @@ interface Service {
   name: string;
   price: number;
   duration: number;
+  commission_type: string;
+  commission_value: number;
 }
 
 interface AppointmentServicePivot {
@@ -181,6 +183,8 @@ const appointmentSchema = z.object({
         professional_id: z
           .union([z.number(), z.string()])
           .pipe(z.coerce.number()),
+        commission_type: z.string().optional(),
+        commission_value: z.string().optional(),
       })
     )
     .min(1, "Selecione ao menos um serviço e profissional"),
@@ -558,8 +562,8 @@ export default function Appointments() {
       return {
         id: Number(s.service_id),
         service_price: String(svc?.price ?? "0"),
-        commission_type: null,
-        commission_value: "0",
+        commission_type: (svc?.commission_type ?? "percentage") as "percentage" | "fixed",
+        commission_value: String(svc?.commission_value ?? "0"),
         professional_id: Number(s.professional_id),
       };
     });
@@ -688,7 +692,6 @@ export default function Appointments() {
   });
 
   const handleCheckout = (apt: AppointmentBackend) => {
-    console.log("1. 📦 handleCheckout -> apt.id =", apt.id);
     setCheckoutAppointmentId(Number(apt.id));
     setCheckoutDialogOpen(true);
   };

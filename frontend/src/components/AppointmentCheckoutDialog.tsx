@@ -2,40 +2,17 @@ import { useState, useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { X, Plus, Printer, Tag, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import {
-  useAppointmentCheckout,
-  useAppointmentQuery,
-} from "@/hooks/appointments";
+import { useAppointmentCheckout, useAppointmentQuery } from "@/hooks/appointments";
 import { useProfessionalsQuery } from "@/hooks/professionals";
 import { useServicesQuery } from "@/hooks/services";
 import { usePromotionsQuery } from "@/hooks/promotions";
@@ -100,39 +77,33 @@ export function AppointmentCheckoutDialog({
 
   const { mutateAsync: checkout, isPending } = useAppointmentCheckout();
 
-  // 🧠 carregamento assíncrono de dados do agendamento real
   useEffect(() => {
     if (!open || !appointmentId) return;
 
     const loadAppointmentData = async () => {
+      setLoadingAppointment(true);
       try {
-        setLoadingAppointment(true);
-        const { data } = await refetch(); // força o reload do backend
-        if (!data) return;
+        const { data } = await refetch();
 
-        // popula serviços
-        setServices(
-          data.services?.map((s: any) => ({
-            id: s.id,
-            name: s.name,
-            price: Number(s.service_price ?? s.price ?? 0),
-            commission_type: s.commission_type ?? "percentage",
-            commission_value: Number(s.commission_value ?? 0),
-            professionals: s.professional_id ? [s.professional_id] : [],
-          })) ?? []
-        );
+        const mapped = (data.services ?? []).map((s: any) => ({
+          id: s.id,
+          name: s.name,
+          price: Number(s.service_price ?? s.price ?? 0),
+          commission_type: s.commission_type ?? 'percentage',
+          commission_value: Number(s.commission_value ?? 0),
+          professionals: s.professional_id ? [Number(s.professional_id)] : [],
+        }));
 
-        // popula produtos
+        setServices(mapped);
         setProducts(
-          data.items?.map((i: any) => ({
+          (data.items ?? []).map((i: any) => ({
             id: i.id,
             name: i.name,
             price: Number(i.price ?? 0),
             quantity: i.quantity ?? 1,
-          })) ?? []
+          }))
         );
 
-        // popula formulário
         form.reset({
           discount: Number(data.discount_amount ?? 0),
           paymentMethod: data.payment_method ?? "",
@@ -140,9 +111,9 @@ export function AppointmentCheckoutDialog({
           installments: data.installments ?? 1,
           installmentFee: Number(data.installment_fee ?? 0),
         });
-      } catch (err) {
-        console.error("Erro ao carregar dados do agendamento:", err);
-        toast.error("Não foi possível carregar os dados do atendimento.");
+      } catch (e) {
+        console.error(e);
+        toast.error('Não foi possível carregar os dados do atendimento.');
       } finally {
         setLoadingAppointment(false);
       }
@@ -249,16 +220,20 @@ export function AppointmentCheckoutDialog({
     0
   );
   const subtotal = servicesTotal + productsTotal;
-  const discount = form.watch("discount") || 0;
+  const discountPercent = form.watch("discount") || 0;
   const paymentMethod = form.watch("paymentMethod");
   const installments = form.watch("installments") || 1;
-  const installmentFee = form.watch("installmentFee") || 0;
-  let totalAfterDiscount = subtotal - (subtotal * discount) / 100;
-  if (paymentMethod === "credit" && installments > 1) {
-    totalAfterDiscount += (totalAfterDiscount * installmentFee) / 100;
-  }
+  const installmentFeePercent = form.watch("installmentFee") || 0;
 
-  const total = totalAfterDiscount;
+  const discountValue = (subtotal * discountPercent) / 100;
+  let totalAfterDiscount = subtotal - discountValue;
+
+  const installmentFeeValue =
+    paymentMethod === "credit" && installments > 1
+      ? (totalAfterDiscount * installmentFeePercent) / 100
+      : 0;
+
+  const total = totalAfterDiscount + installmentFeeValue;
 
   const normalizedAppointment = useMemo(() => {
     if (!appointmentData) return null;
@@ -278,14 +253,16 @@ export function AppointmentCheckoutDialog({
     try {
       await checkout({
         appointment: normalizedAppointment,
-        services: services.map((s) => ({
-          id: s.id,
-          name: s.name,
-          price: Number(s.price),
-          professional_id: Number(s.professional_id),
-          commission_type: s.commission_type,
-          commission_value: Number(s.commission_value ?? 0),
-        })),
+        services,
+        products,
+        formValues: {
+          discount: data.discount,
+          paymentMethod: data.paymentMethod,
+          cardBrand: data.cardBrand,
+          installments: data.installments,
+          installmentFee: data.installmentFee,
+          promotionId: selectedPromotion ? Number(selectedPromotion) : null,
+        },
       });
 
       toast.success("Atendimento finalizado com sucesso!");
@@ -371,7 +348,6 @@ export function AppointmentCheckoutDialog({
           </div>
         )}
 
-        {/* Serviços */}
         <div className="space-y-4 mt-6">
           <h3 className="font-semibold">Serviços Realizados</h3>
           <div className="grid grid-cols-2 gap-3">
@@ -432,14 +408,12 @@ export function AppointmentCheckoutDialog({
                   <div className="flex-1">
                     <p className="font-medium">{s.name}</p>
                     <p className="text-sm text-muted-foreground">
-                      Profissionais:{" "}
-                      {s.professionals
-                        .map(
-                          (id: number) =>
-                            professionals.find((p: any) => p.id === id)?.user
-                              ?.name || ""
-                        )
-                        .join(", ")}
+                      Profissional:{" "}
+                      {(() => {
+                        const profId = s.professionals?.[0];
+                        const prof = professionals.find((p: any) => Number(p.id) === Number(profId));
+                        return prof?.user?.name ?? prof?.name ?? "—";
+                      })()}
                     </p>
                     <p className="text-sm font-medium mt-1">
                       R$ {s.price.toFixed(2)}
@@ -461,7 +435,6 @@ export function AppointmentCheckoutDialog({
 
         <Separator className="my-6" />
 
-        {/* Produtos */}
         <div className="space-y-4">
           <h3 className="font-semibold">Produtos Adquiridos</h3>
           <div className="grid grid-cols-3 gap-3">
@@ -533,7 +506,6 @@ export function AppointmentCheckoutDialog({
 
         <Separator className="my-6" />
 
-        {/* Pagamento */}
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <h3 className="font-semibold">Pagamento</h3>
@@ -641,30 +613,51 @@ export function AppointmentCheckoutDialog({
               </div>
             )}
 
-            <div className="space-y-2 p-4 bg-muted rounded-lg">
+            <div className="space-y-2 p-4 bg-muted rounded-lg border border-border">
               <div className="flex justify-between text-sm">
                 <span>Serviços:</span>
                 <span>R$ {servicesTotal.toFixed(2)}</span>
               </div>
+
               <div className="flex justify-between text-sm">
                 <span>Produtos:</span>
                 <span>R$ {productsTotal.toFixed(2)}</span>
               </div>
+
+              <Separator className="my-1" />
+
               <div className="flex justify-between text-sm">
                 <span>Subtotal:</span>
                 <span>R$ {subtotal.toFixed(2)}</span>
               </div>
-              {discount > 0 && (
+
+              {discountPercent > 0 && (
                 <div className="flex justify-between text-sm text-destructive">
-                  <span>Desconto ({discount}%):</span>
-                  <span>- R$ {((subtotal * discount) / 100).toFixed(2)}</span>
+                  <span>Desconto ({discountPercent}%):</span>
+                  <span>- R$ {discountValue.toFixed(2)}</span>
                 </div>
               )}
-              <Separator />
+
+              {installmentFeeValue > 0 && (
+                <div className="flex justify-between text-sm text-primary">
+                  <span>Acréscimo Maquininha ({installmentFeePercent}%):</span>
+                  <span>+ R$ {installmentFeeValue.toFixed(2)}</span>
+                </div>
+              )}
+
+              <Separator className="my-1" />
+
               <div className="flex justify-between text-lg font-bold">
                 <span>Total:</span>
                 <span>R$ {total.toFixed(2)}</span>
               </div>
+
+              {paymentMethod === "credit" && installments > 1 && (
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>{installments}x de:</span>
+                  <span>R$ {(total / installments).toFixed(2)}</span>
+                </div>
+              )}
             </div>
 
             <DialogFooter className="flex-col sm:flex-row gap-2">
