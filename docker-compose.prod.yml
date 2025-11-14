@@ -20,8 +20,8 @@ services:
       DB_HOST: studio-db
       DB_PORT: 3306
       DB_DATABASE: studio_db
-      DB_USERNAME: laravel
-      DB_PASSWORD: laravel
+      DB_USERNAME: studio
+      DB_PASSWORD: a0adff46cc4d1838816a42b1d1ad14e8
     depends_on:
       - studio-db
     healthcheck:
@@ -37,9 +37,9 @@ services:
     restart: unless-stopped
     environment:
       MYSQL_DATABASE: studio_db
-      MYSQL_ROOT_PASSWORD: studio
+      MYSQL_ROOT_PASSWORD: a0adff46cc4d1838816a42b1d1ad14e8
       MYSQL_USER: studio
-      MYSQL_PASSWORD: studio
+      MYSQL_PASSWORD: a0adff46cc4d1838816a42b1d1ad14e8
     volumes:
       - studio_db_data:/var/lib/mysql
     healthcheck:
