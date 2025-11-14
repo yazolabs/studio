@@ -37,32 +37,13 @@ services:
     restart: unless-stopped
     environment:
       MYSQL_DATABASE: studio_db
-      MYSQL_ROOT_PASSWORD: laravel
-      MYSQL_USER: laravel
-      MYSQL_PASSWORD: laravel
+      MYSQL_ROOT_PASSWORD: studio
+      MYSQL_USER: studio
+      MYSQL_PASSWORD: studio
     volumes:
       - studio_db_data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 30s
-      retries: 3
-      start_period: 10s
-      timeout: 5s
-
-  studio-phpmyadmin:
-    build:
-      context: ./phpmyadmin
-      dockerfile: Dockerfile.prod
-    container_name: studio-phpmyadmin
-    restart: unless-stopped
-    environment:
-      PMA_HOST: studio-db
-      PMA_USER: laravel
-      PMA_PASSWORD: laravel
-    depends_on:
-      - studio-db
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/"]
       interval: 30s
       retries: 3
       start_period: 10s
