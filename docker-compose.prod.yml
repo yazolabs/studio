@@ -5,8 +5,6 @@ services:
       dockerfile: Dockerfile.prod
     container_name: studio-frontend
     restart: unless-stopped
-    networks:
-      - default
 
   studio-backend:
     build:
@@ -26,8 +24,6 @@ services:
       DB_PASSWORD: a0adff46cc4d1838816a42b1d1ad14e8
     depends_on:
       - studio-db
-    networks:
-      - default
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/api/health"]
       interval: 30s
