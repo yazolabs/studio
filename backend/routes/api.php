@@ -3,6 +3,10 @@
 use App\Http\Controllers\Api\{ AccountPayableController, ActionController, AppointmentController, AuthController, CashierTransactionController, CommissionController, CustomerController, ItemController, ItemPriceController, ItemPriceHistoryController, PermissionController, ProfessionalController, PromotionController, RoleController, ScreenController, ServiceController, StateController, SupplierController, UserController};
 use Illuminate\Support\Facades\Route;
 
+Route::get('/health', function () {
+    return response()->json(['status' => 'ok']);
+});
+
 Route::post('/login', [AuthController::class, 'login']);
 
 Route::middleware('auth:sanctum')->group(function () {
