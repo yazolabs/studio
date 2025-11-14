@@ -48,4 +48,15 @@ class AccountPayable extends Model
     {
         return $this->belongsTo(Appointment::class);
     }
+
+    public function commission()
+    {
+        return $this->belongsTo(Commission::class, 'appointment_id', 'appointment_id')
+                    ->whereColumn('professional_id', 'commissions.professional_id');
+    }
+
+    public function isPending(): bool
+    {
+        return $this->status->value === 'pending';
+    }
 }

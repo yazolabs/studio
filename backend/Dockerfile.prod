@@ -1,0 +1,32 @@
+FROM php:8.2-apache AS app
+
+RUN apt-get update && apt-get install -y \
+    libpng-dev \
+    libonig-dev \
+    libxml2-dev \
+    zip unzip git curl libzip-dev \
+    && docker-php-ext-configure zip \
+    && docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd zip
+
+RUN a2enmod rewrite
+
+RUN sed -i 's|/var/www/html|/var/www/html/public|' /etc/apache2/sites-available/000-default.conf
+
+WORKDIR /var/www/html
+
+COPY . .
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+RUN composer install --optimize-autoloader --no-dev
+
+RUN php artisan config:clear && \
+    php artisan route:clear && \
+    php artisan view:clear && \
+    php artisan config:cache && \
+    php artisan route:cache
+
+EXPOSE 80
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
+  CMD curl -f http://localhost/ || exit 1

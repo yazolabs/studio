@@ -18,7 +18,35 @@ class AccountPayableController extends Controller
 
     public function index(Request $request)
     {
-        $records = $this->service->paginate($request->all());
+        $filters = $request->only([
+            'status',
+            'category',
+            'professional_id',
+            'appointment_id',
+            'start_date',
+            'end_date',
+            'search',
+            'perPage',
+        ]);
+
+        $query = AccountPayable::with(['professional', 'appointment', 'commission'])
+            ->when($filters['status'] ?? null, fn($q, $status) => $q->where('status', $status))
+            ->when($filters['category'] ?? null, fn($q, $cat) => $q->where('category', 'like', "%{$cat}%"))
+            ->when($filters['professional_id'] ?? null, fn($q, $id) => $q->where('professional_id', $id))
+            ->when($filters['appointment_id'] ?? null, fn($q, $id) => $q->where('appointment_id', $id))
+            ->when(($filters['start_date'] ?? null) && ($filters['end_date'] ?? null), function ($q) use ($filters) {
+                $q->whereBetween('due_date', [$filters['start_date'], $filters['end_date']]);
+            })
+            ->when($filters['search'] ?? null, function ($q, $term) {
+                $q->where(function ($sub) use ($term) {
+                    $sub->where('description', 'like', "%{$term}%")
+                        ->orWhere('category', 'like', "%{$term}%")
+                        ->orWhere('reference', 'like', "%{$term}%");
+                });
+            })
+            ->orderByDesc('due_date');
+
+        $records = $query->paginate($filters['perPage'] ?? 15);
 
         return AccountPayableResource::collection($records);
     }
@@ -42,14 +70,14 @@ class AccountPayableController extends Controller
 
         $account = $this->service->create($payload);
 
-        return (new AccountPayableResource($account))
+        return (new AccountPayableResource($account->load(['professional', 'appointment', 'commission'])))
             ->response()
             ->setStatusCode(Response::HTTP_CREATED);
     }
 
     public function show(AccountPayable $accountPayable)
     {
-        return new AccountPayableResource($accountPayable);
+        return new AccountPayableResource($accountPayable->load(['professional', 'appointment', 'commission']));
     }
 
     public function update(Request $request, AccountPayable $accountPayable)
@@ -71,7 +99,7 @@ class AccountPayableController extends Controller
 
         $updated = $this->service->update($accountPayable, $payload);
 
-        return new AccountPayableResource($updated);
+        return new AccountPayableResource($updated->load(['professional', 'appointment', 'commission']));
     }
 
     public function destroy(AccountPayable $accountPayable)
@@ -79,5 +107,22 @@ class AccountPayableController extends Controller
         $this->service->delete($accountPayable);
 
         return response()->noContent();
+    }
+
+    public function markAsPaid(AccountPayable $accountPayable)
+    {
+        $accountPayable->update([
+            'status' => 'paid',
+            'payment_date' => now()->toDateString(),
+        ]);
+
+        if ($accountPayable->commission) {
+            $accountPayable->commission->update([
+                'status' => 'paid',
+                'payment_date' => now()->toDateString(),
+            ]);
+        }
+
+        return new AccountPayableResource($accountPayable->fresh(['professional', 'appointment', 'commission']));
     }
 }

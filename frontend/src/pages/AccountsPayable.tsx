@@ -1,238 +1,179 @@
-import { useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
+import { useState, useMemo } from "react";
+import { format, parseISO } from "date-fns";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DataTable } from "@/components/DataTable";
+import { Plus, Pencil, Check, Eye } from "lucide-react";
+import { toast } from "sonner";
+
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { DataTable } from '@/components/DataTable';
-import { Plus, Pencil, Check, Eye, Receipt } from 'lucide-react';
-import { toast } from '@/hooks/use-toast';
-import { format } from 'date-fns';
-
-type PaymentMethod = 'dinheiro' | 'debito' | 'credito' | 'pix' | 'boleto';
-type AccountStatus = 'pendente' | 'vencida' | 'paga' | 'cancelada';
-
-interface AccountPayable {
-  id: string;
-  supplierName: string;
-  description: string;
-  category: string;
-  amount: number;
-  dueDate: Date;
-  paymentDate?: Date;
-  status: AccountStatus;
-  paymentMethod?: PaymentMethod;
-  installments?: number;
-  notes: string;
-  createdAt: Date;
-}
+  useAccountsPayableQuery,
+  useCreateAccountPayable,
+  useUpdateAccountPayable,
+  useDeleteAccountPayable,
+  useMarkAccountAsPaid,
+} from "@/hooks/accounts-payable";
 
 export default function AccountsPayable() {
-  const [accounts, setAccounts] = useState<AccountPayable[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
-  const [editingAccount, setEditingAccount] = useState<AccountPayable | null>(null);
-  const [selectedAccount, setSelectedAccount] = useState<AccountPayable | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  const { data, isLoading } = useAccountsPayableQuery({
+    perPage: 200,
+  });
+
+  const accounts = data?.data ?? [];
+
+  const createMutation = useCreateAccountPayable();
+  const updateMutation = useUpdateAccountPayable(editingId ?? 0);
+  const deleteMutation = useDeleteAccountPayable();
+  const markPaidMutation = useMarkAccountAsPaid();
+
   const [formData, setFormData] = useState({
-    supplierName: '',
-    description: '',
-    category: '',
-    amount: '',
-    dueDate: '',
-    installments: '1',
-    notes: '',
+    description: "",
+    category: "",
+    amount: "",
+    due_date: "",
+    notes: "",
   });
+
   const [paymentData, setPaymentData] = useState({
-    paymentMethod: '' as PaymentMethod,
-    paymentDate: format(new Date(), 'yyyy-MM-dd'),
+    payment_method: "",
+    payment_date: format(new Date(), "yyyy-MM-dd"),
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (editingAccount) {
-      setAccounts(accounts.map(a => 
-        a.id === editingAccount.id 
-          ? { 
-              ...a, 
-              ...formData, 
-              amount: parseFloat(formData.amount),
-              dueDate: new Date(formData.dueDate),
-              installments: parseInt(formData.installments),
-            }
-          : a
-      ));
-      toast({ title: 'Conta atualizada com sucesso!' });
-    } else {
-      const newAccount: AccountPayable = {
-        id: Date.now().toString(),
-        supplierName: formData.supplierName,
-        description: formData.description,
-        category: formData.category,
-        amount: parseFloat(formData.amount),
-        dueDate: new Date(formData.dueDate),
-        installments: parseInt(formData.installments),
-        notes: formData.notes,
-        status: 'pendente',
-        createdAt: new Date(),
-      };
-      setAccounts([...accounts, newAccount]);
-      toast({ title: 'Conta cadastrada com sucesso!' });
-    }
-    
-    handleCloseDialog();
-  };
-
-  const handlePayment = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!selectedAccount) return;
-    
-    setAccounts(accounts.map(a => 
-      a.id === selectedAccount.id 
-        ? { 
-            ...a, 
-            status: 'paga' as AccountStatus,
-            paymentMethod: paymentData.paymentMethod,
-            paymentDate: new Date(paymentData.paymentDate),
-          }
-        : a
-    ));
-    
-    toast({ title: 'Pagamento registrado com sucesso!' });
-    handleClosePaymentDialog();
-  };
-
-  const handleEdit = (account: AccountPayable) => {
-    setEditingAccount(account);
+  const openCreate = () => {
+    setEditingId(null);
     setFormData({
-      supplierName: account.supplierName,
-      description: account.description,
-      category: account.category,
-      amount: account.amount.toString(),
-      dueDate: format(account.dueDate, 'yyyy-MM-dd'),
-      installments: account.installments?.toString() || '1',
-      notes: account.notes,
+      description: "",
+      category: "",
+      amount: "",
+      due_date: "",
+      notes: "",
     });
     setIsDialogOpen(true);
   };
 
-  const openPaymentDialog = (account: AccountPayable) => {
-    setSelectedAccount(account);
-    setPaymentData({
-      paymentMethod: '' as PaymentMethod,
-      paymentDate: format(new Date(), 'yyyy-MM-dd'),
+  const openEdit = (account: any) => {
+    setEditingId(account.id);
+    setFormData({
+      description: account.description ?? "",
+      category: account.category ?? "",
+      amount: account.amount ?? "",
+      due_date: account.due_date ?? "",
+      notes: account.notes ?? "",
     });
+    setIsDialogOpen(true);
+  };
+
+  const openPaymentDialog = (id: number) => {
+    setSelectedId(id);
     setIsPaymentDialogOpen(true);
   };
 
-  const openDetailsDialog = (account: AccountPayable) => {
-    setSelectedAccount(account);
+  const openDetails = (id: number) => {
+    setSelectedId(id);
     setIsDetailsDialogOpen(true);
   };
 
-  const handleCloseDialog = () => {
+  const handleSubmit = async (e: any) => {
+    e.preventDefault();
+
+    const payload = {
+      description: formData.description,
+      amount: formData.amount,
+      category: formData.category,
+      due_date: formData.due_date,
+      status: "pending",
+      notes: formData.notes,
+    };
+
+    if (editingId) {
+      await updateMutation.mutateAsync(payload);
+      toast.success("Conta atualizada com sucesso!");
+    } else {
+      await createMutation.mutateAsync(payload);
+      toast.success("Conta criada com sucesso!");
+    }
+
     setIsDialogOpen(false);
-    setEditingAccount(null);
-    setFormData({
-      supplierName: '',
-      description: '',
-      category: '',
-      amount: '',
-      dueDate: '',
-      installments: '1',
-      notes: '',
-    });
   };
 
-  const handleClosePaymentDialog = () => {
+  const handlePayment = async (e: any) => {
+    e.preventDefault();
+    if (!selectedId) return;
+
+    await markPaidMutation.mutateAsync(selectedId);
+    toast.success("Pagamento registrado com sucesso!");
     setIsPaymentDialogOpen(false);
-    setSelectedAccount(null);
   };
 
-  const getStatusBadge = (status: AccountStatus) => {
-    const variants = {
-      pendente: 'default',
-      vencida: 'destructive',
-      paga: 'default',
-      cancelada: 'secondary',
-    } as const;
-
-    const colors = {
-      pendente: 'bg-yellow-500',
-      vencida: 'bg-red-500',
-      paga: 'bg-green-500',
-      cancelada: 'bg-gray-500',
+  const getStatusBadge = (status: string) => {
+    const colors: Record<string, string> = {
+      pending: "bg-yellow-500",
+      paid: "bg-green-600",
     };
 
-    const labels = {
-      pendente: 'Pendente',
-      vencida: 'Vencida',
-      paga: 'Paga',
-      cancelada: 'Cancelada',
+    const labels: Record<string, string> = {
+      pending: "Pendente",
+      paid: "Paga",
     };
 
-    return (
-      <Badge variant={variants[status]} className={colors[status]}>
-        {labels[status]}
-      </Badge>
-    );
+    return <Badge className={colors[status]}>{labels[status]}</Badge>;
   };
 
   const columns = [
-    { 
-      key: 'dueDate' as keyof AccountPayable, 
-      header: 'Vencimento',
-      render: (account: AccountPayable) => format(account.dueDate, 'dd/MM/yyyy')
-    },
-    { key: 'supplierName' as keyof AccountPayable, header: 'Fornecedor' },
-    { key: 'description' as keyof AccountPayable, header: 'Descrição' },
-    { key: 'category' as keyof AccountPayable, header: 'Categoria' },
-    { 
-      key: 'amount' as keyof AccountPayable, 
-      header: 'Valor',
-      render: (account: AccountPayable) => `R$ ${account.amount.toFixed(2)}`
+    {
+      key: "due_date",
+      header: "Vencimento",
+      render: (row: any) =>
+        row.due_date ? format(parseISO(row.due_date), "dd/MM/yyyy") : "-",
     },
     {
-      key: 'status' as keyof AccountPayable,
-      header: 'Status',
-      render: (account: AccountPayable) => getStatusBadge(account.status),
+      key: "description",
+      header: "Descrição",
     },
     {
-      key: 'actions' as keyof AccountPayable,
-      header: 'Ações',
-      render: (account: AccountPayable) => (
+      key: "category",
+      header: "Categoria",
+    },
+    {
+      key: "amount",
+      header: "Valor",
+      render: (row: any) => `R$ ${Number(row.amount).toFixed(2)}`,
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (row: any) => getStatusBadge(row.status),
+    },
+    {
+      key: "actions",
+      header: "Ações",
+      render: (row: any) => (
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => openDetailsDialog(account)}
-          >
+          <Button size="sm" variant="outline" onClick={() => openDetails(row.id)}>
             <Eye className="h-4 w-4" />
           </Button>
-          {account.status === 'pendente' && (
+
+          {row.status === "pending" && (
             <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleEdit(account)}
-              >
+              <Button size="sm" variant="outline" onClick={() => openEdit(row)}>
                 <Pencil className="h-4 w-4" />
               </Button>
+
               <Button
-                variant="default"
                 size="sm"
-                onClick={() => openPaymentDialog(account)}
+                variant="default"
+                onClick={() => openPaymentDialog(row.id)}
               >
                 <Check className="h-4 w-4" />
               </Button>
@@ -243,260 +184,261 @@ export default function AccountsPayable() {
     },
   ];
 
-  const totalPendente = accounts
-    .filter(a => a.status === 'pendente')
-    .reduce((sum, a) => sum + a.amount, 0);
+  const totalPending = useMemo(
+    () =>
+      accounts
+        .filter((a: any) => a.status === "pending")
+        .reduce((sum, a) => sum + Number(a.amount), 0),
+    [accounts]
+  );
 
-  const totalPago = accounts
-    .filter(a => a.status === 'paga')
-    .reduce((sum, a) => sum + a.amount, 0);
+  const totalPaid = useMemo(
+    () =>
+      accounts
+        .filter((a: any) => a.status === "paid")
+        .reduce((sum, a) => sum + Number(a.amount), 0),
+    [accounts]
+  );
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold">Contas a Pagar</h1>
-          <p className="text-muted-foreground">Gerencie suas despesas e contas</p>
+          <p className="text-muted-foreground">
+            Controle financeiro e despesas do salão
+          </p>
         </div>
-        <Button onClick={() => setIsDialogOpen(true)}>
+
+        <Button onClick={openCreate}>
           <Plus className="mr-2 h-4 w-4" />
           Nova Conta
         </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="p-6 bg-card rounded-lg border">
-          <p className="text-sm text-muted-foreground">Total Pendente</p>
-          <p className="text-2xl font-bold text-yellow-600">R$ {totalPendente.toFixed(2)}</p>
+        <div className="border p-4 rounded-lg">
+          <p className="text-muted-foreground text-sm">Total Pendente</p>
+          <p className="text-2xl font-bold text-yellow-600">
+            R$ {totalPending.toFixed(2)}
+          </p>
         </div>
-        <div className="p-6 bg-card rounded-lg border">
-          <p className="text-sm text-muted-foreground">Total Pago</p>
-          <p className="text-2xl font-bold text-green-600">R$ {totalPago.toFixed(2)}</p>
+
+        <div className="border p-4 rounded-lg">
+          <p className="text-muted-foreground text-sm">Total Pago</p>
+          <p className="text-2xl font-bold text-green-600">
+            R$ {totalPaid.toFixed(2)}
+          </p>
         </div>
-        <div className="p-6 bg-card rounded-lg border">
-          <p className="text-sm text-muted-foreground">Total Geral</p>
-          <p className="text-2xl font-bold">R$ {(totalPendente + totalPago).toFixed(2)}</p>
+
+        <div className="border p-4 rounded-lg">
+          <p className="text-muted-foreground text-sm">Total Geral</p>
+          <p className="text-2xl font-bold">
+            R$ {(totalPending + totalPaid).toFixed(2)}
+          </p>
         </div>
       </div>
 
       <DataTable
         data={accounts}
         columns={columns}
-        emptyMessage="Nenhuma conta cadastrada"
+        emptyMessage="Nenhuma conta encontrada"
       />
 
-      {/* Dialog de Cadastro/Edição */}
-      <Dialog open={isDialogOpen} onOpenChange={handleCloseDialog}>
-        <DialogContent className="max-w-2xl">
+      <Dialog open={isDialogOpen} onOpenChange={() => setIsDialogOpen(false)}>
+        <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>
-              {editingAccount ? 'Editar Conta' : 'Nova Conta'}
+              {editingId ? "Editar Conta" : "Nova Conta"}
             </DialogTitle>
-            <DialogDescription>
-              Preencha os dados da conta a pagar
-            </DialogDescription>
           </DialogHeader>
+
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="supplierName">Fornecedor *</Label>
-                <Input
-                  id="supplierName"
-                  value={formData.supplierName}
-                  onChange={(e) => setFormData({ ...formData, supplierName: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="category">Categoria *</Label>
-                <Input
-                  id="category"
-                  value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  placeholder="Ex: Produtos, Serviços, Aluguel"
-                  required
-                />
-              </div>
-              <div className="space-y-2 col-span-2">
-                <Label htmlFor="description">Descrição *</Label>
-                <Input
-                  id="description"
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="amount">Valor *</Label>
-                <Input
-                  id="amount"
-                  type="number"
-                  step="0.01"
-                  value={formData.amount}
-                  onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="dueDate">Data de Vencimento *</Label>
-                <Input
-                  id="dueDate"
-                  type="date"
-                  value={formData.dueDate}
-                  onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="installments">Parcelas</Label>
-                <Input
-                  id="installments"
-                  type="number"
-                  min="1"
-                  value={formData.installments}
-                  onChange={(e) => setFormData({ ...formData, installments: e.target.value })}
-                />
-              </div>
-            </div>
             <div className="space-y-2">
-              <Label htmlFor="notes">Observações</Label>
-              <Textarea
-                id="notes"
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                rows={3}
+              <Label>Descrição *</Label>
+              <Input
+                value={formData.description}
+                onChange={(e) =>
+                  setFormData({ ...formData, description: e.target.value })
+                }
+                required
               />
             </div>
+
+            <div className="space-y-2">
+              <Label>Categoria *</Label>
+              <Input
+                value={formData.category}
+                onChange={(e) =>
+                  setFormData({ ...formData, category: e.target.value })
+                }
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Valor *</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={formData.amount}
+                onChange={(e) =>
+                  setFormData({ ...formData, amount: e.target.value })
+                }
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Data de Vencimento *</Label>
+              <Input
+                type="date"
+                value={formData.due_date}
+                onChange={(e) =>
+                  setFormData({ ...formData, due_date: e.target.value })
+                }
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Observações</Label>
+              <Textarea
+                rows={3}
+                value={formData.notes}
+                onChange={(e) =>
+                  setFormData({ ...formData, notes: e.target.value })
+                }
+              />
+            </div>
+
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={handleCloseDialog}>
+              <Button variant="outline" type="button" onClick={() => setIsDialogOpen(false)}>
                 Cancelar
               </Button>
               <Button type="submit">
-                {editingAccount ? 'Atualizar' : 'Cadastrar'}
+                {editingId ? "Atualizar" : "Cadastrar"}
               </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
-      {/* Dialog de Pagamento */}
-      <Dialog open={isPaymentDialogOpen} onOpenChange={handleClosePaymentDialog}>
+      <Dialog open={isPaymentDialogOpen} onOpenChange={() => setIsPaymentDialogOpen(false)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Registrar Pagamento</DialogTitle>
-            <DialogDescription>
-              Informe os dados do pagamento da conta
-            </DialogDescription>
           </DialogHeader>
+
           <form onSubmit={handlePayment} className="space-y-4">
-            {selectedAccount && (
-              <div className="p-4 bg-muted rounded-lg space-y-2">
-                <p><strong>Fornecedor:</strong> {selectedAccount.supplierName}</p>
-                <p><strong>Descrição:</strong> {selectedAccount.description}</p>
-                <p><strong>Valor:</strong> R$ {selectedAccount.amount.toFixed(2)}</p>
-              </div>
-            )}
             <div className="space-y-2">
-              <Label htmlFor="paymentMethod">Forma de Pagamento *</Label>
+              <Label>Forma de Pagamento *</Label>
               <Select
-                value={paymentData.paymentMethod}
-                onValueChange={(value) => 
-                  setPaymentData({ ...paymentData, paymentMethod: value as PaymentMethod })
+                value={paymentData.payment_method}
+                onValueChange={(v) =>
+                  setPaymentData({ ...paymentData, payment_method: v })
                 }
-                required
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="dinheiro">Dinheiro</SelectItem>
+                  <SelectItem value="cash">Dinheiro</SelectItem>
                   <SelectItem value="pix">PIX</SelectItem>
-                  <SelectItem value="debito">Cartão de Débito</SelectItem>
-                  <SelectItem value="credito">Cartão de Crédito</SelectItem>
+                  <SelectItem value="debit">Débito</SelectItem>
+                  <SelectItem value="credit">Crédito</SelectItem>
                   <SelectItem value="boleto">Boleto</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+
             <div className="space-y-2">
-              <Label htmlFor="paymentDate">Data do Pagamento *</Label>
+              <Label>Data do Pagamento *</Label>
               <Input
-                id="paymentDate"
                 type="date"
-                value={paymentData.paymentDate}
-                onChange={(e) => setPaymentData({ ...paymentData, paymentDate: e.target.value })}
-                required
+                value={paymentData.payment_date}
+                onChange={(e) =>
+                  setPaymentData({ ...paymentData, payment_date: e.target.value })
+                }
               />
             </div>
+
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={handleClosePaymentDialog}>
+              <Button variant="outline" type="button" onClick={() => setIsPaymentDialogOpen(false)}>
                 Cancelar
               </Button>
-              <Button type="submit">
-                Confirmar Pagamento
-              </Button>
+              <Button type="submit">Confirmar Pagamento</Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
-      {/* Dialog de Detalhes */}
       <Dialog open={isDetailsDialogOpen} onOpenChange={() => setIsDetailsDialogOpen(false)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Detalhes da Conta</DialogTitle>
           </DialogHeader>
-          {selectedAccount && (
+
+          {selectedId && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-muted-foreground">Fornecedor</Label>
-                  <p className="font-medium">{selectedAccount.supplierName}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Categoria</Label>
-                  <p className="font-medium">{selectedAccount.category}</p>
-                </div>
-                <div className="col-span-2">
-                  <Label className="text-muted-foreground">Descrição</Label>
-                  <p className="font-medium">{selectedAccount.description}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Valor</Label>
-                  <p className="font-medium">R$ {selectedAccount.amount.toFixed(2)}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Vencimento</Label>
-                  <p className="font-medium">{format(selectedAccount.dueDate, 'dd/MM/yyyy')}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Status</Label>
-                  <div className="mt-1">{getStatusBadge(selectedAccount.status)}</div>
-                </div>
-                {selectedAccount.installments && selectedAccount.installments > 1 && (
-                  <div>
-                    <Label className="text-muted-foreground">Parcelas</Label>
-                    <p className="font-medium">{selectedAccount.installments}x</p>
+              {(() => {
+                const acc = accounts.find((a: any) => a.id === selectedId);
+                if (!acc) return null;
+
+                return (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-muted-foreground">Descrição</Label>
+                      <p className="font-medium">{acc.description}</p>
+                    </div>
+
+                    <div>
+                      <Label className="text-muted-foreground">Categoria</Label>
+                      <p className="font-medium">{acc.category}</p>
+                    </div>
+
+                    <div>
+                      <Label className="text-muted-foreground">Valor</Label>
+                      <p className="font-medium">R$ {Number(acc.amount).toFixed(2)}</p>
+                    </div>
+
+                    <div>
+                      <Label className="text-muted-foreground">Vencimento</Label>
+                      <p className="font-medium">
+                        {acc.due_date ? format(parseISO(acc.due_date), "dd/MM/yyyy") : "-"}
+                      </p>
+                    </div>
+
+                    <div>
+                      <Label className="text-muted-foreground">Status</Label>
+                      <div className="mt-1">{getStatusBadge(acc.status)}</div>
+                    </div>
+
+                    {acc.payment_date && (
+                      <>
+                        <div>
+                          <Label className="text-muted-foreground">Pagamento</Label>
+                          <p className="font-medium">
+                            {format(parseISO(acc.payment_date), "dd/MM/yyyy")}
+                          </p>
+                        </div>
+
+                        <div>
+                          <Label className="text-muted-foreground">Forma</Label>
+                          <p className="font-medium">{acc.payment_method}</p>
+                        </div>
+                      </>
+                    )}
+
+                    {acc.notes && (
+                      <div className="col-span-2">
+                        <Label className="text-muted-foreground">Observações</Label>
+                        <p className="font-medium">{acc.notes}</p>
+                      </div>
+                    )}
                   </div>
-                )}
-                {selectedAccount.paymentDate && (
-                  <>
-                    <div>
-                      <Label className="text-muted-foreground">Data do Pagamento</Label>
-                      <p className="font-medium">{format(selectedAccount.paymentDate, 'dd/MM/yyyy')}</p>
-                    </div>
-                    <div>
-                      <Label className="text-muted-foreground">Forma de Pagamento</Label>
-                      <p className="font-medium">{selectedAccount.paymentMethod}</p>
-                    </div>
-                  </>
-                )}
-              </div>
-              {selectedAccount.notes && (
-                <div>
-                  <Label className="text-muted-foreground">Observações</Label>
-                  <p className="font-medium">{selectedAccount.notes}</p>
-                </div>
-              )}
+                );
+              })()}
             </div>
           )}
         </DialogContent>

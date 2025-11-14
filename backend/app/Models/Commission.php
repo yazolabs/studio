@@ -53,4 +53,15 @@ class Commission extends Model
     {
         return $this->belongsTo(Customer::class);
     }
+
+    public function accountPayable()
+    {
+        return $this->hasOne(AccountPayable::class, 'appointment_id', 'appointment_id')
+                    ->where('professional_id', $this->professional_id);
+    }
+
+    public function isPaid(): bool
+    {
+        return $this->status->value === 'paid';
+    }
 }

@@ -1,13 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../../services/api';
-import {
-  createCommission,
-  getCommission,
-  listCommissions,
-  removeCommission,
-  updateCommission,
-} from '../../services/commissionsService';
+import { createCommission, getCommission, listCommissions, removeCommission, updateCommission } from '../../services/commissionsService';
 import type { Commission, CreateCommissionDto, UpdateCommissionDto } from '../../types/commission';
+import { markCommissionAsPaid } from '../../services/commissionsService';
+import { toast } from 'sonner';
 
 export function useCommissionsQuery(params?: Parameters<typeof listCommissions>[0]) {
   return useQuery({
@@ -51,6 +47,21 @@ export function useDeleteCommission() {
     mutationFn: (id) => removeCommission(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.commissions });
+    },
+  });
+}
+
+export function useMarkCommissionAsPaid() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: number) => markCommissionAsPaid(id),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.commissions });
+      toast.success(`Comissão #${data.id} marcada como paga com sucesso!`);
+    },
+    onError: () => {
+      toast.error('Erro ao marcar comissão como paga.');
     },
   });
 }

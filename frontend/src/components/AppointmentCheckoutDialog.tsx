@@ -20,10 +20,10 @@ import { useItemsQuery } from "@/hooks/items";
 
 const checkoutSchema = z.object({
   discount: z.number().min(0).max(100),
-  paymentMethod: z.string().min(1, "Forma de pagamento é obrigatória"),
-  cardBrand: z.string().optional(),
+  payment_method: z.string().min(1, "Forma de pagamento é obrigatória"),
+  card_brand: z.string().optional(),
   installments: z.number().min(1).optional(),
-  installmentFee: z.number().min(0).optional(),
+  installment_fee: z.number().min(0).optional(),
 });
 
 interface AppointmentCheckoutDialogProps {
@@ -68,10 +68,10 @@ export function AppointmentCheckoutDialog({
     resolver: zodResolver(checkoutSchema),
     defaultValues: {
       discount: 0,
-      paymentMethod: "",
-      cardBrand: "",
+      payment_method: "",
+      card_brand: "",
       installments: 1,
-      installmentFee: 0,
+      installment_fee: 0,
     },
   });
 
@@ -106,10 +106,10 @@ export function AppointmentCheckoutDialog({
 
         form.reset({
           discount: Number(data.discount_amount ?? 0),
-          paymentMethod: data.payment_method ?? "",
-          cardBrand: data.card_brand ?? "",
+          payment_method: data.payment_method ?? "",
+          card_brand: data.card_brand ?? "",
           installments: data.installments ?? 1,
-          installmentFee: Number(data.installment_fee ?? 0),
+          installment_fee: Number(data.installment_fee ?? 0),
         });
       } catch (e) {
         console.error(e);
@@ -221,9 +221,9 @@ export function AppointmentCheckoutDialog({
   );
   const subtotal = servicesTotal + productsTotal;
   const discountPercent = form.watch("discount") || 0;
-  const paymentMethod = form.watch("paymentMethod");
+  const paymentMethod = form.watch("payment_method");
   const installments = form.watch("installments") || 1;
-  const installmentFeePercent = form.watch("installmentFee") || 0;
+  const installmentFeePercent = form.watch("installment_fee") || 0;
 
   const discountValue = (subtotal * discountPercent) / 100;
   let totalAfterDiscount = subtotal - discountValue;
@@ -245,6 +245,7 @@ export function AppointmentCheckoutDialog({
 
   const onSubmit = async (data: z.infer<typeof checkoutSchema>) => {
     if (!normalizedAppointment) return;
+
     if (services.length === 0) {
       toast.error("Adicione pelo menos um serviço");
       return;
@@ -252,24 +253,24 @@ export function AppointmentCheckoutDialog({
 
     try {
       await checkout({
-        appointment: normalizedAppointment,
-        services,
-        products,
-        formValues: {
-          discount: data.discount,
-          paymentMethod: data.paymentMethod,
-          cardBrand: data.cardBrand,
-          installments: data.installments,
-          installmentFee: data.installmentFee,
-          promotionId: selectedPromotion ? Number(selectedPromotion) : null,
+        appointmentId: normalizedAppointment.id,
+        payload: {
+          discount_amount: data.discount ?? 0,
+          payment_method: data.payment_method,
+          card_brand: data.card_brand ?? null,
+          installments: data.installments ?? 1,
+          installment_fee: data.installment_fee ?? 0,
+          promotion_id: selectedPromotion ? Number(selectedPromotion) : null,
         },
       });
 
       toast.success("Atendimento finalizado com sucesso!");
+
       onOpenChange(false);
       setServices([]);
       setProducts([]);
       form.reset();
+
     } catch (err) {
       console.error(err);
       toast.error("Erro ao finalizar atendimento.");
@@ -535,7 +536,7 @@ export function AppointmentCheckoutDialog({
 
               <FormField
                 control={form.control}
-                name="paymentMethod"
+                name="payment_method"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Forma de Pagamento</FormLabel>
@@ -591,7 +592,7 @@ export function AppointmentCheckoutDialog({
 
                 <FormField
                   control={form.control}
-                  name="installmentFee"
+                  name="installment_fee"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Acréscimo (%)</FormLabel>

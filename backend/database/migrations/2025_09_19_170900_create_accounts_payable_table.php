@@ -25,6 +25,7 @@ return new class extends Migration {
             $table->softDeletes();
 
             $table->index(['status', 'due_date']);
+            $table->index(['appointment_id', 'professional_id']);
         });
     }
 
