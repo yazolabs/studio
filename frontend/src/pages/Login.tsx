@@ -121,7 +121,7 @@ export default function Login() {
               {isSubmitting ? 'Entrando...' : 'Entrar'}
             </Button>
 
-            <div className="rounded-lg bg-muted p-4 text-sm">
+            {/* <div className="rounded-lg bg-muted p-4 text-sm">
               <p className="font-semibold mb-2">Credenciais de teste:</p>
               <p>
                 Admin:{' '}
@@ -135,7 +135,7 @@ export default function Login() {
                 Professional:{' '}
                 <code className="bg-background px-2 py-1 rounded">professional / professional123</code>
               </p>
-            </div>
+            </div> */}
           </form>
         </CardContent>
       </Card>
