@@ -25,7 +25,7 @@ services:
     depends_on:
       - studio-db
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost"]
+      test: ["CMD", "curl", "-f", "http://localhost/api/health"]
       interval: 30s
       timeout: 5s
       retries: 5
