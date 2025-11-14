@@ -37,13 +37,12 @@ services:
     restart: unless-stopped
     environment:
       MYSQL_DATABASE: studio_db
-      MYSQL_ROOT_PASSWORD: a0adff46cc4d1838816a42b1d1ad14e8
+      MYSQL_ROOT_USER: yazo
+      MYSQL_ROOT_PASSWORD: 723bbdba721637e7a63b91f4b5df8520
       MYSQL_USER: studio
       MYSQL_PASSWORD: a0adff46cc4d1838816a42b1d1ad14e8
     volumes:
       - studio_db_data:/var/lib/mysql
-    ports:
-      - "3307:3306"
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 30s
