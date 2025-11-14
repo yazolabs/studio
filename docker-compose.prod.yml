@@ -54,7 +54,3 @@ services:
 
 volumes:
   studio_db_data:
-
-networks:
-  shared-db-network:
-    external: true
