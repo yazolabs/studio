@@ -7,6 +7,12 @@ services:
     restart: unless-stopped
     networks:
       - wkoccokcs4ggsw44wo0s880g
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.studio-frontend.rule=Host(`studio.yazolabs.com.br`)"
+      - "traefik.http.routers.studio-frontend.entrypoints=websecure"
+      - "traefik.http.routers.studio-frontend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.studio-frontend.loadbalancer.server.port=80"
 
   studio-backend:
     build:
@@ -28,6 +34,12 @@ services:
       - studio-db
     networks:
       - wkoccokcs4ggsw44wo0s880g
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.studio-backend.rule=Host(`api.studio.yazolabs.com.br`)"
+      - "traefik.http.routers.studio-backend.entrypoints=websecure"
+      - "traefik.http.routers.studio-backend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.studio-backend.loadbalancer.server.port=80"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/api/health"]
       interval: 30s
