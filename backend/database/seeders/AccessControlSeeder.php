@@ -116,14 +116,14 @@ class AccessControlSeeder extends Seeder
                 foreach ($screensPermissions as $screenSlug => $allowedActions) {
                     $screen = $screens[$screenSlug] ?? null;
 
-                    if (! $screen) {
+                    if (!$screen) {
                         continue;
                     }
 
                     foreach ($allowedActions as $actionSlug) {
                         $action = $actions[$actionSlug] ?? null;
 
-                        if (! $action) {
+                        if (!$action) {
                             continue;
                         }
 
@@ -138,39 +138,84 @@ class AccessControlSeeder extends Seeder
 
             $credentials = [
                 'admin' => [
-                    'name' => 'Michele',
-                    'username' => 'admin',
-                    'email' => 'admin@yazolabs.com',
-                    'password' => 'admin123',
+                    [
+                        'name' => 'Michele',
+                        'username' => 'michele',
+                        'email' => 'michele@yazolabs.com',
+                        'password' => 'admin123',
+                    ],
+                    [
+                        'name' => 'Symon',
+                        'username' => 'symon',
+                        'email' => 'symon@yazolabs.com',
+                        'password' => 'admin123',
+                    ],
+                    [
+                        'name' => 'Jammily',
+                        'username' => 'jammily',
+                        'email' => 'jammily@yazolabs.com',
+                        'password' => 'admin123',
+                    ],
+                    [
+                        'name' => 'Melissa',
+                        'username' => 'melissa',
+                        'email' => 'melissa@yazolabs.com',
+                        'password' => 'admin123',
+                    ],
                 ],
-                'manager' => [
-                    'name' => 'Gerente Operacional',
-                    'username' => 'manager',
-                    'email' => 'manager@yazolabs.com',
-                    'password' => 'admin123',
-                ],
+
                 'professional' => [
-                    'name' => 'Profissional do Salão',
-                    'username' => 'professional',
-                    'email' => 'professional@yazolabs.com',
-                    'password' => 'admin123',
-                ],
-                'receptionist' => [
-                    'name' => 'Recepcionista do Salão',
-                    'username' => 'receptionist',
-                    'email' => 'receptionist@yazolabs.com',
-                    'password' => 'admin123',
+                    [
+                        'name' => 'Carla',
+                        'username' => 'carla',
+                        'email' => 'carla@yazolabs.com',
+                        'password' => '123456',
+                    ],
+                    [
+                        'name' => 'Maria',
+                        'username' => 'maria',
+                        'email' => 'maria@yazolabs.com',
+                        'password' => '123456',
+                    ],
+                    [
+                        'name' => 'Agela',
+                        'username' => 'agela',
+                        'email' => 'agela@yazolabs.com',
+                        'password' => '123456',
+                    ],
+                    [
+                        'name' => 'Thay',
+                        'username' => 'thay',
+                        'email' => 'thay@yazolabs.com',
+                        'password' => '123456',
+                    ],
+                    [
+                        'name' => 'Claudia',
+                        'username' => 'claudia',
+                        'email' => 'claudia@yazolabs.com',
+                        'password' => '123456',
+                    ],
+                    [
+                        'name' => 'Geluce',
+                        'username' => 'geluce',
+                        'email' => 'geluce@yazolabs.com',
+                        'password' => '123456',
+                    ],
+                    
                 ],
             ];
 
-            foreach ($credentials as $roleSlug => $data) {
-                $user = User::updateOrCreate(
-                    ['email' => $data['email']],
-                    Arr::only($data, ['name', 'username', 'email', 'password'])
-                );
+            foreach ($credentials as $roleSlug => $users) {
+                foreach ($users as $data) {
+                    $user = User::updateOrCreate(
+                        ['email' => $data['email']],
+                        Arr::only($data, ['name', 'username', 'email', 'password'])
+                    );
 
-                $user->roles()->syncWithoutDetaching([$roles[$roleSlug]->id]);
+                    $user->roles()->syncWithoutDetaching([$roles[$roleSlug]->id]);
+                }
             }
+
         });
     }
 }
