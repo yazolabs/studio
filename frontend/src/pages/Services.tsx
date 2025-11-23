@@ -52,7 +52,7 @@
 //       description: "",
 //       status: "active",
 //       commission_type: "percentage",
-//       commission_value: 0,
+//       commission_value: 40,
 //     },
 //   });
 
@@ -86,7 +86,7 @@
 //       description: "",
 //       status: "active",
 //       commission_type: "percentage",
-//       commission_value: 0,
+//       commission_value: 40,
 //     });
 //     setDialogOpen(true);
 //   };
@@ -471,8 +471,6 @@
 //   );
 // }
 
-
-
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -482,64 +480,25 @@ import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/DataTable";
 import { Plus, Edit, Trash2 } from "lucide-react";
 import { usePermission } from "@/hooks/usePermission";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle} from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { Service, CreateServiceDto } from "@/types/service";
-import {
-  listServices,
-  createService,
-  updateService,
-  removeService,
-} from "@/services/servicesService";
+import { listServices, createService, updateService, removeService } from "@/services/servicesService";
 import { cn } from "@/lib/utils";
-import {
-  formatCurrencyInput,
-  formatPercentageInput,
-  displayCurrency,
-  displayPercentage,
-} from "@/utils/formatters";
+import { formatCurrencyInput, formatPercentageInput, displayCurrency, displayPercentage } from "@/utils/formatters";
 
 const SERVICE_CATEGORIES = [
-  "CABELO",
-  "TRANÇA",
-  "UNHAS",
-  "SOBRANCELHA",
-  "ESTÉTICA",
+  "Cabelo",
+  "Trança",
+  "Unhas",
+  "Sobrancelha",
+  "Estética",
 ] as const;
 
 const serviceSchema = z.object({
@@ -582,7 +541,7 @@ export default function Services() {
       description: "",
       status: "active",
       commission_type: "percentage",
-      commission_value: 0,
+      commission_value: 40,
     },
   });
 
@@ -616,7 +575,7 @@ export default function Services() {
       description: "",
       status: "active",
       commission_type: "percentage",
-      commission_value: 0,
+      commission_value: 40,
     });
     setDialogOpen(true);
   };
@@ -816,7 +775,6 @@ export default function Services() {
                   )}
                 />
 
-                {/* CATEGORIA COMO SELECT */}
                 <FormField
                   control={form.control}
                   name="category"

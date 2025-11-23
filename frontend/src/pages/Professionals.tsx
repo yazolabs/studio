@@ -498,13 +498,13 @@ import { cn } from "@/lib/utils";
 import { formatPhone } from '@/utils/formatters';
 
 const mockServices = [
-  { id: "cabelereira", name: "Cabelereira" },
-  { id: "manicure", name: "Manicure" },
-  { id: "nail-design", name: "Nail design" },
-  { id: "lash-design", name: "Lash design" },
-  { id: "design-sobrancelha", name: "Design de sobrancelha" },
   { id: "adm", name: "ADM" },
   { id: "ceo", name: "CEO" },
+  { id: "cabelereira", name: "Cabelereira" },
+  { id: "design-sobrancelha", name: "Design de sobrancelha" },
+  { id: "lash-design", name: "Lash design" },
+  { id: "manicure", name: "Manicure" },
+  { id: "nail-design", name: "Nail design" },
 ];
 
 const defaultSpecialtiesByUserName: Record<string, string[]> = {

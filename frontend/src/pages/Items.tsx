@@ -630,14 +630,13 @@ import {
   displayPercentage,
 } from "@/utils/formatters";
 
-// categorias de PRODUTOS
 const PRODUCT_CATEGORIES = [
-  "CABELO",
-  "UNHAS",
-  "ESTÉTICA",
-  "CUIDADOS ÍNTIMOS",
-  "COMEDORIA",
-  "CORTESIA",
+  "Cabelo",
+  "Unhas",
+  "Estética",
+  "Cuidados Íntimos",
+  "Comedoria",
+  "Cortesia",
 ] as const;
 
 const itemSchema = z.object({

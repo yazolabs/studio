@@ -14,6 +14,7 @@ import {
 import { DataTable } from '@/components/DataTable';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import InDevelopment from '@/components/InDevelopment';
 
 interface Supplier {
   id: string;
@@ -122,101 +123,113 @@ export default function Suppliers() {
     },
   ];
 
+  // return (
+  //   <div className="space-y-6">
+  //     <div className="flex justify-between items-center">
+  //       <div>
+  //         <h1 className="text-3xl font-bold">Fornecedores</h1>
+  //         <p className="text-muted-foreground">Gerencie seus fornecedores</p>
+  //       </div>
+  //       <Button onClick={() => setIsDialogOpen(true)}>
+  //         <Plus className="mr-2 h-4 w-4" />
+  //         Novo Fornecedor
+  //       </Button>
+  //     </div>
+
+  //     <DataTable
+  //       data={suppliers}
+  //       columns={columns}
+  //       emptyMessage="Nenhum fornecedor cadastrado"
+  //     />
+
+  //     <Dialog open={isDialogOpen} onOpenChange={handleCloseDialog}>
+  //       <DialogContent className="max-w-2xl">
+  //         <DialogHeader>
+  //           <DialogTitle>
+  //             {editingSupplier ? 'Editar Fornecedor' : 'Novo Fornecedor'}
+  //           </DialogTitle>
+  //           <DialogDescription>
+  //             Preencha os dados do fornecedor
+  //           </DialogDescription>
+  //         </DialogHeader>
+  //         <form onSubmit={handleSubmit} className="space-y-4">
+  //           <div className="grid grid-cols-2 gap-4">
+  //             <div className="space-y-2">
+  //               <Label htmlFor="name">Nome *</Label>
+  //               <Input
+  //                 id="name"
+  //                 value={formData.name}
+  //                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+  //                 required
+  //               />
+  //             </div>
+  //             <div className="space-y-2">
+  //               <Label htmlFor="document">CPF/CNPJ *</Label>
+  //               <Input
+  //                 id="document"
+  //                 value={formData.document}
+  //                 onChange={(e) => setFormData({ ...formData, document: e.target.value })}
+  //                 required
+  //               />
+  //             </div>
+  //             <div className="space-y-2">
+  //               <Label htmlFor="email">Email</Label>
+  //               <Input
+  //                 id="email"
+  //                 type="email"
+  //                 value={formData.email}
+  //                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+  //               />
+  //             </div>
+  //             <div className="space-y-2">
+  //               <Label htmlFor="phone">Telefone</Label>
+  //               <Input
+  //                 id="phone"
+  //                 value={formData.phone}
+  //                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+  //               />
+  //             </div>
+  //           </div>
+  //           <div className="space-y-2">
+  //             <Label htmlFor="address">Endereço</Label>
+  //             <Input
+  //               id="address"
+  //               value={formData.address}
+  //               onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+  //             />
+  //           </div>
+  //           <div className="space-y-2">
+  //             <Label htmlFor="notes">Observações</Label>
+  //             <Textarea
+  //               id="notes"
+  //               value={formData.notes}
+  //               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+  //               rows={3}
+  //             />
+  //           </div>
+  //           <DialogFooter>
+  //             <Button type="button" variant="outline" onClick={handleCloseDialog}>
+  //               Cancelar
+  //             </Button>
+  //             <Button type="submit">
+  //               {editingSupplier ? 'Atualizar' : 'Cadastrar'}
+  //             </Button>
+  //           </DialogFooter>
+  //         </form>
+  //       </DialogContent>
+  //     </Dialog>
+  //   </div>
+  // );
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      <div className="flex justify-between items-center">
+    <div className="space-y-6">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-bold">Fornecedores</h1>
           <p className="text-muted-foreground">Gerencie seus fornecedores</p>
         </div>
-        <Button onClick={() => setIsDialogOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          Novo Fornecedor
-        </Button>
       </div>
 
-      <DataTable
-        data={suppliers}
-        columns={columns}
-        emptyMessage="Nenhum fornecedor cadastrado"
-      />
-
-      <Dialog open={isDialogOpen} onOpenChange={handleCloseDialog}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>
-              {editingSupplier ? 'Editar Fornecedor' : 'Novo Fornecedor'}
-            </DialogTitle>
-            <DialogDescription>
-              Preencha os dados do fornecedor
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Nome *</Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="document">CPF/CNPJ *</Label>
-                <Input
-                  id="document"
-                  value={formData.document}
-                  onChange={(e) => setFormData({ ...formData, document: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="phone">Telefone</Label>
-                <Input
-                  id="phone"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="address">Endereço</Label>
-              <Input
-                id="address"
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="notes">Observações</Label>
-              <Textarea
-                id="notes"
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                rows={3}
-              />
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={handleCloseDialog}>
-                Cancelar
-              </Button>
-              <Button type="submit">
-                {editingSupplier ? 'Atualizar' : 'Cadastrar'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <InDevelopment/>
     </div>
   );
 }

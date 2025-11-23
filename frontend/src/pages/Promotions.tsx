@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/hooks/use-toast';
 import { usePermission } from '@/hooks/usePermission';
 import { Badge } from '@/components/ui/badge';
+import InDevelopment from '@/components/InDevelopment';
 
 const promotionSchema = z.object({
   name: z.string().min(1, 'Nome é obrigatório'),
@@ -242,214 +243,226 @@ export default function Promotions() {
     },
   ];
 
+  // return (
+  //   <div className="space-y-6">
+  //     <div className="flex items-center justify-between">
+  //       <div>
+  //         <h1 className="text-3xl font-bold">Promoções e Campanhas</h1>
+  //         <p className="text-muted-foreground">
+  //           Gerencie campanhas automatizadas via N8N
+  //         </p>
+  //       </div>
+  //       {can('promotions', 'create') && (
+  //         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+  //           <DialogTrigger asChild>
+  //             <Button onClick={() => setEditingPromotion(null)}>
+  //               <Plus className="mr-2 h-4 w-4" />
+  //               Nova Promoção
+  //             </Button>
+  //           </DialogTrigger>
+  //           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+  //             <DialogHeader>
+  //               <DialogTitle>
+  //                 {editingPromotion ? 'Editar Promoção' : 'Nova Promoção'}
+  //               </DialogTitle>
+  //             </DialogHeader>
+  //             <Form {...form}>
+  //               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+  //                 <FormField
+  //                   control={form.control}
+  //                   name="name"
+  //                   render={({ field }) => (
+  //                     <FormItem>
+  //                       <FormLabel>Nome</FormLabel>
+  //                       <FormControl>
+  //                         <Input {...field} />
+  //                       </FormControl>
+  //                       <FormMessage />
+  //                     </FormItem>
+  //                   )}
+  //                 />
+
+  //                 <FormField
+  //                   control={form.control}
+  //                   name="description"
+  //                   render={({ field }) => (
+  //                     <FormItem>
+  //                       <FormLabel>Descrição</FormLabel>
+  //                       <FormControl>
+  //                         <Textarea {...field} rows={3} />
+  //                       </FormControl>
+  //                       <FormMessage />
+  //                     </FormItem>
+  //                   )}
+  //                 />
+
+  //                 <div className="grid grid-cols-2 gap-4">
+  //                   <FormField
+  //                     control={form.control}
+  //                     name="type"
+  //                     render={({ field }) => (
+  //                       <FormItem>
+  //                         <FormLabel>Tipo</FormLabel>
+  //                         <Select onValueChange={field.onChange} value={field.value}>
+  //                           <FormControl>
+  //                             <SelectTrigger>
+  //                               <SelectValue />
+  //                             </SelectTrigger>
+  //                           </FormControl>
+  //                           <SelectContent>
+  //                             <SelectItem value="discount">Desconto</SelectItem>
+  //                             <SelectItem value="campaign">Campanha</SelectItem>
+  //                             <SelectItem value="newsletter">Newsletter</SelectItem>
+  //                             <SelectItem value="sms">SMS</SelectItem>
+  //                           </SelectContent>
+  //                         </Select>
+  //                         <FormMessage />
+  //                       </FormItem>
+  //                     )}
+  //                   />
+
+  //                   <FormField
+  //                     control={form.control}
+  //                     name="status"
+  //                     render={({ field }) => (
+  //                       <FormItem>
+  //                         <FormLabel>Status</FormLabel>
+  //                         <Select onValueChange={field.onChange} value={field.value}>
+  //                           <FormControl>
+  //                             <SelectTrigger>
+  //                               <SelectValue />
+  //                             </SelectTrigger>
+  //                           </FormControl>
+  //                           <SelectContent>
+  //                             <SelectItem value="draft">Rascunho</SelectItem>
+  //                             <SelectItem value="active">Ativa</SelectItem>
+  //                             <SelectItem value="paused">Pausada</SelectItem>
+  //                             <SelectItem value="completed">Concluída</SelectItem>
+  //                           </SelectContent>
+  //                         </Select>
+  //                         <FormMessage />
+  //                       </FormItem>
+  //                     )}
+  //                   />
+  //                 </div>
+
+  //                 <FormField
+  //                   control={form.control}
+  //                   name="target"
+  //                   render={({ field }) => (
+  //                     <FormItem>
+  //                       <FormLabel>Público-Alvo</FormLabel>
+  //                       <FormControl>
+  //                         <Input {...field} placeholder="Ex: Todos os clientes, Clientes VIP" />
+  //                       </FormControl>
+  //                       <FormMessage />
+  //                     </FormItem>
+  //                   )}
+  //                 />
+
+  //                 <FormField
+  //                   control={form.control}
+  //                   name="discount"
+  //                   render={({ field }) => (
+  //                     <FormItem>
+  //                       <FormLabel>Desconto (opcional)</FormLabel>
+  //                       <FormControl>
+  //                         <Input {...field} placeholder="Ex: 20%, R$ 50" />
+  //                       </FormControl>
+  //                       <FormMessage />
+  //                     </FormItem>
+  //                   )}
+  //                 />
+
+  //                 <div className="grid grid-cols-2 gap-4">
+  //                   <FormField
+  //                     control={form.control}
+  //                     name="startDate"
+  //                     render={({ field }) => (
+  //                       <FormItem>
+  //                         <FormLabel>Data de Início</FormLabel>
+  //                         <FormControl>
+  //                           <Input type="date" {...field} />
+  //                         </FormControl>
+  //                         <FormMessage />
+  //                       </FormItem>
+  //                     )}
+  //                   />
+
+  //                   <FormField
+  //                     control={form.control}
+  //                     name="endDate"
+  //                     render={({ field }) => (
+  //                       <FormItem>
+  //                         <FormLabel>Data de Término</FormLabel>
+  //                         <FormControl>
+  //                           <Input type="date" {...field} />
+  //                         </FormControl>
+  //                         <FormMessage />
+  //                       </FormItem>
+  //                     )}
+  //                   />
+  //                 </div>
+
+  //                 <FormField
+  //                   control={form.control}
+  //                   name="n8nWebhook"
+  //                   render={({ field }) => (
+  //                     <FormItem>
+  //                       <FormLabel>Webhook N8N</FormLabel>
+  //                       <FormControl>
+  //                         <Input {...field} placeholder="https://n8n.example.com/webhook/..." />
+  //                       </FormControl>
+  //                       <FormMessage />
+  //                     </FormItem>
+  //                   )}
+  //                 />
+
+  //                 <div className="flex justify-end gap-2">
+  //                   <Button type="button" variant="outline" onClick={handleCloseDialog}>
+  //                     Cancelar
+  //                   </Button>
+  //                   <Button type="submit">
+  //                     {editingPromotion ? 'Salvar' : 'Criar'}
+  //                   </Button>
+  //                 </div>
+  //               </form>
+  //             </Form>
+  //           </DialogContent>
+  //         </Dialog>
+  //       )}
+  //     </div>
+
+  //     <DataTable columns={columns} data={promotions} />
+
+  //     <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+  //       <AlertDialogContent>
+  //         <AlertDialogHeader>
+  //           <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
+  //           <AlertDialogDescription>
+  //             Tem certeza que deseja excluir esta promoção? Esta ação não pode ser desfeita.
+  //           </AlertDialogDescription>
+  //         </AlertDialogHeader>
+  //         <AlertDialogFooter>
+  //           <AlertDialogCancel>Cancelar</AlertDialogCancel>
+  //           <AlertDialogAction onClick={() => deletingId && handleDelete(deletingId)}>
+  //             Excluir
+  //           </AlertDialogAction>
+  //         </AlertDialogFooter>
+  //       </AlertDialogContent>
+  //     </AlertDialog>
+  //   </div>
+  // );
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-bold">Promoções e Campanhas</h1>
-          <p className="text-muted-foreground">
-            Gerencie campanhas automatizadas via N8N
-          </p>
+           <p className="text-muted-foreground">Gerencie campanhas automatizadas via N8N</p>
         </div>
-        {can('promotions', 'create') && (
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button onClick={() => setEditingPromotion(null)}>
-                <Plus className="mr-2 h-4 w-4" />
-                Nova Promoção
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>
-                  {editingPromotion ? 'Editar Promoção' : 'Nova Promoção'}
-                </DialogTitle>
-              </DialogHeader>
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                  <FormField
-                    control={form.control}
-                    name="name"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Nome</FormLabel>
-                        <FormControl>
-                          <Input {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="description"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Descrição</FormLabel>
-                        <FormControl>
-                          <Textarea {...field} rows={3} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="type"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Tipo</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="discount">Desconto</SelectItem>
-                              <SelectItem value="campaign">Campanha</SelectItem>
-                              <SelectItem value="newsletter">Newsletter</SelectItem>
-                              <SelectItem value="sms">SMS</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="status"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Status</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="draft">Rascunho</SelectItem>
-                              <SelectItem value="active">Ativa</SelectItem>
-                              <SelectItem value="paused">Pausada</SelectItem>
-                              <SelectItem value="completed">Concluída</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  <FormField
-                    control={form.control}
-                    name="target"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Público-Alvo</FormLabel>
-                        <FormControl>
-                          <Input {...field} placeholder="Ex: Todos os clientes, Clientes VIP" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="discount"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Desconto (opcional)</FormLabel>
-                        <FormControl>
-                          <Input {...field} placeholder="Ex: 20%, R$ 50" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="startDate"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Data de Início</FormLabel>
-                          <FormControl>
-                            <Input type="date" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="endDate"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Data de Término</FormLabel>
-                          <FormControl>
-                            <Input type="date" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  <FormField
-                    control={form.control}
-                    name="n8nWebhook"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Webhook N8N</FormLabel>
-                        <FormControl>
-                          <Input {...field} placeholder="https://n8n.example.com/webhook/..." />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <div className="flex justify-end gap-2">
-                    <Button type="button" variant="outline" onClick={handleCloseDialog}>
-                      Cancelar
-                    </Button>
-                    <Button type="submit">
-                      {editingPromotion ? 'Salvar' : 'Criar'}
-                    </Button>
-                  </div>
-                </form>
-              </Form>
-            </DialogContent>
-          </Dialog>
-        )}
       </div>
 
-      <DataTable columns={columns} data={promotions} />
-
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
-            <AlertDialogDescription>
-              Tem certeza que deseja excluir esta promoção? Esta ação não pode ser desfeita.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => deletingId && handleDelete(deletingId)}>
-              Excluir
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <InDevelopment/>
     </div>
   );
 }

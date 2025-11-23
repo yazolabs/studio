@@ -17,6 +17,7 @@ import { useProfessionalsQuery } from "@/hooks/professionals";
 import { useServicesQuery } from "@/hooks/services";
 import { usePromotionsQuery } from "@/hooks/promotions";
 import { useItemsQuery } from "@/hooks/items";
+import { formatPercentageInput, displayPercentage } from "@/utils/formatters";
 
 const checkoutSchema = z.object({
   discount: z.number().min(0).max(100),
@@ -63,6 +64,8 @@ export function AppointmentCheckoutDialog({
   const [productQuantity, setProductQuantity] = useState(1);
   const [selectedPromotion, setSelectedPromotion] = useState<string>("");
   const [loadingAppointment, setLoadingAppointment] = useState(false);
+  const [discountDisplay, setDiscountDisplay] = useState("");
+  const [installmentFeeDisplay, setInstallmentFeeDisplay] = useState("");
 
   const form = useForm<z.infer<typeof checkoutSchema>>({
     resolver: zodResolver(checkoutSchema),
@@ -111,6 +114,17 @@ export function AppointmentCheckoutDialog({
           installments: data.installments ?? 1,
           installment_fee: Number(data.installment_fee ?? 0),
         });
+
+        const discountNum = Number(data.discount_amount ?? 0);
+        const installmentFeeNum = Number(data.installment_fee ?? 0);
+
+        setDiscountDisplay(
+          discountNum ? displayPercentage(discountNum) : ""
+        );
+
+        setInstallmentFeeDisplay(
+          installmentFeeNum ? displayPercentage(installmentFeeNum) : ""
+        );
       } catch (e) {
         console.error(e);
         toast.error('Não foi possível carregar os dados do atendimento.');
@@ -134,13 +148,20 @@ export function AppointmentCheckoutDialog({
 
   const handlePromotionChange = (promotionId: string) => {
     setSelectedPromotion(promotionId);
+
     if (promotionId && promotionId !== "none") {
-      const promotion = activePromotions.find((p: any) => p.id === promotionId);
+      const promotion = activePromotions.find(
+        (p: any) => p.id.toString() === promotionId
+      );
+
       if (promotion?.discount_value) {
-        form.setValue("discount", Number(promotion.discount_value));
+        const value = Number(promotion.discount_value);
+        form.setValue("discount", value);
+        setDiscountDisplay(displayPercentage(value));
       }
     } else {
       form.setValue("discount", 0);
+      setDiscountDisplay("");
     }
   };
 
@@ -229,7 +250,7 @@ export function AppointmentCheckoutDialog({
   let totalAfterDiscount = subtotal - discountValue;
 
   const installmentFeeValue =
-    paymentMethod === "credit" && installments > 1
+    paymentMethod === "credit"
       ? (totalAfterDiscount * installmentFeePercent) / 100
       : 0;
 
@@ -270,7 +291,8 @@ export function AppointmentCheckoutDialog({
       setServices([]);
       setProducts([]);
       form.reset();
-
+      setDiscountDisplay("");
+      setInstallmentFeeDisplay("");
     } catch (err) {
       console.error(err);
       toast.error("Erro ao finalizar atendimento.");
@@ -520,13 +542,21 @@ export function AppointmentCheckoutDialog({
                     <FormLabel>Desconto (%)</FormLabel>
                     <FormControl>
                       <Input
-                        type="number"
-                        min="0"
-                        max="100"
                         {...field}
-                        onChange={(e) =>
-                          field.onChange(parseFloat(e.target.value) || 0)
-                        }
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="0,00"
+                        value={discountDisplay}
+                        onChange={(e) => {
+                          const formatted = formatPercentageInput(e.target.value);
+                          setDiscountDisplay(formatted);
+
+                          const numeric = parseFloat(
+                            formatted.replace(/\./g, "").replace(",", ".")
+                          );
+
+                          field.onChange(isNaN(numeric) ? 0 : numeric);
+                        }}
                       />
                     </FormControl>
                     <FormMessage />
@@ -548,9 +578,8 @@ export function AppointmentCheckoutDialog({
                       </FormControl>
                       <SelectContent>
                         <SelectItem value="cash">Dinheiro</SelectItem>
-                        <SelectItem value="credit">
-                          Cartão de Crédito
-                        </SelectItem>
+                        <SelectItem value="credit">Cartão de Crédito</SelectItem>
+                        <SelectItem value="credit">Cartão de Crédito (Link)</SelectItem>
                         <SelectItem value="debit">Cartão de Débito</SelectItem>
                         <SelectItem value="pix">PIX</SelectItem>
                       </SelectContent>
@@ -598,14 +627,21 @@ export function AppointmentCheckoutDialog({
                       <FormLabel>Acréscimo (%)</FormLabel>
                       <FormControl>
                         <Input
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="0.01"
                           {...field}
-                          onChange={(e) =>
-                            field.onChange(parseFloat(e.target.value) || 0)
-                          }
+                          type="text"
+                          inputMode="decimal"
+                          placeholder="0,00"
+                          value={installmentFeeDisplay}
+                          onChange={(e) => {
+                            const formatted = formatPercentageInput(e.target.value);
+                            setInstallmentFeeDisplay(formatted);
+
+                            const numeric = parseFloat(
+                              formatted.replace(/\./g, "").replace(",", ".")
+                            );
+
+                            field.onChange(isNaN(numeric) ? 0 : numeric);
+                          }}
                         />
                       </FormControl>
                     </FormItem>
