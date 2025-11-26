@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const appointmentStatusEnum = z.enum(['scheduled', 'confirmed', 'completed', 'cancelled']);
+const appointmentStatusEnum = z.enum(['scheduled', 'confirmed', 'completed', 'cancelled', 'no_show', 'rescheduled']);
 
 const appointmentServiceSchema = z.object({
   id: z.number().int().positive(),

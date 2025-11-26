@@ -10,14 +10,9 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { DataTable } from "@/components/DataTable";
 import { Plus, Pencil, Check, Eye } from "lucide-react";
 import { toast } from "sonner";
-
-import {
-  useAccountsPayableQuery,
-  useCreateAccountPayable,
-  useUpdateAccountPayable,
-  useDeleteAccountPayable,
-  useMarkAccountAsPaid,
-} from "@/hooks/accounts-payable";
+import { useAccountsPayableQuery, useCreateAccountPayable, useUpdateAccountPayable, useDeleteAccountPayable, useMarkAccountAsPaid } from "@/hooks/accounts-payable";
+import { displayCurrency, formatCurrencyInput } from "@/utils/formatters";
+import { CreateAccountPayableDto } from "@/types/account-payable";
 
 export default function AccountsPayable() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -67,7 +62,7 @@ export default function AccountsPayable() {
     setFormData({
       description: account.description ?? "",
       category: account.category ?? "",
-      amount: account.amount ?? "",
+      amount: account.amount != null ? displayCurrency(account.amount) : "",
       due_date: account.due_date ?? "",
       notes: account.notes ?? "",
     });
@@ -84,16 +79,38 @@ export default function AccountsPayable() {
     setIsDetailsDialogOpen(true);
   };
 
+  const parseCurrencyToNumber = (value: string): number => {
+    if (!value) return 0;
+
+    const cleaned = value.replace(/[^\d,-]/g, "");
+    if (!cleaned) return 0;
+
+    const normalized = cleaned.replace(",", ".");
+    const num = parseFloat(normalized);
+
+    return Number.isNaN(num) ? 0 : num;
+  };
+
   const handleSubmit = async (e: any) => {
     e.preventDefault();
 
-    const payload = {
+    const amountNumber = parseCurrencyToNumber(formData.amount);
+
+    const amountString = amountNumber.toFixed(2);
+
+    const payload: CreateAccountPayableDto = {
       description: formData.description,
-      amount: formData.amount,
-      category: formData.category,
-      due_date: formData.due_date,
+      amount: amountString,
+      category: formData.category || null,
+      due_date: formData.due_date || null,
       status: "pending",
-      notes: formData.notes,
+      supplier_id: null,
+      professional_id: null,
+      appointment_id: null,
+      payment_date: null,
+      payment_method: null,
+      reference: null,
+      notes: formData.notes || null,
     };
 
     if (editingId) {
@@ -148,7 +165,7 @@ export default function AccountsPayable() {
     {
       key: "amount",
       header: "Valor",
-      render: (row: any) => `R$ ${Number(row.amount).toFixed(2)}`,
+      render: (row: any) => displayCurrency(row.amount),
     },
     {
       key: "status",
@@ -220,21 +237,21 @@ export default function AccountsPayable() {
         <div className="border p-4 rounded-lg">
           <p className="text-muted-foreground text-sm">Total Pendente</p>
           <p className="text-2xl font-bold text-yellow-600">
-            R$ {totalPending.toFixed(2)}
+            {displayCurrency(totalPending)}
           </p>
         </div>
 
         <div className="border p-4 rounded-lg">
           <p className="text-muted-foreground text-sm">Total Pago</p>
           <p className="text-2xl font-bold text-green-600">
-            R$ {totalPaid.toFixed(2)}
+            {displayCurrency(totalPaid)}
           </p>
         </div>
 
         <div className="border p-4 rounded-lg">
           <p className="text-muted-foreground text-sm">Total Geral</p>
           <p className="text-2xl font-bold">
-            R$ {(totalPending + totalPaid).toFixed(2)}
+            {displayCurrency(totalPending + totalPaid)}
           </p>
         </div>
       </div>
@@ -279,12 +296,16 @@ export default function AccountsPayable() {
             <div className="space-y-2">
               <Label>Valor *</Label>
               <Input
-                type="number"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 value={formData.amount}
                 onChange={(e) =>
-                  setFormData({ ...formData, amount: e.target.value })
+                  setFormData({
+                    ...formData,
+                    amount: formatCurrencyInput(e.target.value),
+                  })
                 }
+                placeholder="R$ 0,00"
                 required
               />
             </div>
@@ -399,7 +420,7 @@ export default function AccountsPayable() {
 
                     <div>
                       <Label className="text-muted-foreground">Valor</Label>
-                      <p className="font-medium">R$ {Number(acc.amount).toFixed(2)}</p>
+                      <p className="font-medium">{displayCurrency(acc.amount)}</p>
                     </div>
 
                     <div>

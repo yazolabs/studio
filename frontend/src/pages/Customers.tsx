@@ -17,17 +17,17 @@ import { useToast } from "@/hooks/use-toast";
 import { usePermission } from "@/hooks/usePermission";
 import { useCustomersQuery, useCreateCustomer, useUpdateCustomer, useDeleteCustomer } from "@/hooks/customers";
 import { useStatesQuery } from "@/hooks/states";
-import type { Customer } from "@/types/customer";
+import type { CreateCustomerDto, Customer } from "@/types/customer";
 import { formatCEP, formatCPF, formatPhone } from "@/utils/formatters";
 import { getAddressByCep } from "@/services/cepService";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
 const customerSchema = z.object({
-  name: z.string().trim().min(3).max(160),
+  name: z.string().trim().min(3, { message: "Informe um nome válido" }).max(160),
   cpf: z.string().trim().optional().or(z.literal("")),
-  email: z.string().trim().email().nullable().optional(),
-  phone: z.string().trim().optional().or(z.literal("")),
+  email: z.string().trim().email({ message: "E-mail inválido" }).or(z.literal("")).optional().transform((val) => (val === "" ? undefined : val)),
+  phone: z.string().trim().min(1, { message: "Telefone/WhatsApp é obrigatório" }),
   alternate_phone: z.string().trim().optional().or(z.literal("")),
   address: z.string().trim().optional().or(z.literal("")),
   number: z.string().trim().optional().or(z.literal("")),
@@ -36,11 +36,9 @@ const customerSchema = z.object({
   city: z.string().trim().optional().or(z.literal("")),
   state: z.string().trim().optional().or(z.literal("")),
   zip_code: z.string().trim().optional().or(z.literal("")),
-  birth_date: z.string().optional().or(z.literal("")),
+  birth_date: z.string().nullable().optional().transform((val) => (val === "" ? null : val)),
   gender: z.enum(["male", "female", "other", "not_informed"]),
-  contact_preferences: z
-    .array(z.enum(["email", "sms", "whatsapp"]))
-    .default(["email"]),
+  contact_preferences: z.array(z.enum(["email", "sms", "whatsapp"])).default(["email"]),
   accepts_marketing: z.boolean().default(true),
   active: z.boolean().default(true),
   notes: z.string().trim().max(1000).optional().or(z.literal("")),
@@ -90,10 +88,29 @@ export default function Customers() {
   const customers = customersData?.data ?? [];
 
   const onSubmit = (values: CustomerFormData) => {
-    const payload = values as Required<Pick<CustomerFormData, "name" | "gender">> &
-      CustomerFormData;
+    const payload: CreateCustomerDto = {
+      name: values.name,
+      gender: values.gender,
+      cpf: values.cpf || undefined,
+      email: values.email || undefined,
+      phone: values.phone || undefined,
+      alternate_phone: values.alternate_phone || undefined,
+      address: values.address || undefined,
+      number: values.number || undefined,
+      complement: values.complement || undefined,
+      neighborhood: values.neighborhood || undefined,
+      city: values.city || undefined,
+      state: values.state || undefined,
+      zip_code: values.zip_code || undefined,
+      birth_date: values.birth_date || undefined,
+      notes: values.notes || undefined,
+      contact_preferences: values.contact_preferences,
+      accepts_marketing: values.accepts_marketing,
+      active: values.active,
+    };
 
     const mutation = editingCustomer ? updateMutation : createMutation;
+
     mutation.mutate(payload, {
       onSuccess: () => {
         toast({ title: editingCustomer ? "Cliente atualizado!" : "Cliente criado!" });
@@ -101,7 +118,8 @@ export default function Customers() {
         form.reset();
         setEditingCustomer(null);
       },
-      onError: () => toast({ title: "Erro ao salvar cliente", variant: "destructive" }),
+      onError: () =>
+        toast({ title: "Erro ao salvar cliente", variant: "destructive" }),
     });
   };
 
@@ -109,16 +127,31 @@ export default function Customers() {
     setEditingCustomer(customer);
 
     const safeGender =
-      ["male", "female", "other", "not_informed"].includes(customer.gender)
-        ? customer.gender
+      ["male", "female", "other", "not_informed"].includes(
+        customer.gender as any
+      )
+        ? (customer.gender as any)
         : "not_informed";
 
     form.reset({
-      ...customer,
-      gender: safeGender as any,
+      name: customer.name ?? "",
+      cpf: customer.cpf ?? "",
+      email: customer.email ?? "",
+      phone: customer.phone ?? "",
+      alternate_phone: customer.alternate_phone ?? "",
+      address: customer.address ?? "",
+      number: customer.number ?? "",
+      complement: customer.complement ?? "",
+      neighborhood: customer.neighborhood ?? "",
+      city: customer.city ?? "",
+      state: customer.state ?? "",
+      zip_code: customer.zip_code ?? "",
+          birth_date: customer.birth_date ?? "",
+      gender: safeGender,
       contact_preferences: (customer.contact_preferences ?? ["email"]) as any,
       accepts_marketing: customer.accepts_marketing ?? true,
       active: customer.active ?? true,
+      notes: customer.notes ?? "",
     });
 
     setDialogOpen(true);
@@ -304,7 +337,7 @@ export default function Customers() {
                       name="name"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Nome Completo *</FormLabel>
+                          <FormLabel>Nome Completo <span className="text-red-500">*</span></FormLabel>
                           <FormControl>
                             <Input {...field} />
                           </FormControl>
@@ -380,27 +413,13 @@ export default function Customers() {
 
                   <div className="space-y-4">
                     <h3 className="text-lg font-semibold">Contato</h3>
-                    <FormField
-                      control={form.control}
-                      name="email"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Email</FormLabel>
-                          <FormControl>
-                            <Input type="email" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <FormField
                         control={form.control}
                         name="phone"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Telefone/WhatsApp</FormLabel>
+                            <FormLabel>Telefone/WhatsApp <span className="text-red-500">*</span></FormLabel>
                             <FormControl>
                               <Input
                                 {...field}
@@ -434,6 +453,20 @@ export default function Customers() {
                         )}
                       />
                     </div>
+
+                    <FormField
+                      control={form.control}
+                      name="email"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Email</FormLabel>
+                          <FormControl>
+                            <Input type="email" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
                   </div>
 
                   <div className="space-y-4">

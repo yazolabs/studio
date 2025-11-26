@@ -26,7 +26,7 @@ export type Appointment = {
   start_time: string | null;
   end_time: string | null;
   duration: number | null;
-  status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show';
+  status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show' | 'rescheduled';
   total_price: string;
   discount_amount: string;
   final_price: string;

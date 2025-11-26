@@ -12,6 +12,7 @@ class DatabaseSeeder extends Seeder
             ActionSeeder::class,
             AccessControlSeeder::class,
             StateSeeder::class,
+            StudioSampleDataSeeder::class,
         ]);
     }
 }
