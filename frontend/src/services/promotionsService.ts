@@ -1,14 +1,12 @@
 import { api } from './api';
-import type { Paginated } from '../types/pagination';
 import type { CreatePromotionDto, Promotion, UpdatePromotionDto } from '../types/promotion';
 
 const basePath = '/promotions';
 
 type PromotionQueryParams = {
-  page?: number;
-  perPage?: number;
   search?: string;
   active?: boolean;
+  valid_on?: string;
 };
 
 function mapPayload(payload: CreatePromotionDto | UpdatePromotionDto) {
@@ -22,6 +20,11 @@ function mapPayload(payload: CreatePromotionDto | UpdatePromotionDto) {
     active: payload.active,
     min_purchase_amount: payload.min_purchase_amount,
     max_discount: payload.max_discount,
+    is_recurring: payload.is_recurring,
+    recurrence_type: payload.recurrence_type,
+    recurrence_weekdays: payload.recurrence_weekdays,
+    recurrence_week_of_month: payload.recurrence_week_of_month,
+    recurrence_day_of_year: payload.recurrence_day_of_year,
     applicable_services: payload.applicable_services,
     applicable_items: payload.applicable_items,
   };
@@ -31,9 +34,14 @@ function mapPayload(payload: CreatePromotionDto | UpdatePromotionDto) {
   );
 }
 
-export async function listPromotions(params?: PromotionQueryParams) {
-  const { data } = await api.get<Paginated<Promotion>>(basePath, { params });
-  return data;
+export async function listPromotions(
+  params?: PromotionQueryParams,
+): Promise<Promotion[]> {
+  const { data } = await api.get<any>(basePath, { params });
+
+  if (data && Array.isArray(data.data)) return data.data as Promotion[];
+  if (Array.isArray(data)) return data as Promotion[];
+  return [];
 }
 
 export async function getPromotion(id: number) {
@@ -47,7 +55,10 @@ export async function createPromotion(payload: CreatePromotionDto) {
 }
 
 export async function updatePromotion(id: number, payload: UpdatePromotionDto) {
-  const { data } = await api.put<Promotion>(`${basePath}/${id}`, mapPayload(payload));
+  const { data } = await api.put<Promotion>(
+    `${basePath}/${id}`,
+    mapPayload(payload),
+  );
   return data;
 }
 

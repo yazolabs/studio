@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Enums\DiscountType;
+use App\Enums\{DiscountType, RecurrenceType};
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\{Model, SoftDeletes};
 
@@ -20,6 +20,12 @@ class Promotion extends Model
         'active',
         'min_purchase_amount',
         'max_discount',
+        'is_recurring',
+        'recurrence_type',
+        'recurrence_weekdays',
+        'recurrence_week_of_month',
+        'recurrence_month',
+        'recurrence_day_of_month',
     ];
 
     protected $casts = [
@@ -30,6 +36,12 @@ class Promotion extends Model
         'active' => 'boolean',
         'min_purchase_amount' => 'decimal:2',
         'max_discount' => 'decimal:2',
+        'is_recurring' => 'boolean',
+        'recurrence_type' => RecurrenceType::class,
+        'recurrence_weekdays' => 'array',
+        'recurrence_week_of_month' => 'integer',
+        'recurrence_month' => 'integer',
+        'recurrence_day_of_month' => 'integer',
     ];
 
     public function services()
