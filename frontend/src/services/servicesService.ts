@@ -4,9 +4,12 @@ import type { Service, CreateServiceDto, UpdateServiceDto } from '../types/servi
 const basePath = '/services';
 
 type ServiceQueryParams = {
-  page?: number;
-  perPage?: number;
   search?: string;
+  category?: string;
+  active?: boolean;
+  commission_type?: "percentage" | "fixed";
+  min_price?: number | string;
+  max_price?: number | string;
 };
 
 function toDecimalString(value: any) {
