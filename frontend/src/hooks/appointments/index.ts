@@ -1,9 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../../services/api";
-import { createAppointment, getAppointment, listAppointments, removeAppointment, updateAppointment, checkoutAppointment } from "../../services/appointmentsService";
+import { createAppointment, getAppointment, listAppointments, removeAppointment, updateAppointment, checkoutAppointment, CheckoutAppointmentDto } from "../../services/appointmentsService";
 import type { Appointment, CreateAppointmentDto, UpdateAppointmentDto } from "../../types/appointment";
-import { useCreateCommission } from "../commissions";
-import { useCreateAccountPayable } from "../accounts-payable";
 import { toast } from "sonner";
 
 export function useAppointmentsQuery(
@@ -59,18 +57,15 @@ export function useDeleteAppointment() {
 export function useAppointmentCheckout() {
   const queryClient = useQueryClient();
 
-  return useMutation({
-    mutationFn: async ({
-      appointmentId,
-      payload,
-    }: {
-      appointmentId: number;
-      payload: any;
-    }) => {
+  return useMutation<
+    Appointment,
+    unknown,
+    { appointmentId: number; payload: CheckoutAppointmentDto }
+  >({
+    mutationFn: async ({ appointmentId, payload }) => {
       if (!appointmentId) throw new Error("Agendamento inválido.");
 
       const result = await checkoutAppointment(appointmentId, payload);
-
       return result;
     },
 

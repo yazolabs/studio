@@ -17,10 +17,12 @@ import { useProfessionalsQuery } from "@/hooks/professionals";
 import { useServicesQuery } from "@/hooks/services";
 import { usePromotionsQuery } from "@/hooks/promotions";
 import { useItemsQuery } from "@/hooks/items";
-import { formatPercentageInput, displayPercentage } from "@/utils/formatters";
+import { Promotion } from "@/types/promotion";
+import { formatPercentageInput, displayPercentage, formatCurrencyInput, displayCurrency } from "@/utils/formatters";
 
 const checkoutSchema = z.object({
-  discount: z.number().min(0).max(100),
+  discount_type: z.enum(["percentage", "fixed"]),
+  discount: z.number().min(0),
   payment_method: z.string().min(1, "Forma de pagamento é obrigatória"),
   card_brand: z.string().optional(),
   installments: z.number().min(1).optional(),
@@ -51,7 +53,7 @@ export function AppointmentCheckoutDialog({
 
   const professionals = professionalsData?.data ?? [];
   const servicesList = servicesData ?? [];
-  const promotions = promotionsData?.data ?? [];
+  const promotions: Promotion[] = promotionsData ?? [];
   const productsList = itemsData?.data ?? [];
 
   const [services, setServices] = useState<any[]>([]);
@@ -70,6 +72,7 @@ export function AppointmentCheckoutDialog({
   const form = useForm<z.infer<typeof checkoutSchema>>({
     resolver: zodResolver(checkoutSchema),
     defaultValues: {
+      discount_type: "percentage",
       discount: 0,
       payment_method: "",
       card_brand: "",
@@ -79,6 +82,15 @@ export function AppointmentCheckoutDialog({
   });
 
   const { mutateAsync: checkout, isPending } = useAppointmentCheckout();
+
+  const formatPromotionShort = (promo: Promotion) => {
+    const raw = Number(promo.discount_value ?? 0);
+    if (!raw) return "";
+    if (promo.discount_type === "percentage") {
+      return `${raw.toFixed(2).replace(".", ",")}%`;
+    }
+    return `R$ ${raw.toFixed(2).replace(".", ",")}`;
+  };
 
   useEffect(() => {
     if (!open || !appointmentId) return;
@@ -107,20 +119,34 @@ export function AppointmentCheckoutDialog({
           }))
         );
 
-        form.reset({
-          discount: Number(data.discount_amount ?? 0),
-          payment_method: data.payment_method ?? "",
-          card_brand: data.card_brand ?? "",
-          installments: data.installments ?? 1,
-          installment_fee: Number(data.installment_fee ?? 0),
-        });
-
+        const discountTypeFromApi = data.discount_type ?? "percentage";
         const discountNum = Number(data.discount_amount ?? 0);
         const installmentFeeNum = Number(data.installment_fee ?? 0);
 
-        setDiscountDisplay(
-          discountNum ? displayPercentage(discountNum) : ""
-        );
+        form.reset({
+          discount_type: discountTypeFromApi,
+          discount: discountNum,
+          payment_method: data.payment_method ?? "",
+          card_brand: data.card_brand ?? "",
+          installments: data.installments ?? 1,
+          installment_fee: installmentFeeNum,
+        });
+
+        if (data.promotion_id) {
+          setSelectedPromotion(String(data.promotion_id));
+        } else {
+          setSelectedPromotion("");
+        }
+
+        if (discountNum) {
+          setDiscountDisplay(
+            discountTypeFromApi === "percentage"
+              ? displayPercentage(discountNum)
+              : displayCurrency(discountNum)
+          );
+        } else {
+          setDiscountDisplay("");
+        }
 
         setInstallmentFeeDisplay(
           installmentFeeNum ? displayPercentage(installmentFeeNum) : ""
@@ -137,31 +163,52 @@ export function AppointmentCheckoutDialog({
   }, [open, appointmentId, refetch]);
 
   const activePromotions = useMemo(() => {
-    return (promotions ?? []).filter((promo: any) => {
+    const today = new Date();
+
+    return promotions.filter((promo) => {
       if (!promo.active) return false;
-      const today = new Date();
-      const startDate = new Date(promo.start_date);
-      const endDate = new Date(promo.end_date);
-      return today >= startDate && today <= endDate;
+
+      const startDate = promo.start_date ? new Date(promo.start_date) : null;
+      const endDate = promo.end_date ? new Date(promo.end_date) : null;
+
+      if (startDate && today < startDate) return false;
+      if (endDate && today > endDate) return false;
+
+      return true;
     });
   }, [promotions]);
 
   const handlePromotionChange = (promotionId: string) => {
     setSelectedPromotion(promotionId);
 
-    if (promotionId && promotionId !== "none") {
-      const promotion = activePromotions.find(
-        (p: any) => p.id.toString() === promotionId
-      );
-
-      if (promotion?.discount_value) {
-        const value = Number(promotion.discount_value);
-        form.setValue("discount", value);
-        setDiscountDisplay(displayPercentage(value));
-      }
-    } else {
+    if (!promotionId || promotionId === "none") {
+      form.setValue("discount_type", "percentage");
       form.setValue("discount", 0);
       setDiscountDisplay("");
+      return;
+    }
+
+    const promotion = activePromotions.find(
+      (p) => p.id.toString() === promotionId
+    );
+
+    if (!promotion) {
+      form.setValue("discount_type", "percentage");
+      form.setValue("discount", 0);
+      setDiscountDisplay("");
+      return;
+    }
+
+    const raw = Number(promotion.discount_value ?? 0) || 0;
+
+    if (promotion.discount_type === "percentage") {
+      form.setValue("discount_type", "percentage");
+      form.setValue("discount", raw);
+      setDiscountDisplay(displayPercentage(raw));
+    } else if (promotion.discount_type === "fixed") {
+      form.setValue("discount_type", "fixed");
+      form.setValue("discount", raw);
+      setDiscountDisplay(displayCurrency(raw));
     }
   };
 
@@ -241,12 +288,19 @@ export function AppointmentCheckoutDialog({
     0
   );
   const subtotal = servicesTotal + productsTotal;
-  const discountPercent = form.watch("discount") || 0;
+  const discountType = form.watch("discount_type");
+  const discountRaw = form.watch("discount") || 0;
   const paymentMethod = form.watch("payment_method");
   const installments = form.watch("installments") || 1;
   const installmentFeePercent = form.watch("installment_fee") || 0;
 
-  const discountValue = (subtotal * discountPercent) / 100;
+  let discountValue = 0;
+  if (discountType === "percentage") {
+    discountValue = (subtotal * discountRaw) / 100;
+  } else {
+    discountValue = Math.min(discountRaw, subtotal);
+  }
+
   let totalAfterDiscount = subtotal - discountValue;
 
   const installmentFeeValue =
@@ -272,16 +326,23 @@ export function AppointmentCheckoutDialog({
       return;
     }
 
+    const discountTypeForApi = data.discount_type;
+    const discountAmountForApi = data.discount ?? 0;
+
     try {
       await checkout({
         appointmentId: normalizedAppointment.id,
         payload: {
-          discount_amount: data.discount ?? 0,
+          discount_type: discountTypeForApi,
+          discount_amount: discountAmountForApi,
           payment_method: data.payment_method,
           card_brand: data.card_brand ?? null,
           installments: data.installments ?? 1,
           installment_fee: data.installment_fee ?? 0,
-          promotion_id: selectedPromotion ? Number(selectedPromotion) : null,
+          promotion_id:
+            selectedPromotion && selectedPromotion !== "none"
+              ? Number(selectedPromotion)
+              : null,
         },
       });
 
@@ -348,7 +409,7 @@ export function AppointmentCheckoutDialog({
                       <span>{promo.name}</span>
                       {promo.discount_value && (
                         <Badge variant="secondary" className="ml-2">
-                          {promo.discount_value}%
+                          {formatPromotionShort(promo)}
                         </Badge>
                       )}
                     </div>
@@ -533,29 +594,70 @@ export function AppointmentCheckoutDialog({
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <h3 className="font-semibold">Pagamento</h3>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
+              <FormField
+                control={form.control}
+                name="discount_type"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Tipo de desconto</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="percentage">Percentual (%)</SelectItem>
+                        <SelectItem value="fixed">Valor fixo (R$)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <FormField
                 control={form.control}
                 name="discount"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Desconto (%)</FormLabel>
+                    <FormLabel>
+                      {discountType === "percentage"
+                        ? "Desconto (%)"
+                        : "Desconto (R$)"}
+                    </FormLabel>
                     <FormControl>
                       <Input
                         {...field}
                         type="text"
                         inputMode="decimal"
-                        placeholder="0,00"
+                        placeholder={discountType === "percentage" ? "0,00" : "R$ 0,00"}
                         value={discountDisplay}
                         onChange={(e) => {
-                          const formatted = formatPercentageInput(e.target.value);
-                          setDiscountDisplay(formatted);
+                          const value = e.target.value;
 
-                          const numeric = parseFloat(
-                            formatted.replace(/\./g, "").replace(",", ".")
-                          );
+                          if (discountType === "percentage") {
+                            const formatted = formatPercentageInput(value);
+                            setDiscountDisplay(formatted);
 
-                          field.onChange(isNaN(numeric) ? 0 : numeric);
+                            const numeric = parseFloat(
+                              formatted.replace(/\./g, "").replace(",", ".")
+                            );
+
+                            field.onChange(isNaN(numeric) ? 0 : numeric);
+                          } else {
+                            const formatted = formatCurrencyInput(value);
+                            setDiscountDisplay(formatted);
+
+                            const numeric = parseFloat(
+                              formatted
+                                .replace(/[^\d,]/g, "")
+                                .replace(",", ".")
+                            );
+
+                            field.onChange(isNaN(numeric) ? 0 : numeric);
+                          }
                         }}
                       />
                     </FormControl>
@@ -579,7 +681,9 @@ export function AppointmentCheckoutDialog({
                       <SelectContent>
                         <SelectItem value="cash">Dinheiro</SelectItem>
                         <SelectItem value="credit">Cartão de Crédito</SelectItem>
-                        <SelectItem value="credit">Cartão de Crédito (Link)</SelectItem>
+                        <SelectItem value="credit_link">
+                          Cartão de Crédito (Link)
+                        </SelectItem>
                         <SelectItem value="debit">Cartão de Débito</SelectItem>
                         <SelectItem value="pix">PIX</SelectItem>
                       </SelectContent>
@@ -668,9 +772,13 @@ export function AppointmentCheckoutDialog({
                 <span>R$ {subtotal.toFixed(2)}</span>
               </div>
 
-              {discountPercent > 0 && (
+              {discountValue > 0 && (
                 <div className="flex justify-between text-sm text-destructive">
-                  <span>Desconto ({discountPercent}%):</span>
+                  <span>
+                    {discountType === "percentage"
+                      ? `Desconto (${displayPercentage(discountRaw)}%)`
+                      : `Desconto (R$ ${discountRaw.toFixed(2).replace(".", ",")})`}
+                  </span>
                   <span>- R$ {discountValue.toFixed(2)}</span>
                 </div>
               )}

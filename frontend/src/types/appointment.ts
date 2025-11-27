@@ -21,6 +21,7 @@ export type Appointment = {
   professionals?: { id: number; name: string }[] | null;
   services?: AppointmentServiceItem[] | null;
   items?: AppointmentItem[] | null;
+  promotion_id?: number | null;
   promotion?: { id: number; name: string } | null;
   date: string | null;
   start_time: string | null;
@@ -28,6 +29,7 @@ export type Appointment = {
   duration: number | null;
   status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show' | 'rescheduled';
   total_price: string;
+  discount_type: 'percentage' | 'fixed' | null;
   discount_amount: string;
   final_price: string;
   payment_method: string | null;
@@ -47,6 +49,7 @@ export type CreateAppointmentDto = {
   duration?: number | null;
   status: Appointment['status'];
   total_price: string;
+  discount_type?: 'percentage' | 'fixed' | null;
   discount_amount: string;
   final_price: string;
   payment_method?: string | null;

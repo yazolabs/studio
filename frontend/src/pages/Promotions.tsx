@@ -16,7 +16,7 @@ import { useToast } from '@/hooks/use-toast';
 import { usePermission } from '@/hooks/usePermission';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
-import { formatCurrencyInput, formatPercentageInput, displayPercentage } from '@/utils/formatters';
+import { formatPercentageInput, displayPercentage, displayCurrency, formatCurrencyInput } from '@/utils/formatters';
 import { usePromotionsQuery, useCreatePromotion, useUpdatePromotion, useDeletePromotion } from '@/hooks/promotions';
 import type { Promotion, CreatePromotionDto } from '@/types/promotion';
 
@@ -60,8 +60,21 @@ type PromotionFormData = z.infer<typeof promotionSchema>;
 
 const formatDate = (dateStr: string | null) => {
   if (!dateStr) return '-';
-  const d = new Date(dateStr);
+
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+
+  const [yearStr, monthStr, dayStr] = parts;
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+
+  if (!year || !month || !day) return dateStr;
+
+  const d = new Date(year, month - 1, day);
+
   if (Number.isNaN(d.getTime())) return dateStr;
+
   return d.toLocaleDateString('pt-BR');
 };
 
@@ -223,11 +236,13 @@ export default function Promotions() {
   const onSubmit = async (values: PromotionFormData) => {
     const isRecurring = values.recurrence_type !== 'none';
 
+    const discountValueForApi = values.discount_value.toFixed(2);
+
     const payload: CreatePromotionDto = {
       name: values.name,
       description: values.description || null,
       discount_type: values.discount_type,
-      discount_value: values.discount_value.toString(),
+      discount_value: discountValueForApi,
       start_date: values.start_date,
       end_date: values.end_date || null,
       active: values.status === 'active',
@@ -236,9 +251,7 @@ export default function Promotions() {
           ? values.min_purchase_amount.toString()
           : null,
       max_discount:
-        values.max_discount != null
-          ? values.max_discount.toString()
-          : null,
+        values.max_discount != null ? values.max_discount.toString() : null,
       is_recurring: isRecurring,
       recurrence_type:
         isRecurring && values.recurrence_type !== 'none'
@@ -248,8 +261,7 @@ export default function Promotions() {
         isRecurring &&
         (values.recurrence_type === 'weekly' ||
           values.recurrence_type === 'monthly_weekday')
-          ? values.recurrence_weekdays &&
-            values.recurrence_weekdays.length > 0
+          ? values.recurrence_weekdays && values.recurrence_weekdays.length > 0
             ? values.recurrence_weekdays
             : null
           : null,
@@ -482,20 +494,19 @@ export default function Promotions() {
                                 discountType === 'percentage'
                                   ? displayPercentage(field.value)
                                   : formatCurrencyInput(
-                                      field.value?.toString() || '',
+                                      Math.round(Number(field.value || 0) * 100).toString()
                                     )
                               }
                               onChange={(e) => {
                                 const value = e.target.value;
+
                                 if (discountType === 'percentage') {
-                                  const formatted =
-                                    formatPercentageInput(value);
+                                  const formatted = formatPercentageInput(value);
                                   field.onChange(
                                     formatted.replace(',', '.'),
                                   );
                                 } else {
-                                  const formatted =
-                                    formatCurrencyInput(value);
+                                  const formatted = formatCurrencyInput(value);
                                   field.onChange(
                                     formatted
                                       .replace(/[^\d,]/g, '')
@@ -747,7 +758,7 @@ export default function Promotions() {
                               value={
                                 field.value != null
                                   ? formatCurrencyInput(
-                                      field.value?.toString() || '',
+                                      Math.round(Number(field.value || 0) * 100).toString()
                                     )
                                   : ''
                               }
@@ -781,7 +792,7 @@ export default function Promotions() {
                               value={
                                 field.value != null
                                   ? formatCurrencyInput(
-                                      field.value?.toString() || '',
+                                      Math.round(Number(field.value || 0) * 100).toString()
                                     )
                                   : ''
                               }

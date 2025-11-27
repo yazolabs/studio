@@ -7,7 +7,7 @@ use App\Http\Resources\AppointmentResource;
 use App\Models\{AccountPayable, Appointment, Commission, Service};
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Facades\{DB,Log};
+use Illuminate\Support\Facades\{DB, Log};
 use Symfony\Component\HttpFoundation\Response;
 
 class AppointmentController extends Controller
@@ -32,6 +32,7 @@ class AppointmentController extends Controller
             'status',
             'total_price',
             'discount_amount',
+            'discount_type',
             'final_price',
             'payment_method',
             'card_brand',
@@ -74,6 +75,7 @@ class AppointmentController extends Controller
             'status',
             'total_price',
             'discount_amount',
+            'discount_type',
             'final_price',
             'payment_method',
             'card_brand',
@@ -162,7 +164,7 @@ class AppointmentController extends Controller
             }
 
             $pivotData[$itemId] = [
-                'price' => $item['price'] ?? 0,
+                'price'    => $item['price'] ?? 0,
                 'quantity' => $item['quantity'] ?? 1,
             ];
         }
@@ -174,17 +176,17 @@ class AppointmentController extends Controller
     {
         $query = Appointment::with(['customer', 'services'])
             ->when($request->filled('professional_id'), function ($q) use ($request) {
-                $q->whereHas('services', fn($sub) =>
+                $q->whereHas('services', fn ($sub) =>
                     $sub->where('professional_id', $request->professional_id)
                 );
             })
-            ->when($request->filled('status'), fn($q) =>
+            ->when($request->filled('status'), fn ($q) =>
                 $q->where('status', $request->status)
             )
-            ->when($request->filled('start_date') && $request->filled('end_date'), fn($q) =>
+            ->when($request->filled('start_date') && $request->filled('end_date'), fn ($q) =>
                 $q->whereBetween('date', [$request->start_date, $request->end_date])
             )
-            ->when($request->filled('date') && !$request->filled('start_date'), fn($q) =>
+            ->when($request->filled('date') && !$request->filled('start_date'), fn ($q) =>
                 $q->whereDate('date', $request->date)
             )
             ->orderBy('date')
@@ -196,6 +198,7 @@ class AppointmentController extends Controller
     public function checkout(Request $request, Appointment $appointment)
     {
         $data = $request->validate([
+            'discount_type'   => ['nullable', 'in:percentage,fixed'],
             'discount_amount' => ['nullable', 'numeric', 'min:0'],
             'payment_method'  => ['required', 'string', 'max:50'],
             'card_brand'      => ['nullable', 'string', 'max:50'],
@@ -207,8 +210,8 @@ class AppointmentController extends Controller
         try {
             DB::transaction(function () use ($data, $appointment) {
                 Log::info('CHECKOUT STARTED', [
-                    'appointment_id' => $appointment->id,
-                    'incoming_data'  => $data,
+                    'appointment_id'    => $appointment->id,
+                    'incoming_data'     => $data,
                     'services_in_pivot' => $appointment->services()->get()->map(function ($s) {
                         return [
                             'service_id'       => $s->id,
@@ -240,22 +243,29 @@ class AppointmentController extends Controller
 
                 $subtotal = $servicesTotal + $productsTotal;
 
-                $discountPercent = $appointment->discount_amount ?? 0;
-                $discountValue = ($subtotal * $discountPercent) / 100;
+                $discountType = $appointment->discount_type ?: 'percentage';
+                $discountRaw  = $appointment->discount_amount ?? 0;
+
+                if ($discountType === 'percentage') {
+                    $discountValue = $subtotal * ($discountRaw / 100);
+                } else {
+                    $discountValue = min($discountRaw, $subtotal);
+                }
+
                 $totalAfterDiscount = $subtotal - $discountValue;
 
                 $installmentFeePercent = $appointment->installment_fee ?? 0;
 
                 $installmentFeeValue =
-                    $appointment->payment_method === 'credit' &&
-                    ($appointment->installments ?? 1) > 1
+                    $appointment->payment_method === 'credit'
                         ? ($totalAfterDiscount * $installmentFeePercent) / 100
                         : 0;
 
                 $finalPrice = $totalAfterDiscount + $installmentFeeValue;
 
-                $appointment->total_price    = $subtotal;
-                $appointment->discount_amount = $discountPercent;
+                $appointment->total_price     = $subtotal;
+                $appointment->discount_type   = $discountType;
+                $appointment->discount_amount = $discountRaw;
                 $appointment->installment_fee = $installmentFeePercent;
                 $appointment->final_price     = round($finalPrice, 2);
 
