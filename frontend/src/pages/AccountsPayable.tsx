@@ -8,11 +8,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DataTable } from "@/components/DataTable";
-import { Plus, Pencil, Check, Eye } from "lucide-react";
+import { MoreHorizontal, Plus, Pencil, Check, Eye, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAccountsPayableQuery, useCreateAccountPayable, useUpdateAccountPayable, useDeleteAccountPayable, useMarkAccountAsPaid } from "@/hooks/accounts-payable";
 import { displayCurrency, formatCurrencyInput } from "@/utils/formatters";
 import { CreateAccountPayableDto } from "@/types/account-payable";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 export default function AccountsPayable() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -20,6 +21,7 @@ export default function AccountsPayable() {
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const { data, isLoading } = useAccountsPayableQuery({
     perPage: 200,
@@ -91,46 +93,86 @@ export default function AccountsPayable() {
     return Number.isNaN(num) ? 0 : num;
   };
 
-  const handleSubmit = async (e: any) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
-    const amountNumber = parseCurrencyToNumber(formData.amount);
-
-    const amountString = amountNumber.toFixed(2);
-
-    const payload: CreateAccountPayableDto = {
-      description: formData.description,
-      amount: amountString,
-      category: formData.category || null,
-      due_date: formData.due_date || null,
-      status: "pending",
-      supplier_id: null,
-      professional_id: null,
-      appointment_id: null,
-      payment_date: null,
-      payment_method: null,
-      reference: null,
-      notes: formData.notes || null,
-    };
-
-    if (editingId) {
-      await updateMutation.mutateAsync(payload);
-      toast.success("Conta atualizada com sucesso!");
-    } else {
-      await createMutation.mutateAsync(payload);
-      toast.success("Conta criada com sucesso!");
+    if (isSaving || createMutation.isPending || updateMutation.isPending) {
+      return;
     }
 
-    setIsDialogOpen(false);
+    setIsSaving(true);
+
+    try {
+      const amountNumber = parseCurrencyToNumber(formData.amount);
+      const amountString = amountNumber.toFixed(2);
+
+      const payload: CreateAccountPayableDto = {
+        description: formData.description,
+        amount: amountString,
+        category: formData.category || null,
+        due_date: formData.due_date || null,
+        status: "pending",
+        supplier_id: null,
+        professional_id: null,
+        appointment_id: null,
+        payment_date: null,
+        payment_method: null,
+        reference: null,
+        notes: formData.notes || null,
+      };
+
+      if (editingId) {
+        await updateMutation.mutateAsync(payload);
+        toast.success("Conta atualizada com sucesso!");
+      } else {
+        await createMutation.mutateAsync(payload);
+        toast.success("Conta criada com sucesso!");
+      }
+
+      setIsDialogOpen(false);
+    } catch (error: any) {
+      toast.error(
+        error?.response?.data?.message ??
+          "Erro ao salvar conta. Tente novamente."
+      );
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handlePayment = async (e: any) => {
+  const handlePayment = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selectedId) return;
 
-    await markPaidMutation.mutateAsync(selectedId);
-    toast.success("Pagamento registrado com sucesso!");
-    setIsPaymentDialogOpen(false);
+    if (markPaidMutation.isPending) return;
+
+    try {
+      await markPaidMutation.mutateAsync(selectedId);
+      toast.success("Pagamento registrado com sucesso!");
+      setIsPaymentDialogOpen(false);
+    } catch (error: any) {
+      toast.error(
+        error?.response?.data?.message ??
+          "Erro ao registrar pagamento. Tente novamente."
+      );
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    const confirmed = window.confirm(
+      "Tem certeza que deseja excluir esta conta?"
+    );
+    if (!confirmed) return;
+
+    try {
+      await deleteMutation.mutateAsync(id);
+      toast.success("Conta excluída com sucesso!");
+    } catch (error: any) {
+      toast.error(
+        error?.response?.data?.message ??
+          "Erro ao excluir conta. Tente novamente."
+      );
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -176,27 +218,51 @@ export default function AccountsPayable() {
       key: "actions",
       header: "Ações",
       render: (row: any) => (
-        <div className="flex gap-2">
-          <Button size="sm" variant="outline" onClick={() => openDetails(row.id)}>
-            <Eye className="h-4 w-4" />
-          </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8"
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
 
-          {row.status === "pending" && (
-            <>
-              <Button size="sm" variant="outline" onClick={() => openEdit(row)}>
-                <Pencil className="h-4 w-4" />
-              </Button>
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>Ações</DropdownMenuLabel>
 
-              <Button
-                size="sm"
-                variant="default"
-                onClick={() => openPaymentDialog(row.id)}
-              >
-                <Check className="h-4 w-4" />
-              </Button>
-            </>
-          )}
-        </div>
+            <DropdownMenuItem onClick={() => openDetails(row.id)}>
+              <Eye className="mr-2 h-4 w-4" />
+              Ver detalhes
+            </DropdownMenuItem>
+
+            {row.status === "pending" && (
+              <>
+                <DropdownMenuItem onClick={() => openEdit(row)}>
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Editar
+                </DropdownMenuItem>
+
+                <DropdownMenuItem onClick={() => openPaymentDialog(row.id)}>
+                  <Check className="mr-2 h-4 w-4" />
+                  Registrar pagamento
+                </DropdownMenuItem>
+              </>
+            )}
+
+            <DropdownMenuSeparator />
+
+            <DropdownMenuItem
+              onClick={() => handleDelete(row.id)}
+              disabled={deleteMutation.isPending}
+              className="text-destructive focus:text-destructive"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Excluir
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       ),
     },
   ];
@@ -334,10 +400,18 @@ export default function AccountsPayable() {
             </div>
 
             <DialogFooter>
-              <Button variant="outline" type="button" onClick={() => setIsDialogOpen(false)}>
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => setIsDialogOpen(false)}
+                disabled={isSaving || createMutation.isPending || updateMutation.isPending}
+              >
                 Cancelar
               </Button>
-              <Button type="submit">
+              <Button
+                type="submit"
+                disabled={isSaving || createMutation.isPending || updateMutation.isPending}
+              >
                 {editingId ? "Atualizar" : "Cadastrar"}
               </Button>
             </DialogFooter>
@@ -388,7 +462,9 @@ export default function AccountsPayable() {
               <Button variant="outline" type="button" onClick={() => setIsPaymentDialogOpen(false)}>
                 Cancelar
               </Button>
-              <Button type="submit">Confirmar Pagamento</Button>
+              <Button type="submit" disabled={markPaidMutation.isPending}>
+                Confirmar Pagamento
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>
