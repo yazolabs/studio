@@ -17,7 +17,8 @@ class SupplierService extends BaseService
         $builder->where(function (Builder $query) use ($term) {
             $query->where('name', 'like', "%{$term}%")
                 ->orWhere('trade_name', 'like', "%{$term}%")
-                ->orWhere('cnpj', 'like', "%{$term}%");
+                ->orWhere('cnpj', 'like', "%{$term}%")
+                ->orWhere('cpf', 'like', "%{$term}%");
         });
     }
 }

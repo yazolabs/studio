@@ -4,7 +4,6 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Resources\Json\JsonResource;
 
-/** @mixin \App\Models\Supplier */
 class SupplierResource extends JsonResource
 {
     public function toArray($request): array
@@ -12,19 +11,20 @@ class SupplierResource extends JsonResource
         return [
             'id' => $this->id,
             'name' => $this->name,
-            'tradeName' => $this->trade_name,
+            'trade_name' => $this->trade_name,
             'cnpj' => $this->cnpj,
+            'cpf' => $this->cpf,
             'email' => $this->email,
             'phone' => $this->phone,
             'address' => $this->address,
             'city' => $this->city,
             'state' => $this->state,
-            'zipCode' => $this->zip_code,
-            'contactPerson' => $this->contact_person,
-            'paymentTerms' => $this->payment_terms,
+            'zip_code' => $this->zip_code,
+            'contact_person' => $this->contact_person,
+            'payment_terms' => $this->payment_terms,
             'notes' => $this->notes,
-            'createdAt' => $this->created_at?->toISOString(),
-            'updatedAt' => $this->updated_at?->toISOString(),
+            'created_at' => $this->created_at?->toISOString(),
+            'updated_at' => $this->updated_at?->toISOString(),
         ];
     }
 }

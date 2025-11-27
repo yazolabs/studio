@@ -18,7 +18,31 @@ class SupplierController extends Controller
 
     public function index(Request $request)
     {
-        $suppliers = $this->service->paginate($request->all());
+        $filters = $request->only([
+            'search',
+            'city',
+            'state',
+        ]);
+
+        $query = Supplier::query()
+            ->when($filters['search'] ?? null, function ($q, $term) {
+                $q->where(function ($sub) use ($term) {
+                    $sub->where('name', 'like', "%{$term}%")
+                        ->orWhere('trade_name', 'like', "%{$term}%")
+                        ->orWhere('cnpj', 'like', "%{$term}%")
+                        ->orWhere('cpf', 'like', "%{$term}%")
+                        ->orWhere('email', 'like', "%{$term}%");
+                });
+            })
+            ->when($filters['city'] ?? null, fn ($q, $city) =>
+                $q->where('city', 'like', "%{$city}%")
+            )
+            ->when($filters['state'] ?? null, fn ($q, $state) =>
+                $q->where('state', 'like', "%{$state}%")
+            )
+            ->orderBy('name');
+
+        $suppliers = $query->get();
 
         return SupplierResource::collection($suppliers);
     }
@@ -29,6 +53,7 @@ class SupplierController extends Controller
             'name',
             'trade_name',
             'cnpj',
+            'cpf',
             'email',
             'phone',
             'address',
@@ -39,6 +64,34 @@ class SupplierController extends Controller
             'payment_terms',
             'notes',
         ]);
+
+        $existing = null;
+
+        if (!empty($data['cpf'])) {
+            $existing = Supplier::withTrashed()
+                ->where('cpf', $data['cpf'])
+                ->first();
+        }
+
+        if (!$existing && !empty($data['cnpj'])) {
+            $existing = Supplier::withTrashed()
+                ->where('cnpj', $data['cnpj'])
+                ->first();
+        }
+
+        if ($existing) {
+            $existing->fill($data);
+
+            if ($existing->trashed()) {
+                $existing->restore();
+            }
+
+            $existing->save();
+
+            return (new SupplierResource($existing))
+                ->response()
+                ->setStatusCode(Response::HTTP_OK);
+        }
 
         $supplier = $this->service->create($data);
 
@@ -58,6 +111,7 @@ class SupplierController extends Controller
             'name',
             'trade_name',
             'cnpj',
+            'cpf',
             'email',
             'phone',
             'address',

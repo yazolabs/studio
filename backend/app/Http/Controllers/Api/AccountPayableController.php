@@ -26,7 +26,6 @@ class AccountPayableController extends Controller
             'start_date',
             'end_date',
             'search',
-            // removido: 'perPage',
         ]);
 
         $query = AccountPayable::with(['professional', 'appointment', 'commission'])

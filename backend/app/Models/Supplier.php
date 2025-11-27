@@ -13,6 +13,7 @@ class Supplier extends Model
         'name',
         'trade_name',
         'cnpj',
+        'cpf',
         'email',
         'phone',
         'address',
