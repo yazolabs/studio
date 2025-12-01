@@ -416,7 +416,10 @@ export default function Appointments() {
   const { can } = usePermission();
   const isMobile = useIsMobile();
 
-  const { data: appointmentsResp } = useAppointmentsQuery({
+  const {
+    data: appointmentsResp,
+    refetch: refetchAppointments,
+  } = useAppointmentsQuery({
     page: 1,
     perPage: 50,
   });
@@ -870,9 +873,11 @@ export default function Appointments() {
           "@/services/appointmentsService"
         );
         await updateFn(Number(editingAppointment.id), payload);
+        await refetchAppointments();
         toast({ title: "Agendamento atualizado com sucesso." });
       } else {
         await createAppointment.mutateAsync(payload);
+        await refetchAppointments();
         toast({ title: "Agendamento criado com sucesso." });
       }
       setIsDialogOpen(false);
