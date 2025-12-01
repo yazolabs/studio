@@ -4,10 +4,12 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AppointmentResource;
-use App\Models\{AccountPayable, Appointment, Commission, Service};
+use App\Models\{AccountPayable, Appointment, Commission, Service, Professional, ProfessionalOpenWindow};
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\{DB, Log};
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
 
 class AppointmentController extends Controller
@@ -23,38 +25,46 @@ class AppointmentController extends Controller
 
     public function store(Request $request)
     {
-        $payload = Arr::only($request->all(), [
-            'customer_id',
-            'date',
-            'start_time',
-            'end_time',
-            'duration',
-            'status',
-            'total_price',
-            'discount_amount',
-            'discount_type',
-            'final_price',
-            'payment_method',
-            'card_brand',
-            'installments',
-            'installment_fee',
-            'promotion_id',
-            'notes',
-        ]);
+        return DB::transaction(function () use ($request) {
+            $payload = Arr::only($request->all(), [
+                'customer_id',
+                'date',
+                'start_time',
+                'end_time',
+                'duration',
+                'status',
+                'total_price',
+                'discount_amount',
+                'discount_type',
+                'final_price',
+                'payment_method',
+                'card_brand',
+                'installments',
+                'installment_fee',
+                'promotion_id',
+                'notes',
+            ]);
 
-        $appointment = Appointment::create($payload);
+            $services = $request->input('services', []);
+            $date     = $payload['date'] ?? $request->input('date');
 
-        $this->syncServices($appointment, $request->input('services', []));
-        $this->syncItems($appointment, $request->input('items', []));
+            $this->validateServicesTimeSlots($date, $services, null);
 
-        $totalDuration = $appointment->services()->sum('duration');
-        $appointment->update(['duration' => $totalDuration]);
+            $appointment = Appointment::create($payload);
 
-        return (new AppointmentResource(
-            $appointment->load(['customer', 'services', 'items', 'promotion'])
-        ))
-            ->response()
-            ->setStatusCode(Response::HTTP_CREATED);
+            $items = $request->input('items', []);
+
+            $this->syncServices($appointment, $services);
+            $this->syncItems($appointment, $items);
+
+            $this->recalculateAppointmentTiming($appointment);
+
+            return (new AppointmentResource(
+                $appointment->load(['customer', 'services', 'items', 'promotion'])
+            ))
+                ->response()
+                ->setStatusCode(Response::HTTP_CREATED);
+        });
     }
 
     public function show(Appointment $appointment)
@@ -66,41 +76,51 @@ class AppointmentController extends Controller
 
     public function update(Request $request, Appointment $appointment)
     {
-        $payload = Arr::only($request->all(), [
-            'customer_id',
-            'date',
-            'start_time',
-            'end_time',
-            'duration',
-            'status',
-            'total_price',
-            'discount_amount',
-            'discount_type',
-            'final_price',
-            'payment_method',
-            'card_brand',
-            'installments',
-            'installment_fee',
-            'promotion_id',
-            'notes',
-        ]);
+        return DB::transaction(function () use ($request, $appointment) {
+            $payload = Arr::only($request->all(), [
+                'customer_id',
+                'date',
+                'start_time',
+                'end_time',
+                'duration',
+                'status',
+                'total_price',
+                'discount_amount',
+                'discount_type',
+                'final_price',
+                'payment_method',
+                'card_brand',
+                'installments',
+                'installment_fee',
+                'promotion_id',
+                'notes',
+            ]);
 
-        $appointment->update($payload);
+            $appointment->update($payload);
 
-        if ($request->has('services')) {
-            $this->syncServices($appointment, $request->input('services', []));
-        }
+            $services = $request->has('services')
+                ? $request->input('services', [])
+                : null;
 
-        if ($request->has('items')) {
-            $this->syncItems($appointment, $request->input('items', []));
-        }
+            if (!is_null($services)) {
+                $date = $payload['date']
+                    ?? optional($appointment->date)->format('Y-m-d');
 
-        $totalDuration = $appointment->services()->sum('duration');
-        $appointment->update(['duration' => $totalDuration]);
+                $this->validateServicesTimeSlots($date, $services, $appointment->id);
 
-        return new AppointmentResource(
-            $appointment->load(['customer', 'services', 'items', 'promotion'])
-        );
+                $this->syncServices($appointment, $services);
+            }
+
+            if ($request->has('items')) {
+                $this->syncItems($appointment, $request->input('items', []));
+            }
+
+            $this->recalculateAppointmentTiming($appointment);
+
+            return new AppointmentResource(
+                $appointment->load(['customer', 'services', 'items', 'promotion'])
+            );
+        });
     }
 
     public function destroy(Appointment $appointment)
@@ -147,6 +167,8 @@ class AppointmentController extends Controller
                 'commission_type'  => $commissionType,
                 'commission_value' => $commissionValue,
                 'professional_id'  => $service['professional_id'] ?? null,
+                'starts_at'        => $service['starts_at'] ?? null,
+                'ends_at'          => $service['ends_at'] ?? null,
             ];
         }
 
@@ -170,6 +192,304 @@ class AppointmentController extends Controller
         }
 
         $appointment->items()->sync($pivotData);
+    }
+
+    private function validateServicesTimeSlots($date, $services, ?int $appointmentId = null): void
+    {
+        $services = (array) $services;
+
+        if (empty($services)) {
+            return;
+        }
+
+        if (!$date) {
+            throw ValidationException::withMessages([
+                'date' => 'A data do agendamento é obrigatória para validar os horários dos serviços.',
+            ]);
+        }
+
+        $date = Carbon::parse($date)->toDateString();
+
+        $errors              = [];
+        $slotsByProfessional = [];
+        $professionalsCache  = [];
+        $windowsConfigured   = [];
+
+        foreach ($services as $index => $service) {
+            $serviceId      = $service['service_id'] ?? $service['id'] ?? null;
+            $professionalId = $service['professional_id'] ?? null;
+            $start          = $service['starts_at'] ?? null;
+            $end            = $service['ends_at'] ?? null;
+
+            if (!$professionalId) {
+                $errors["services.$index.professional_id"][] =
+                    'Profissional é obrigatório para cada serviço.';
+                continue;
+            }
+
+            if (!$start || !$end) {
+                $errors["services.$index.starts_at"][] =
+                    'Horário inicial e final são obrigatórios para cada serviço.';
+                continue;
+            }
+
+            try {
+                $startDateTime = $this->parseServiceDateTime($date, $start);
+                $endDateTime   = $this->parseServiceDateTime($date, $end);
+            } catch (\Throwable $e) {
+                $errors["services.$index.starts_at"][] = 'Formato de horário inválido.';
+                continue;
+            }
+
+            if ($endDateTime->lessThanOrEqualTo($startDateTime)) {
+                $errors["services.$index.ends_at"][] =
+                    'O horário de término deve ser maior que o horário de início.';
+                continue;
+            }
+
+            $slotsByProfessional[$professionalId][] = [
+                'service_id' => $serviceId,
+                'start'      => $startDateTime,
+                'end'        => $endDateTime,
+                'index'      => $index,
+            ];
+
+            if (!array_key_exists($professionalId, $windowsConfigured)) {
+                $windowsConfigured[$professionalId] = ProfessionalOpenWindow::where('professional_id', $professionalId)->exists();
+            }
+
+            if ($windowsConfigured[$professionalId]) {
+                $hasOpenWindow = ProfessionalOpenWindow::open()
+                    ->where('professional_id', $professionalId)
+                    ->forDate($date)
+                    ->exists();
+
+                if (!$hasOpenWindow) {
+                    $errors["services.$index.starts_at"][] =
+                        'O profissional não possui janela de atendimento aberta para esta data.';
+                }
+            }
+
+            if (!array_key_exists($professionalId, $professionalsCache)) {
+                $professionalsCache[$professionalId] = Professional::find($professionalId);
+            }
+
+            $professional = $professionalsCache[$professionalId];
+
+            if (!$this->isWithinWorkSchedule($professional, $startDateTime, $endDateTime)) {
+                $errors["services.$index.starts_at"][] =
+                    'Horário fora da agenda de trabalho configurada para o profissional.';
+            }
+
+            if ($this->hasExternalProfessionalConflict(
+                $date,
+                $professionalId,
+                $startDateTime,
+                $endDateTime,
+                $appointmentId
+            )) {
+                $errors["services.$index.starts_at"][] =
+                    'Já existe outro agendamento para este profissional neste horário.';
+            }
+        }
+
+        foreach ($slotsByProfessional as $professionalId => $slots) {
+            $count = count($slots);
+
+            for ($i = 0; $i < $count; $i++) {
+                for ($j = $i + 1; $j < $count; $j++) {
+                    if ($this->timeRangesOverlap(
+                        $slots[$i]['start'],
+                        $slots[$i]['end'],
+                        $slots[$j]['start'],
+                        $slots[$j]['end']
+                    )) {
+                        $indexA = $slots[$i]['index'];
+                        $indexB = $slots[$j]['index'];
+
+                        $errors["services.$indexA.starts_at"][] =
+                            'Conflito de horário entre serviços do mesmo profissional neste agendamento.';
+                        $errors["services.$indexB.starts_at"][] =
+                            'Conflito de horário entre serviços do mesmo profissional neste agendamento.';
+                    }
+                }
+            }
+        }
+
+        if (!empty($errors)) {
+            throw ValidationException::withMessages($errors);
+        }
+    }
+
+    private function isWithinWorkSchedule(?Professional $professional, Carbon $start, Carbon $end): bool
+    {
+        if (!$professional || empty($professional->work_schedule)) {
+            return true;
+        }
+
+        $schedule = $professional->work_schedule;
+
+        if (!is_array($schedule)) {
+            $decoded = json_decode($schedule, true);
+            $schedule = is_array($decoded) ? $decoded : [];
+        }
+
+        if (empty($schedule)) {
+            return false;
+        }
+
+        $weekdayIndex = (int) $start->format('N');
+
+        $dayMap = [
+            1 => 'Segunda-feira',
+            2 => 'Terça-feira',
+            3 => 'Quarta-feira',
+            4 => 'Quinta-feira',
+            5 => 'Sexta-feira',
+            6 => 'Sábado',
+            7 => 'Domingo',
+        ];
+
+        $dayNamePt = $dayMap[$weekdayIndex] ?? null;
+
+        if (!$dayNamePt) {
+            return false;
+        }
+
+        $dayConfig = null;
+        foreach ($schedule as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $entryDay = $entry['day'] ?? null;
+
+            if ($entryDay && mb_strtolower($entryDay) === mb_strtolower($dayNamePt)) {
+                $dayConfig = $entry;
+                break;
+            }
+        }
+
+        if (!$dayConfig) {
+            return false;
+        }
+
+        $isWorkingDay = $dayConfig['isWorkingDay'] ?? true;
+        $isDayOff     = $dayConfig['isDayOff'] ?? false;
+
+        if (!$isWorkingDay || $isDayOff) {
+            return false;
+        }
+
+        $startTime   = $dayConfig['startTime']   ?? null;
+        $endTime     = $dayConfig['endTime']     ?? null;
+        $lunchStart  = $dayConfig['lunchStart']  ?? null;
+        $lunchEnd    = $dayConfig['lunchEnd']    ?? null;
+
+        if (!$startTime || !$endTime) {
+            return false;
+        }
+
+        $intervals = [];
+
+        if ($lunchStart && $lunchEnd) {
+            $intervals[] = [
+                'start' => $start->copy()->setTimeFromTimeString($startTime),
+                'end'   => $start->copy()->setTimeFromTimeString($lunchStart),
+            ];
+            $intervals[] = [
+                'start' => $start->copy()->setTimeFromTimeString($lunchEnd),
+                'end'   => $start->copy()->setTimeFromTimeString($endTime),
+            ];
+        } else {
+            $intervals[] = [
+                'start' => $start->copy()->setTimeFromTimeString($startTime),
+                'end'   => $start->copy()->setTimeFromTimeString($endTime),
+            ];
+        }
+
+        foreach ($intervals as $interval) {
+            /** @var Carbon $intervalStart */
+            $intervalStart = $interval['start'];
+            /** @var Carbon $intervalEnd */
+            $intervalEnd   = $interval['end'];
+
+            if (
+                $start->greaterThanOrEqualTo($intervalStart)
+                && $end->lessThanOrEqualTo($intervalEnd)
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasExternalProfessionalConflict(string $date, int $professionalId, Carbon $start, Carbon $end, ?int $ignoreAppointmentId = null): bool
+    {
+        return Appointment::whereDate('date', $date)
+            ->when($ignoreAppointmentId, fn ($q) =>
+                $q->where('id', '!=', $ignoreAppointmentId)
+            )
+
+            ->where(function ($q) {
+                $q->where('status', '!=', 'cancelled')
+                ->where('status', '!=', 'no_show');
+            })
+            ->whereHas('services', function ($q) use ($professionalId, $start, $end) {
+                $q->where('professional_id', $professionalId)
+                ->where(function ($query) use ($start, $end) {
+                    $query->where('starts_at', '<', $end->toDateTimeString())
+                            ->where('ends_at', '>', $start->toDateTimeString());
+                });
+            })
+            ->exists();
+    }
+
+    private function timeRangesOverlap(Carbon $startA, Carbon $endA, Carbon $startB, Carbon $endB): bool
+    {
+        return $startA->lt($endB) && $startB->lt($endA);
+    }
+
+    private function recalculateAppointmentTiming(Appointment $appointment): void
+    {
+        $appointment->load('services');
+
+        $date = $appointment->date
+            ? $appointment->date->format('Y-m-d')
+            : now()->toDateString();
+
+        $timeSlots = $appointment->services
+            ->filter(fn ($service) =>
+                ! empty($service->pivot->starts_at) &&
+                ! empty($service->pivot->ends_at)
+            )
+            ->map(function ($service) {
+                return [
+                    'start' => Carbon::parse($service->pivot->starts_at),
+                    'end'   => Carbon::parse($service->pivot->ends_at),
+                ];
+            });
+
+        if ($timeSlots->isEmpty()) {
+            return;
+        }
+
+        $starts = $timeSlots->pluck('start');
+        $ends   = $timeSlots->pluck('end');
+
+        /** @var \Carbon\Carbon $minStart */
+        $minStart = $starts->min();
+        /** @var \Carbon\Carbon $maxEnd */
+        $maxEnd   = $ends->max();
+
+        $durationMinutes = $minStart->diffInMinutes($maxEnd);
+
+        $appointment->update([
+            'start_time' => $minStart->format('H:i:s'),
+            'end_time'   => $maxEnd->format('H:i:s'),
+            'duration'   => $durationMinutes,
+        ]);
     }
 
     public function calendar(Request $request)
@@ -225,7 +545,7 @@ class AppointmentController extends Controller
 
                 $appointment->fill($data);
 
-                if (! $appointment->end_time) {
+                if (!$appointment->end_time) {
                     $appointment->end_time = now();
                 }
 
@@ -291,7 +611,7 @@ class AppointmentController extends Controller
                         'service_price'    => $servicePrice,
                     ]);
 
-                    if (! $professionalId) {
+                    if (!$professionalId) {
                         Log::warning('SERVICE WITHOUT PROFESSIONAL ON CHECKOUT', [
                             'appointment_id' => $appointment->id,
                             'service_id'     => $service->id,
@@ -368,5 +688,16 @@ class AppointmentController extends Controller
         ))
             ->response()
             ->setStatusCode(Response::HTTP_OK);
+    }
+
+    private function parseServiceDateTime(string $date, string $value): Carbon
+    {
+        $trimmed = trim($value);
+
+        if (preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $trimmed)) {
+            return Carbon::parse($date . ' ' . $trimmed);
+        }
+
+        return Carbon::parse($trimmed);
     }
 }

@@ -13,17 +13,17 @@ class ProfessionalController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Professional::with('user')->orderBy('id', 'desc');
+        $query = Professional::with(['user', 'openWindows'])
+            ->orderBy('id', 'desc');
 
         if ($search = trim($request->get('search', ''))) {
             $query->whereHas('user', function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('email', 'like', "%{$search}%");
+                ->orWhere('email', 'like', "%{$search}%");
             });
         }
 
-        $perPage = min(100, max(1, (int) $request->get('per_page', 10)));
-        $professionals = $query->paginate($perPage)->appends($request->all());
+        $professionals = $query->get();
 
         return ProfessionalResource::collection($professionals);
     }
@@ -57,7 +57,8 @@ class ProfessionalController extends Controller
 
     public function show(Professional $professional)
     {
-        $professional->load('user');
+        $professional->load(['user', 'openWindows']);
+
         return new ProfessionalResource($professional);
     }
 

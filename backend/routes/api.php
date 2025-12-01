@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\Api\{ AccountPayableController, ActionController, AppointmentController, AuthController, CashierTransactionController, CommissionController, CustomerController, ItemController, ItemPriceController, ItemPriceHistoryController, PermissionController, ProfessionalController, PromotionController, RoleController, ScreenController, ServiceController, StateController, SupplierController, UserController};
+use App\Http\Controllers\Api\{ AccountPayableController, ActionController, AppointmentController, AuthController, CashierTransactionController, CommissionController, CustomerController, ItemController, ItemPriceController, ItemPriceHistoryController, PermissionController, ProfessionalController, ProfessionalOpenWindowController, PromotionController, RoleController, ScreenController, ServiceController, StateController, SupplierController, UserController};
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', function () {
@@ -67,6 +67,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/{professional}', 'show')->middleware('permission:professionals,read');
         Route::put('/{professional}', 'update')->middleware('permission:professionals,update');
         Route::delete('/{professional}', 'destroy')->middleware('permission:professionals,delete');
+    });
+
+    Route::prefix('professional-open-windows')->controller(ProfessionalOpenWindowController::class)->group(function () {
+        Route::get('/', 'index')->middleware('permission:professionals,read');
+        Route::post('/', 'store')->middleware('permission:professionals,update');
+        Route::get('/{professionalOpenWindow}', 'show')->middleware('permission:professionals,read');
+        Route::put('/{professionalOpenWindow}', 'update')->middleware('permission:professionals,update');
+        Route::patch('/{professionalOpenWindow}/close', 'close')->middleware('permission:professionals,update');
+        Route::delete('/{professionalOpenWindow}', 'destroy')->middleware('permission:professionals,update');
     });
 
     Route::prefix('customers')->controller(CustomerController::class)->group(function () {

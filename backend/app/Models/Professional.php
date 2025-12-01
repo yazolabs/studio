@@ -19,9 +19,9 @@ class Professional extends Model
     ];
 
     protected $casts = [
-        'specialties' => 'array',
+        'specialties'   => 'array',
         'work_schedule' => 'array',
-        'active' => 'boolean',
+        'active'        => 'boolean',
     ];
 
     protected function phone(): Attribute
@@ -62,5 +62,15 @@ class Professional extends Model
     public function accountsPayable()
     {
         return $this->hasMany(AccountPayable::class);
+    }
+
+    public function openWindows()
+    {
+        return $this->hasMany(ProfessionalOpenWindow::class);
+    }
+
+    public function openWindowsOpen()
+    {
+        return $this->openWindows()->where('status', 'open');
     }
 }

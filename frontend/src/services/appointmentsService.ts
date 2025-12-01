@@ -1,8 +1,8 @@
-import { api } from './api';
-import type { Paginated } from '../types/pagination';
-import type { Appointment, CreateAppointmentDto, UpdateAppointmentDto } from '../types/appointment';
+import { api } from "./api";
+import type { Paginated } from "../types/pagination";
+import type { Appointment, CreateAppointmentDto, UpdateAppointmentDto } from "../types/appointment";
 
-const basePath = '/appointments';
+const basePath = "/appointments";
 
 type AppointmentQueryParams = {
   page?: number;
@@ -16,7 +16,7 @@ type AppointmentQueryParams = {
 };
 
 export type CheckoutAppointmentDto = {
-  discount_type?: 'percentage' | 'fixed';
+  discount_type?: "percentage" | "fixed";
   discount_amount?: number;
   payment_method: string;
   card_brand?: string | null;
@@ -49,6 +49,8 @@ function mapPayload(payload: CreateAppointmentDto | UpdateAppointmentDto) {
       commission_type: s.commission_type,
       commission_value: s.commission_value,
       professional_id: s.professional_id,
+      starts_at: s.starts_at,
+      ends_at: s.ends_at,
     })),
     items: payload.items?.map((i) => ({
       item_id: i.id,

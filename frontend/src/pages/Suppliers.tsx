@@ -230,7 +230,7 @@ export default function Suppliers() {
       key: "actions",
       header: "Ações",
       render: (row: Supplier) => (
-        <TooltipProvider delayDuration={1500}>
+        <TooltipProvider delayDuration={1000}>
           <div className="flex items-center justify-end gap-1">
             <Tooltip>
               <TooltipTrigger asChild>

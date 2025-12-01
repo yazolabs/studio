@@ -21,6 +21,7 @@ import { useServicesQuery } from "@/hooks/services";
 import { usePermission } from "@/hooks/usePermission";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { ProfessionalOpenWindow } from "@/types/professional-open-window";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Plus, Edit, Trash2, DollarSign, Calendar as CalendarIcon, Printer, Table, List, Check, X, Filter, ChevronDown, ChevronUp } from "lucide-react";
@@ -57,9 +58,21 @@ interface Customer {
   phone?: string | null;
 }
 
+type WorkScheduleEntry = {
+  day: string;
+  startTime: string;
+  endTime: string;
+  lunchStart?: string | null;
+  lunchEnd?: string | null;
+  isDayOff?: boolean;
+  isWorkingDay?: boolean;
+};
+
 interface Professional {
   id: ID;
   name: string;
+  open_windows?: ProfessionalOpenWindow[];
+  work_schedule?: WorkScheduleEntry[] | null;
 }
 
 interface Service {
@@ -79,6 +92,8 @@ interface AppointmentServicePivot {
   commission_value?: number | null;
   professional_id?: ID | null;
   duration?: number | null;
+  starts_at?: string | null;
+  ends_at?: string | null;
 }
 
 interface AppointmentItemPivot {
@@ -119,6 +134,62 @@ interface AppointmentLegacy {
   price?: number;
 }
 
+const WORK_DAY_START = 8 * 60;
+const WORK_DAY_END = 18 * 60;
+const SLOT_STEP_MINUTES = 10;
+const WEEKDAY_LABELS = [
+  "Domingo",
+  "Segunda-feira",
+  "Terça-feira",
+  "Quarta-feira",
+  "Quinta-feira",
+  "Sexta-feira",
+  "Sábado",
+];
+
+const getWeekdayLabel = (date: Date) => WEEKDAY_LABELS[date.getDay()];
+
+const generateTimeSlots = (
+  stepMinutes: number = SLOT_STEP_MINUTES
+): string[] => {
+  const slots: string[] = [];
+
+  for (let minutes = WORK_DAY_START; minutes < WORK_DAY_END; minutes += stepMinutes) {
+    const hour = Math.floor(minutes / 60);
+    const minute = minutes % 60;
+
+    const timeStr = `${hour.toString().padStart(2, "0")}:${minute
+      .toString()
+      .padStart(2, "0")}`;
+
+    slots.push(timeStr);
+  }
+
+  return slots;
+};
+
+const extractTimePart = (value?: string | null): string | null => {
+  if (!value) return null;
+  const v = value.trim();
+  if (v.includes("T")) {
+    return v.split("T")[1].slice(0, 8);
+  }
+  if (v.includes(" ")) {
+    return v.split(" ")[1].slice(0, 8);
+  }
+  return v.slice(0, 8);
+};
+
+const timeStringToMinutes = (value?: string | null): number | null => {
+  const timePart = extractTimePart(value);
+  if (!timePart) return null;
+  const [hStr, mStr] = timePart.split(":");
+  const h = Number(hStr);
+  const m = Number(mStr);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return h * 60 + m;
+};
+
 const appointmentSchema = z.object({
   customer_id: z.union([z.number(), z.string()]).pipe(z.coerce.number()),
   services: z
@@ -128,13 +199,15 @@ const appointmentSchema = z.object({
         professional_id: z
           .union([z.number(), z.string()])
           .pipe(z.coerce.number()),
+        start_time: z
+          .string()
+          .min(1, "Horário é obrigatório para cada serviço"),
         commission_type: z.string().optional(),
         commission_value: z.string().optional(),
       })
     )
-    .min(1, "Selecione ao menos um serviço e profissional"),
+    .min(1, "Selecione ao menos um serviço, profissional e horário"),
   date: z.date({ required_error: "Data é obrigatória" }),
-  time: z.string().min(1, "Horário é obrigatório"),
   status: z.enum([
     "scheduled",
     "confirmed",
@@ -147,85 +220,6 @@ const appointmentSchema = z.object({
 });
 
 type FormValues = z.infer<typeof appointmentSchema>;
-
-const generateTimeSlots = () => {
-  const slots: string[] = [];
-  for (let hour = 8; hour <= 18; hour++) {
-    for (let minute = 0; minute < 60; minute += 30) {
-      if (hour === 18 && minute > 0) break;
-      const timeStr = `${hour.toString().padStart(2, "0")}:${minute
-        .toString()
-        .padStart(2, "0")}`;
-      slots.push(timeStr);
-    }
-  }
-  return slots;
-};
-
-const isTimeSlotAvailable = (
-  allAppointments: AppointmentBackend[],
-  selectedDate: Date | undefined,
-  timeSlot: string,
-  duration: number | undefined,
-  selectedProfessionalIds: ID[],
-  currentAppointmentId?: ID
-): boolean => {
-  if (!selectedDate || !duration || selectedProfessionalIds.length === 0)
-    return true;
-
-  const dateStr = format(selectedDate, "yyyy-MM-dd");
-  const [hours, minutes] = timeSlot.split(":").map(Number);
-  const slotStart = hours * 60 + minutes;
-  const slotEnd = slotStart + duration;
-
-  return selectedProfessionalIds.every((profId) => {
-    const proApts = allAppointments.filter((apt) => {
-      const sameDay = apt.date === dateStr;
-      const hasProf = (apt.professionals || []).some(
-        (p) => Number(p.id) === Number(profId)
-      );
-      const notSelf = String(apt.id) !== String(currentAppointmentId ?? "");
-      const notCancelled = apt.status !== "cancelled";
-      return sameDay && hasProf && notSelf && notCancelled;
-    });
-
-    return proApts.every((apt) => {
-      const [aptHours, aptMinutes] = (apt.start_time || "00:00")
-        .split(":")
-        .map(Number);
-      const aptStart = aptHours * 60 + aptMinutes;
-      const aptDur = Number(apt.duration || 0);
-      const aptEnd = aptStart + aptDur;
-
-      const safeAptEnd = aptDur > 0 ? aptEnd : aptStart + 30;
-
-      return slotEnd <= aptStart || slotStart >= safeAptEnd;
-    });
-  });
-};
-
-const getAvailableTimeSlots = (
-  allAppointments: AppointmentBackend[],
-  selectedDate: Date | undefined,
-  selectedProfessionalIds: ID[],
-  duration: number | undefined,
-  currentAppointmentId?: ID
-): string[] => {
-  if (!selectedDate || selectedProfessionalIds.length === 0) {
-    return generateTimeSlots();
-  }
-  const allSlots = generateTimeSlots();
-  return allSlots.filter((slot) =>
-    isTimeSlotAvailable(
-      allAppointments,
-      selectedDate,
-      slot,
-      duration,
-      selectedProfessionalIds,
-      currentAppointmentId
-    )
-  );
-};
 
 type MultiSelectOption = { value: ID; label: string };
 
@@ -500,11 +494,45 @@ export default function Appointments() {
     defaultValues: {
       customer_id: undefined as unknown as number,
       services: [],
-      time: "",
       status: "scheduled",
       notes: "",
     },
   });
+
+  const watchedServices = form.watch("services") || [];
+
+  const selectedProfessionalIds = useMemo<number[]>(() => {
+    const ids = (watchedServices as Array<{ professional_id?: number | string | null }>)
+      .map((s) =>
+        s?.professional_id != null ? Number(s.professional_id) : NaN
+      )
+      .filter((n) => Number.isFinite(n)) as number[];
+
+    return Array.from(new Set(ids));
+  }, [watchedServices]);
+
+  const professionalOpenWindowsById = useMemo(
+    () =>
+      new Map<number, ProfessionalOpenWindow[]>(
+        professionals.map((p) => [
+          Number(p.id),
+          p.open_windows ?? [],
+        ])
+      ),
+    [professionals]
+  );
+
+  const professionalWorkScheduleById = useMemo(
+    () =>
+      new Map<number, WorkScheduleEntry[]>(
+        professionals.map((p) => {
+          const raw = (p as any).work_schedule;
+          const arr = Array.isArray(raw) ? (raw as WorkScheduleEntry[]) : [];
+          return [Number(p.id), arr];
+        })
+      ),
+    [professionals]
+  );
 
   const customerById = useMemo(
     () => new Map(customers.map((c) => [Number(c.id), c])),
@@ -541,22 +569,177 @@ export default function Appointments() {
     [selectedServiceObjects]
   );
 
+  const getAvailableTimeSlotsForRow = (
+    selectedDate: Date | undefined,
+    professionalId: ID | undefined,
+    serviceDuration: number | undefined,
+    rowIndex: number,
+    servicesFieldValue: any[],
+    currentAppointmentId?: ID
+  ): string[] => {
+    if (!selectedDate || !professionalId || !serviceDuration || serviceDuration <= 0) {
+      return [];
+    }
+
+    const dateStr = format(selectedDate, "yyyy-MM-dd");
+    const busy: { start: number; end: number }[] = [];
+    const professionalIdStr = String(professionalId);
+    const profIdNum = Number(professionalId);
+
+    let dayStart = WORK_DAY_START;
+    let dayEnd = WORK_DAY_END;
+    let lunchStart: number | null = null;
+    let lunchEnd: number | null = null;
+
+    const scheduleForProf = professionalWorkScheduleById.get(profIdNum);
+    if (scheduleForProf && scheduleForProf.length > 0) {
+      const weekdayLabel = getWeekdayLabel(selectedDate);
+      const daySchedule = scheduleForProf.find((d) => d.day === weekdayLabel);
+
+      if (!daySchedule || daySchedule.isDayOff || daySchedule.isWorkingDay === false) {
+        return [];
+      }
+
+      const startMinutes = timeStringToMinutes(daySchedule.startTime);
+      const endMinutes = timeStringToMinutes(daySchedule.endTime);
+
+      if (startMinutes != null) {
+        dayStart = startMinutes;
+      }
+      if (endMinutes != null) {
+        dayEnd = endMinutes;
+      }
+
+      if (dayEnd <= dayStart) {
+        return [];
+      }
+
+      if (daySchedule.lunchStart) {
+        lunchStart = timeStringToMinutes(daySchedule.lunchStart) ?? null;
+      }
+      if (daySchedule.lunchEnd) {
+        lunchEnd = timeStringToMinutes(daySchedule.lunchEnd) ?? null;
+      }
+
+      if (
+        lunchStart != null &&
+        lunchEnd != null &&
+        lunchEnd <= lunchStart
+      ) {
+        lunchStart = null;
+        lunchEnd = null;
+      }
+    }
+
+    appointments.forEach((apt) => {
+      if (apt.status === "cancelled") return;
+      if (apt.date !== dateStr) return;
+
+      if (currentAppointmentId && String(apt.id) === String(currentAppointmentId)) {
+        return;
+      }
+
+      const servicesForProf = (apt.services || []).filter(
+        (s) =>
+          s.professional_id != null &&
+          String(s.professional_id) === professionalIdStr
+      );
+
+      if (servicesForProf.length > 0) {
+        servicesForProf.forEach((s) => {
+          let start = timeStringToMinutes(s.starts_at);
+          let end = timeStringToMinutes(s.ends_at);
+          const pivotDuration = Number(s.duration || 0);
+
+          if (start == null && apt.start_time) {
+            start = timeStringToMinutes(apt.start_time);
+          }
+
+          if (end == null && start != null) {
+            const dur =
+              pivotDuration || Number(apt.duration || 0) || serviceDuration;
+            end = start + dur;
+          }
+
+          if (start != null && end != null && end > start) {
+            busy.push({ start, end });
+          }
+        });
+      } else {
+        const hasProfInApt = (apt.professionals || []).some(
+          (p) => String(p.id) === professionalIdStr
+        );
+        if (!hasProfInApt) return;
+
+        const start = timeStringToMinutes(apt.start_time);
+        const dur = Number(apt.duration || 0);
+        if (start != null && dur > 0) {
+          busy.push({ start, end: start + dur });
+        }
+      }
+    });
+
+    servicesFieldValue.forEach((svc: any, index: number) => {
+      if (index === rowIndex) return;
+      if (!svc?.professional_id) return;
+      if (String(svc.professional_id) !== professionalIdStr) return;
+      if (!svc.start_time) return;
+
+      const svcEntity = serviceById.get(Number(svc.service_id));
+      const dur = Number(svcEntity?.duration || 0);
+      const start = timeStringToMinutes(svc.start_time);
+      if (start != null && dur > 0) {
+        busy.push({ start, end: start + dur });
+      }
+    });
+
+    const allSlots = generateTimeSlots();
+
+    return allSlots.filter((slot) => {
+      const slotStart = timeStringToMinutes(slot);
+      if (slotStart == null) return false;
+
+      const slotEnd = slotStart + serviceDuration;
+
+      if (slotStart < dayStart || slotEnd > dayEnd) {
+        return false;
+      }
+
+      if (
+        lunchStart != null &&
+        lunchEnd != null &&
+        !(slotEnd <= lunchStart || slotStart >= lunchEnd)
+      ) {
+        return false;
+      }
+
+      return busy.every(
+        (interval) => slotEnd <= interval.start || slotStart >= interval.end
+      );
+    });
+  };
+
   const handleOpenDialog = (apt?: AppointmentBackend, prefilledDate?: Date) => {
+    const toHHmmFromDateTime = (value?: string | null) => {
+      const timePart = extractTimePart(value);
+      return timePart ? timePart.slice(0, 5) : "";
+    };
+
     if (apt) {
       setEditingAppointment(apt);
+
       const defaultServices = (apt.services || []).map((s) => ({
         service_id: Number(s.id),
         professional_id: Number(s.professional_id ?? 0),
+        start_time: toHHmmFromDateTime(s.starts_at),
       }));
+
       const d = apt.date ? new Date(`${apt.date}T00:00:00`) : undefined;
-      const toHHmm = (hhmmss?: string | null) =>
-        hhmmss ? hhmmss.slice(0, 5) : "";
 
       form.reset({
         customer_id: Number(apt.customer?.id ?? 0),
         services: defaultServices,
         date: d as Date,
-        time: toHHmm(apt.start_time),
         status: apt.status,
         notes: apt.notes ?? "",
       });
@@ -566,7 +749,6 @@ export default function Appointments() {
         customer_id: undefined as unknown as number,
         services: [],
         date: prefilledDate as Date | undefined,
-        time: "",
         status: "scheduled",
         notes: "",
       });
@@ -585,69 +767,74 @@ export default function Appointments() {
     form.reset();
   };
 
-  const watchedDate = form.watch("date");
-  const watchedServices = form.watch("services") || [];
-
-  const selectedProfessionalIds = useMemo<number[]>(() => {
-    const ids = (
-      watchedServices as Array<{ professional_id?: number | string | null }>
-    )
-      .map((s) =>
-        s?.professional_id != null ? Number(s.professional_id) : NaN
-      )
-      .filter((n) => Number.isFinite(n)) as number[];
-    return [...ids];
-  }, [watchedServices]);
-
-  const availableSlots = useMemo(() => {
-    const duration = totalDuration > 0 ? totalDuration : undefined;
-    return getAvailableTimeSlots(
-      appointments,
-      watchedDate,
-      selectedProfessionalIds,
-      duration,
-      editingAppointment?.id
-    );
-  }, [
-    appointments,
-    watchedDate,
-    selectedProfessionalIds,
-    totalDuration,
-    editingAppointment?.id,
-  ]);
-
   const buildPayload = (values: FormValues) => {
     const dateStr = format(values.date, "yyyy-MM-dd");
-    const start_time = `${values.time}:00`;
+
+    const serviceTimes: { start: number; end: number }[] = [];
+
+    const toDateTimeString = (minutes: number) => {
+      const h = Math.floor(minutes / 60);
+      const m = minutes % 60;
+      const hh = String(h).padStart(2, "0");
+      const mm = String(m).padStart(2, "0");
+      return `${dateStr} ${hh}:${mm}:00`;
+    };
+
+    const toTimeString = (minutes: number) => {
+      const h = Math.floor(minutes / 60);
+      const m = minutes % 60;
+      return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
+    };
 
     const servicesPayload = values.services.map((s) => {
       const svc = serviceById.get(Number(s.service_id));
+      const svcDuration = Number(svc?.duration || 0);
+
+      const [startHour, startMinute] = String(s.start_time)
+        .split(":")
+        .map((n) => Number(n));
+      const serviceStartMinutes = startHour * 60 + startMinute;
+      const serviceEndMinutes = serviceStartMinutes + svcDuration;
+
+      serviceTimes.push({
+        start: serviceStartMinutes,
+        end: serviceEndMinutes,
+      });
+
       return {
         id: Number(s.service_id),
         service_price: String(svc?.price ?? "0"),
-        commission_type: (svc?.commission_type ?? "percentage") as "percentage" | "fixed",
+        commission_type: (svc?.commission_type ?? "percentage") as
+          | "percentage"
+          | "fixed",
         commission_value: String(svc?.commission_value ?? "0"),
         professional_id: Number(s.professional_id),
+        starts_at: toDateTimeString(serviceStartMinutes),
+        ends_at: toDateTimeString(serviceEndMinutes),
       };
     });
+
+    const minStart = Math.min(...serviceTimes.map((t) => t.start));
+    const maxEnd = Math.max(...serviceTimes.map((t) => t.end));
+    const appointmentDuration = maxEnd - minStart;
+
+    const start_time = toTimeString(minStart);
+
+    const totalPriceNumber = servicesPayload.reduce(
+      (sum, s) => sum + Number(s.service_price || 0),
+      0
+    );
 
     return {
       customer_id: Number(values.customer_id),
       date: dateStr,
       start_time,
-      duration: servicesPayload.reduce(
-        (sum, s) => sum + (serviceById.get(Number(s.id))?.duration || 0),
-        0
-      ),
+      duration: appointmentDuration,
       status: values.status,
       notes: values.notes || null,
-      total_price: servicesPayload
-        .reduce((sum, s) => sum + Number(s.service_price || 0), 0)
-        .toFixed(2),
+      total_price: totalPriceNumber.toFixed(2),
       discount_amount: "0.00",
-      final_price: servicesPayload
-        .reduce((sum, s) => sum + Number(s.service_price || 0), 0)
-        .toFixed(2),
+      final_price: totalPriceNumber.toFixed(2),
       services: servicesPayload,
     };
   };
@@ -662,13 +849,14 @@ export default function Appointments() {
     }
 
     const hasIncomplete = values.services.some(
-      (s) => !s.service_id || !s.professional_id
+      (s) => !s.service_id || !s.professional_id || !s.start_time
     );
 
     if (hasIncomplete) {
       toast({
         title: "Preencha todos os serviços",
-        description: "Cada linha precisa de um serviço e um profissional selecionados.",
+        description:
+          "Cada linha precisa de um serviço, um profissional e um horário selecionados.",
         variant: "destructive",
       });
       return;
@@ -691,9 +879,28 @@ export default function Appointments() {
       setEditingAppointment(null);
       form.reset();
     } catch (e: any) {
+      console.error(e);
+
+      let description = e?.message ?? "Tente novamente.";
+
+      const response = e?.response;
+      const data = response?.data;
+
+      if (data) {
+        if (data.errors && typeof data.errors === "object") {
+          const firstKey = Object.keys(data.errors)[0];
+          const firstMessage = data.errors[firstKey]?.[0];
+          if (firstMessage) {
+            description = firstMessage;
+          }
+        } else if (typeof data.message === "string") {
+          description = data.message;
+        }
+      }
+
       toast({
         title: "Erro ao salvar agendamento",
-        description: e?.message ?? "Tente novamente.",
+        description,
         variant: "destructive",
       });
     }
@@ -1630,7 +1837,7 @@ export default function Appointments() {
                   name="customer_id"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Cliente *</FormLabel>
+                      <FormLabel>Cliente <span className="text-red-500">*</span></FormLabel>
                       <Select
                         value={field.value ? String(field.value) : undefined}
                         onValueChange={(v) => field.onChange(Number(v))}
@@ -1659,104 +1866,212 @@ export default function Appointments() {
                 <FormField
                   control={form.control}
                   name="services"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Serviços e Profissionais *</FormLabel>
-                      <div className="space-y-3">
-                        {(field.value || []).map((svc, idx) => (
-                          <div key={idx} className="grid grid-cols-2 gap-2">
-                            <Select
-                              value={svc.service_id ? String(svc.service_id) : undefined}
-                              onValueChange={(v) => {
-                                const updated = [...(field.value || [])];
-                                updated[idx].service_id = Number(v);
-                                field.onChange(updated);
-                              }}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="--- Selecione um serviço ---" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {serviceOptions.map((opt) => (
-                                  <SelectItem
-                                    key={opt.value}
-                                    value={String(opt.value)}
+                  render={({ field }) => {
+                    const servicesValue = (field.value || []) as any[];
+                    const selectedDate = form.watch("date");
+
+                    return (
+                      <FormItem>
+                        <FormLabel>Serviços, Profissionais e Horários <span className="text-red-500">*</span></FormLabel>
+                        <div className="space-y-3">
+                          {servicesValue.map((svc, idx) => {
+                            const serviceId = svc.service_id;
+                            const professionalId = svc.professional_id;
+                            const serviceEntity = serviceId
+                              ? serviceById.get(Number(serviceId))
+                              : undefined;
+                            const serviceDuration = Number(serviceEntity?.duration || 0);
+
+                            const slots =
+                              selectedDate &&
+                              professionalId &&
+                              serviceId &&
+                              serviceDuration > 0
+                                ? getAvailableTimeSlotsForRow(
+                                    selectedDate,
+                                    professionalId,
+                                    serviceDuration,
+                                    idx,
+                                    servicesValue,
+                                    editingAppointment?.id
+                                  )
+                                : [];
+
+                            return (
+                              <div
+                                key={idx}
+                                className="grid grid-cols-1 md:grid-cols-[2fr_2fr_2fr_auto] gap-2 items-end"
+                              >
+                                <FormItem>
+                                  <FormLabel className="text-xs text-muted-foreground">
+                                    Serviço
+                                  </FormLabel>
+                                  <Select
+                                    value={svc.service_id ? String(svc.service_id) : undefined}
+                                    onValueChange={(v) => {
+                                      const updated = [...servicesValue];
+                                      updated[idx] = {
+                                        ...updated[idx],
+                                        service_id: Number(v),
+                                      };
+                                      field.onChange(updated);
+                                    }}
                                   >
-                                    {opt.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Selecione um serviço" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {serviceOptions.map((opt) => (
+                                        <SelectItem
+                                          key={String(opt.value)}
+                                          value={String(opt.value)}
+                                        >
+                                          {opt.label}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </FormItem>
 
-                            <div className="flex gap-2">
-                              <Select
-                                value={svc.professional_id ? String(svc.professional_id) : undefined}
-                                onValueChange={(v) => {
-                                  const updated = [...(field.value || [])];
-                                  updated[idx].professional_id = Number(v);
-                                  field.onChange(updated);
-                                }}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue placeholder="--- Selecione um profissional ---" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {professionalOptions.map((opt) => (
-                                    <SelectItem
-                                      key={opt.value}
-                                      value={String(opt.value)}
-                                    >
-                                      {opt.label}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                                <FormItem>
+                                  <FormLabel className="text-xs text-muted-foreground">
+                                    Profissional
+                                  </FormLabel>
+                                  <Select
+                                    value={
+                                      svc.professional_id ? String(svc.professional_id) : undefined
+                                    }
+                                    onValueChange={(v) => {
+                                      const updated = [...servicesValue];
+                                      updated[idx] = {
+                                        ...updated[idx],
+                                        professional_id: Number(v),
+                                        start_time: "",
+                                      };
+                                      field.onChange(updated);
+                                    }}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Selecione um profissional" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {professionalOptions.map((opt) => (
+                                        <SelectItem
+                                          key={String(opt.value)}
+                                          value={String(opt.value)}
+                                        >
+                                          {opt.label}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </FormItem>
 
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="shrink-0 text-destructive"
-                                onClick={() => {
-                                  const updated = (field.value || []).filter((_, i) => i !== idx);
-                                  field.onChange(updated);
-                                }}
-                                title="Remover serviço"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
+                                <FormItem>
+                                  <FormLabel className="text-xs text-muted-foreground">
+                                    Horário
+                                  </FormLabel>
+                                  <Select
+                                    value={svc.start_time || ""}
+                                    onValueChange={(v) => {
+                                      const updated = [...servicesValue];
+                                      updated[idx] = {
+                                        ...updated[idx],
+                                        start_time: v,
+                                      };
+                                      field.onChange(updated);
+                                    }}
+                                    disabled={
+                                      !selectedDate ||
+                                      !professionalId ||
+                                      !serviceId ||
+                                      serviceDuration <= 0
+                                    }
+                                  >
+                                    <FormControl>
+                                      <SelectTrigger>
+                                        <SelectValue placeholder="Selecione o horário" />
+                                      </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                      {(!selectedDate ||
+                                        !professionalId ||
+                                        !serviceId ||
+                                        serviceDuration <= 0) && (
+                                        <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                                          Selecione data, serviço e profissional
+                                        </div>
+                                      )}
+                                      {selectedDate &&
+                                        professionalId &&
+                                        serviceId &&
+                                        serviceDuration > 0 &&
+                                        (slots.length === 0 ? (
+                                          <div className="px-2 py-1.5 text-xs text-destructive">
+                                            Nenhum horário disponível
+                                          </div>
+                                        ) : (
+                                          slots.map((slot) => (
+                                            <SelectItem key={slot} value={slot}>
+                                              {slot}
+                                            </SelectItem>
+                                          ))
+                                        ))}
+                                    </SelectContent>
+                                  </Select>
+                                </FormItem>
 
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() =>
-                            field.onChange([
-                              ...(field.value || []),
-                              {
-                                service_id: "",
-                                professional_id: "",
-                              },
-                            ])
-                          }
-                        >
-                          + Adicionar serviço
-                        </Button>
-                      </div>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+                                <div className="flex md:justify-end">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="text-destructive"
+                                    onClick={() => {
+                                      const updated = servicesValue.filter(
+                                        (_: any, i: number) => i !== idx
+                                      );
+                                      field.onChange(updated);
+                                    }}
+                                    title="Remover serviço"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() =>
+                              field.onChange([
+                                ...servicesValue,
+                                {
+                                  service_id: "",
+                                  professional_id: "",
+                                  start_time: "",
+                                },
+                              ])
+                            }
+                          >
+                            + Adicionar serviço
+                          </Button>
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
                 />
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
                     name="date"
                     render={({ field }) => (
                       <FormItem className="flex flex-col">
-                        <FormLabel>Data *</FormLabel>
+                        <FormLabel>Data <span className="text-red-500">*</span></FormLabel>
                         <Popover>
                           <PopoverTrigger asChild>
                             <FormControl>
@@ -1782,10 +2097,44 @@ export default function Appointments() {
                               selected={field.value}
                               onSelect={field.onChange}
                               disabled={(date) => {
-                                const today = new Date(
-                                  new Date().setHours(0, 0, 0, 0)
-                                );
-                                return date < today;
+                                const today = new Date(new Date().setHours(0, 0, 0, 0));
+                                if (date < today) return true;
+
+                                if (selectedProfessionalIds.length === 0) {
+                                  return false;
+                                }
+
+                                const dateStr = format(date, "yyyy-MM-dd");
+                                const weekdayLabel = getWeekdayLabel(date);
+
+                                const algumProfIndisponivel = selectedProfessionalIds.some((profId) => {
+                                  const numId = Number(profId);
+
+                                  const windows = professionalOpenWindowsById.get(numId) ?? [];
+                                  const openWindows = windows.filter((w) => w.status === "open");
+
+                                  let temJanelaNaData = false;
+                                  if (openWindows.length > 0) {
+                                    temJanelaNaData = openWindows.some(
+                                      (w) => w.start_date <= dateStr && dateStr <= w.end_date
+                                    );
+                                  }
+
+                                  const schedule = professionalWorkScheduleById.get(numId);
+                                  let podeTrabalharNesteDia = true;
+
+                                  if (schedule && schedule.length > 0) {
+                                    const daySchedule = schedule.find((d) => d.day === weekdayLabel);
+
+                                    if (!daySchedule || daySchedule.isDayOff || daySchedule.isWorkingDay === false) {
+                                      podeTrabalharNesteDia = false;
+                                    }
+                                  }
+
+                                  return !temJanelaNaData || !podeTrabalharNesteDia;
+                                });
+
+                                return algumProfIndisponivel;
                               }}
                               locale={ptBR}
                               initialFocus
@@ -1799,99 +2148,11 @@ export default function Appointments() {
 
                   <FormField
                     control={form.control}
-                    name="time"
-                    render={({ field }) => {
-                      const selectedDate = form.watch("date");
-                      const selectedServices = form.watch("services") || [];
-                      const selectedProfessionalIds = selectedServices
-                        .map((s) => Number(s.professional_id))
-                        .filter((id) => !!id);
-
-                      const duration =
-                        totalDuration > 0 ? totalDuration : undefined;
-                      const slots = getAvailableTimeSlots(
-                        appointments,
-                        selectedDate,
-                        selectedProfessionalIds,
-                        duration,
-                        editingAppointment?.id
-                      );
-
-                      return (
-                        <FormItem>
-                          <FormLabel>Horário *</FormLabel>
-                          <Select
-                            onValueChange={field.onChange}
-                            value={field.value}
-                            disabled={
-                              !selectedDate ||
-                              selectedProfessionalIds.length === 0 ||
-                              !duration
-                            }
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Selecione um horário" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {slots.length === 0 ? (
-                                <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                  Nenhum horário disponível
-                                </div>
-                              ) : (
-                                slots.map((slot) => (
-                                  <SelectItem key={slot} value={slot}>
-                                    {slot}
-                                  </SelectItem>
-                                ))
-                              )}
-                            </SelectContent>
-                          </Select>
-                          {!selectedDate && (
-                            <p className="text-sm text-muted-foreground">
-                              Selecione uma data primeiro
-                            </p>
-                          )}
-                          {selectedDate &&
-                            selectedProfessionalIds.length === 0 && (
-                              <p className="text-sm text-muted-foreground">
-                                Selecione ao menos um profissional (em cada
-                                serviço)
-                              </p>
-                            )}
-                          {selectedDate &&
-                            selectedProfessionalIds.length > 0 &&
-                            !duration && (
-                              <p className="text-sm text-muted-foreground">
-                                Selecione ao menos um serviço (para definir a
-                                duração)
-                              </p>
-                            )}
-                          {selectedDate &&
-                            selectedProfessionalIds.length > 0 &&
-                            duration &&
-                            slots.length === 0 && (
-                              <p className="text-sm text-destructive">
-                                Sem horários disponíveis para esta data
-                              </p>
-                            )}
-                          <FormMessage />
-                        </FormItem>
-                      );
-                    }}
-                  />
-
-                  <FormField
-                    control={form.control}
                     name="status"
                     render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Status *</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
-                        >
+                      <FormItem className="flex flex-col">
+                        <FormLabel>Status <span className="text-red-500">*</span></FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue />
@@ -1914,12 +2175,16 @@ export default function Appointments() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <FormLabel>Duração total (min)</FormLabel>
-                    <Input value={totalDuration} readOnly />
+                    <FormItem className="flex flex-col">
+                      <FormLabel>Duração total (min)</FormLabel>
+                      <Input value={totalDuration} readOnly />
+                    </FormItem>
                   </div>
                   <div>
-                    <FormLabel>Preço total (R$)</FormLabel>
-                    <Input value={totalPrice.toFixed(2)} readOnly />
+                    <FormItem className="flex flex-col">
+                      <FormLabel>Preço total (R$)</FormLabel>
+                      <Input value={totalPrice.toFixed(2)} readOnly />
+                    </FormItem>                      
                   </div>
                 </div>
 
@@ -1927,7 +2192,7 @@ export default function Appointments() {
                   control={form.control}
                   name="notes"
                   render={({ field }) => (
-                    <FormItem>
+                    <FormItem className="flex flex-col">
                       <FormLabel>Observações</FormLabel>
                       <FormControl>
                         <Textarea

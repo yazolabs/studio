@@ -1,11 +1,19 @@
+export type AppointmentServiceProfessional = {
+  id: number;
+  name: string | null;
+};
+
 export type AppointmentServiceItem = {
   id: number;
   name: string;
   service_price: string;
-  commission_type: 'percentage' | 'fixed' | null;
+  commission_type: "percentage" | "fixed" | null;
   commission_value: string;
   professional_id: number | null;
+  professional?: AppointmentServiceProfessional | null;
   duration?: number | null;
+  starts_at?: string | null;
+  ends_at?: string | null;
 };
 
 export type AppointmentItem = {
@@ -18,7 +26,7 @@ export type AppointmentItem = {
 export type Appointment = {
   id: number;
   customer: { id: number; name: string } | null;
-  professionals?: { id: number; name: string }[] | null;
+  professionals?: { id: number; name: string | null }[] | null;
   services?: AppointmentServiceItem[] | null;
   items?: AppointmentItem[] | null;
   promotion_id?: number | null;
@@ -27,9 +35,15 @@ export type Appointment = {
   start_time: string | null;
   end_time: string | null;
   duration: number | null;
-  status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show' | 'rescheduled';
+  status:
+    | "scheduled"
+    | "confirmed"
+    | "completed"
+    | "cancelled"
+    | "no_show"
+    | "rescheduled";
   total_price: string;
-  discount_type: 'percentage' | 'fixed' | null;
+  discount_type: "percentage" | "fixed" | null;
   discount_amount: string;
   final_price: string;
   payment_method: string | null;
@@ -47,9 +61,9 @@ export type CreateAppointmentDto = {
   start_time: string;
   end_time?: string | null;
   duration?: number | null;
-  status: Appointment['status'];
+  status: Appointment["status"];
   total_price: string;
-  discount_type?: 'percentage' | 'fixed' | null;
+  discount_type?: "percentage" | "fixed" | null;
   discount_amount: string;
   final_price: string;
   payment_method?: string | null;
@@ -62,9 +76,11 @@ export type CreateAppointmentDto = {
   services?: Array<{
     id: number;
     service_price: string;
-    commission_type?: 'percentage' | 'fixed' | string;
+    commission_type?: "percentage" | "fixed" | string | null;
     commission_value?: string;
     professional_id?: number | null;
+    starts_at?: string | null;
+    ends_at?: string | null;
   }>;
 
   items?: Array<{
