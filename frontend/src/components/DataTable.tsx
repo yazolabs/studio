@@ -77,15 +77,15 @@ export function DataTable<T extends Record<string, any>>({
       {!loading && (
         <>
           {!isMobile ? (
-            <div className="rounded-md border shadow-sm">
-              <div className="max-h-[480px] overflow-y-auto relative">
+            <div className="rounded-md border shadow-sm overflow-hidden">
+              <div className="max-h-[480px] overflow-y-auto">
                 <Table>
-                  <TableHeader className="sticky top-0 z-10 bg-gray-100">
-                    <TableRow>
+                  <TableHeader className="bg-muted">
+                    <TableRow className="sticky top-0 z-[1] bg-muted">
                       {columns.map((column) => (
                         <TableHead
                           key={column.key}
-                          className="font-semibold"
+                          className="font-semibold text-sm align-middle"
                         >
                           {column.header}
                         </TableHead>
@@ -114,9 +114,7 @@ export function DataTable<T extends Record<string, any>>({
                         >
                           {columns.map((column) => (
                             <TableCell key={column.key}>
-                              {column.render
-                                ? column.render(item)
-                                : item[column.key]}
+                              {column.render ? column.render(item) : item[column.key]}
                             </TableCell>
                           ))}
                         </TableRow>
