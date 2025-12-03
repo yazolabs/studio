@@ -1,4 +1,5 @@
 import { AppointmentCheckoutDialog } from "@/components/AppointmentCheckoutDialog";
+import { Combobox } from "@/components/Combobox";
 import { CompactAppointmentList } from "@/components/CompactAppointmentList";
 import { DataTable } from "@/components/DataTable";
 import { MonthlyAvailabilityCalendar } from "@/components/MonthlyAvailabilityCalendar";
@@ -24,7 +25,7 @@ import { cn } from "@/lib/utils";
 import { ProfessionalOpenWindow } from "@/types/professional-open-window";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Plus, Edit, Trash2, DollarSign, Calendar as CalendarIcon, Printer, Table, List, Check, X, Filter, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, Pencil, Trash2, DollarSign, Calendar as CalendarIcon, Printer, Table, List, Check, X, Filter, ChevronDown, ChevronUp } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
@@ -134,8 +135,6 @@ interface AppointmentLegacy {
   price?: number;
 }
 
-const WORK_DAY_START = 8 * 60;
-const WORK_DAY_END = 18 * 60;
 const SLOT_STEP_MINUTES = 10;
 const WEEKDAY_LABELS = [
   "Domingo",
@@ -150,11 +149,17 @@ const WEEKDAY_LABELS = [
 const getWeekdayLabel = (date: Date) => WEEKDAY_LABELS[date.getDay()];
 
 const generateTimeSlots = (
+  dayStartMinutes: number,
+  dayEndMinutes: number,
   stepMinutes: number = SLOT_STEP_MINUTES
 ): string[] => {
   const slots: string[] = [];
 
-  for (let minutes = WORK_DAY_START; minutes < WORK_DAY_END; minutes += stepMinutes) {
+  for (
+    let minutes = dayStartMinutes;
+    minutes + stepMinutes <= dayEndMinutes;
+    minutes += stepMinutes
+  ) {
     const hour = Math.floor(minutes / 60);
     const minute = minutes % 60;
 
@@ -478,6 +483,7 @@ export default function Appointments() {
   const [dateFromFilter, setDateFromFilter] = useState<Date | null>(null);
   const [dateToFilter, setDateToFilter] = useState<Date | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [customerPopoverOpen, setCustomerPopoverOpen] = useState(false);
 
   const effectiveViewMode = isMobile && viewMode === "table" ? "list" : viewMode;
 
@@ -589,12 +595,13 @@ export default function Appointments() {
     const professionalIdStr = String(professionalId);
     const profIdNum = Number(professionalId);
 
-    let dayStart = WORK_DAY_START;
-    let dayEnd = WORK_DAY_END;
+    let dayStart: number | null = null;
+    let dayEnd: number | null = null;
     let lunchStart: number | null = null;
     let lunchEnd: number | null = null;
 
     const scheduleForProf = professionalWorkScheduleById.get(profIdNum);
+
     if (scheduleForProf && scheduleForProf.length > 0) {
       const weekdayLabel = getWeekdayLabel(selectedDate);
       const daySchedule = scheduleForProf.find((d) => d.day === weekdayLabel);
@@ -613,7 +620,7 @@ export default function Appointments() {
         dayEnd = endMinutes;
       }
 
-      if (dayEnd <= dayStart) {
+      if (dayStart == null || dayEnd == null || dayEnd <= dayStart) {
         return [];
       }
 
@@ -632,10 +639,12 @@ export default function Appointments() {
         lunchStart = null;
         lunchEnd = null;
       }
+    } else {
+      return [];
     }
 
     appointments.forEach((apt) => {
-      if (apt.status === "cancelled") return;
+      if (apt.status === "cancelled" || apt.status === "no_show") return;
       if (apt.date !== dateStr) return;
 
       if (currentAppointmentId && String(apt.id) === String(currentAppointmentId)) {
@@ -696,7 +705,7 @@ export default function Appointments() {
       }
     });
 
-    const allSlots = generateTimeSlots();
+    const allSlots = generateTimeSlots(dayStart!, dayEnd!);
 
     return allSlots.filter((slot) => {
       const slotStart = timeStringToMinutes(slot);
@@ -704,7 +713,7 @@ export default function Appointments() {
 
       const slotEnd = slotStart + serviceDuration;
 
-      if (slotStart < dayStart || slotEnd > dayEnd) {
+      if (slotStart < dayStart! || slotEnd > dayEnd!) {
         return false;
       }
 
@@ -1391,7 +1400,7 @@ export default function Appointments() {
               size="icon"
               onClick={() => handleOpenDialog(apt)}
             >
-              <Edit className="h-4 w-4" />
+              <Pencil className="h-4 w-4" />
             </Button>
           )}
           {can("appointments", "delete") && (
@@ -1424,7 +1433,7 @@ export default function Appointments() {
 
   const serviceOptions: { value: ID; label: string }[] = services.map((s) => ({
     value: s.id,
-    label: `${s.name} • ${s.duration}min • R$ ${Number(s.price).toFixed(2)}`,
+    label: `${s.name} (${s.duration}min)`,
   }));
 
   const filteredAppointments = useMemo(() => {
@@ -1742,29 +1751,13 @@ export default function Appointments() {
                     <span className="text-[11px] font-medium text-muted-foreground">
                       Serviço
                     </span>
-                    <Select
-                      value={
-                        serviceFilter === "all" ? "all" : String(serviceFilter)
-                      }
-                      onValueChange={(v) =>
-                        setServiceFilter(v === "all" ? "all" : Number(v))
-                      }
-                    >
-                      <SelectTrigger className="h-9 text-xs">
-                        <SelectValue placeholder="Todos" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Todos</SelectItem>
-                        {serviceOptions.map((opt) => (
-                          <SelectItem
-                            key={String(opt.value)}
-                            value={String(opt.value)}
-                          >
-                            {opt.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <FilterCombobox
+                      value={serviceFilter}
+                      onChange={(v) => setServiceFilter(v)}
+                      options={serviceOptions}
+                      placeholder="serviço"
+                      allLabel="Todos os serviços"
+                    />
                   </div>
                 </div>
               )}
@@ -1824,7 +1817,12 @@ export default function Appointments() {
         )}
 
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogContent
+            className={cn(
+              "max-h-[90vh]",
+              isMobile ? "max-w-[95vw]" : "max-w-2xl"
+            )}
+          >
             <DialogHeader>
               <DialogTitle>
                 {editingAppointment ? "Editar Agendamento" : "Novo Agendamento"}
@@ -1842,27 +1840,23 @@ export default function Appointments() {
                   name="customer_id"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Cliente <span className="text-red-500">*</span></FormLabel>
-                      <Select
-                        value={field.value ? String(field.value) : undefined}
-                        onValueChange={(v) => field.onChange(Number(v))}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecione o cliente" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {customerOptions.map((opt) => (
-                            <SelectItem
-                              key={String(opt.value)}
-                              value={String(opt.value)}
-                            >
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <FormLabel>
+                        Cliente <span className="text-red-500">*</span>
+                      </FormLabel>
+
+                      <FormControl>
+                        <Combobox
+                          value={field.value ?? null}
+                          onChange={(val) => {
+                            field.onChange(val != null ? Number(val) : undefined);
+                          }}
+                          options={customerOptions}
+                          placeholder="Selecione o cliente"
+                          searchPlaceholder="Buscar cliente..."
+                          emptyMessage="Nenhum cliente encontrado."
+                        />
+                      </FormControl>
+
                       <FormMessage />
                     </FormItem>
                   )}
@@ -1875,23 +1869,44 @@ export default function Appointments() {
                     const servicesValue = (field.value || []) as any[];
                     const selectedDate = form.watch("date");
 
+                    const updateServiceAtIndex = (index: number, patch: Record<string, any>) => {
+                      const updated = [...servicesValue];
+                      updated[index] = {
+                        ...updated[index],
+                        ...patch,
+                      };
+                      field.onChange(updated);
+                    };
+
+                    const removeServiceAtIndex = (index: number) => {
+                      const updated = servicesValue.filter((_: any, i: number) => i !== index);
+                      field.onChange(updated);
+                    };
+
                     return (
                       <FormItem>
-                        <FormLabel>Serviços, Profissionais e Horários <span className="text-red-500">*</span></FormLabel>
+                        <FormLabel>
+                          Serviços, Profissionais e Horários{" "}
+                          <span className="text-red-500">*</span>
+                        </FormLabel>
                         <div className="space-y-3">
                           {servicesValue.map((svc, idx) => {
-                            const serviceId = svc.service_id;
-                            const professionalId = svc.professional_id;
+                            const serviceId = svc.service_id ?? null;
+                            const professionalId = svc.professional_id ?? null;
+
                             const serviceEntity = serviceId
                               ? serviceById.get(Number(serviceId))
                               : undefined;
                             const serviceDuration = Number(serviceEntity?.duration || 0);
 
-                            const slots =
+                            const canSelectTime =
                               selectedDate &&
                               professionalId &&
                               serviceId &&
-                              serviceDuration > 0
+                              serviceDuration > 0;
+
+                            const slots =
+                              canSelectTime && selectedDate
                                 ? getAvailableTimeSlotsForRow(
                                     selectedDate,
                                     professionalId,
@@ -1902,6 +1917,21 @@ export default function Appointments() {
                                   )
                                 : [];
 
+                            const hasSlots = slots.length > 0;
+
+                            const timeOptions = hasSlots
+                              ? slots.map((slot) => ({
+                                  value: slot,
+                                  label: slot,
+                                }))
+                              : [];
+
+                            const timePlaceholder = !canSelectTime
+                              ? "Selecione data, serviço e profissional"
+                              : !hasSlots
+                              ? "Nenhum horário disponível"
+                              : "Selecione o horário";
+
                             return (
                               <div
                                 key={idx}
@@ -1911,119 +1941,63 @@ export default function Appointments() {
                                   <FormLabel className="text-xs text-muted-foreground">
                                     Serviço
                                   </FormLabel>
-                                  <Select
-                                    value={svc.service_id ? String(svc.service_id) : undefined}
-                                    onValueChange={(v) => {
-                                      const updated = [...servicesValue];
-                                      updated[idx] = {
-                                        ...updated[idx],
-                                        service_id: Number(v),
-                                      };
-                                      field.onChange(updated);
-                                    }}
-                                  >
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="Selecione um serviço" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {serviceOptions.map((opt) => (
-                                        <SelectItem
-                                          key={String(opt.value)}
-                                          value={String(opt.value)}
-                                        >
-                                          {opt.label}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+                                  <FormControl>
+                                    <Combobox
+                                      value={serviceId}
+                                      onChange={(val) => {
+                                        updateServiceAtIndex(idx, {
+                                          service_id: val != null ? Number(val) : "",
+                                          start_time: "",
+                                        });
+                                      }}
+                                      options={serviceOptions}
+                                      placeholder="Selecione um serviço"
+                                      searchPlaceholder="Buscar serviço..."
+                                      emptyMessage="Nenhum serviço encontrado."
+                                    />
+                                  </FormControl>
                                 </FormItem>
 
                                 <FormItem>
                                   <FormLabel className="text-xs text-muted-foreground">
                                     Profissional
                                   </FormLabel>
-                                  <Select
-                                    value={
-                                      svc.professional_id ? String(svc.professional_id) : undefined
-                                    }
-                                    onValueChange={(v) => {
-                                      const updated = [...servicesValue];
-                                      updated[idx] = {
-                                        ...updated[idx],
-                                        professional_id: Number(v),
-                                        start_time: "",
-                                      };
-                                      field.onChange(updated);
-                                    }}
-                                  >
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="Selecione um profissional" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {professionalOptions.map((opt) => (
-                                        <SelectItem
-                                          key={String(opt.value)}
-                                          value={String(opt.value)}
-                                        >
-                                          {opt.label}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+                                  <FormControl>
+                                    <Combobox
+                                      value={professionalId}
+                                      onChange={(val) => {
+                                        updateServiceAtIndex(idx, {
+                                          professional_id: val != null ? Number(val) : "",
+                                          start_time: "",
+                                        });
+                                      }}
+                                      options={professionalOptions}
+                                      placeholder="Selecione um profissional"
+                                      searchPlaceholder="Buscar profissional..."
+                                      emptyMessage="Nenhum profissional encontrado."
+                                    />
+                                  </FormControl>
                                 </FormItem>
 
                                 <FormItem>
                                   <FormLabel className="text-xs text-muted-foreground">
                                     Horário
                                   </FormLabel>
-                                  <Select
-                                    value={svc.start_time || ""}
-                                    onValueChange={(v) => {
-                                      const updated = [...servicesValue];
-                                      updated[idx] = {
-                                        ...updated[idx],
-                                        start_time: v,
-                                      };
-                                      field.onChange(updated);
-                                    }}
-                                    disabled={
-                                      !selectedDate ||
-                                      !professionalId ||
-                                      !serviceId ||
-                                      serviceDuration <= 0
-                                    }
-                                  >
-                                    <FormControl>
-                                      <SelectTrigger>
-                                        <SelectValue placeholder="Selecione o horário" />
-                                      </SelectTrigger>
-                                    </FormControl>
-                                    <SelectContent>
-                                      {(!selectedDate ||
-                                        !professionalId ||
-                                        !serviceId ||
-                                        serviceDuration <= 0) && (
-                                        <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                                          Selecione data, serviço e profissional
-                                        </div>
-                                      )}
-                                      {selectedDate &&
-                                        professionalId &&
-                                        serviceId &&
-                                        serviceDuration > 0 &&
-                                        (slots.length === 0 ? (
-                                          <div className="px-2 py-1.5 text-xs text-destructive">
-                                            Nenhum horário disponível
-                                          </div>
-                                        ) : (
-                                          slots.map((slot) => (
-                                            <SelectItem key={slot} value={slot}>
-                                              {slot}
-                                            </SelectItem>
-                                          ))
-                                        ))}
-                                    </SelectContent>
-                                  </Select>
+                                  <FormControl>
+                                    <Combobox
+                                      value={svc.start_time || null}
+                                      onChange={(val) => {
+                                        updateServiceAtIndex(idx, {
+                                          start_time: (val as string) || "",
+                                        });
+                                      }}
+                                      options={timeOptions}
+                                      placeholder={timePlaceholder}
+                                      searchPlaceholder="Buscar horário..."
+                                      emptyMessage="Nenhum horário disponível."
+                                      disabled={!hasSlots}
+                                    />
+                                  </FormControl>
                                 </FormItem>
 
                                 <div className="flex md:justify-end">
@@ -2032,12 +2006,7 @@ export default function Appointments() {
                                     variant="ghost"
                                     size="icon"
                                     className="text-destructive"
-                                    onClick={() => {
-                                      const updated = servicesValue.filter(
-                                        (_: any, i: number) => i !== idx
-                                      );
-                                      field.onChange(updated);
-                                    }}
+                                    onClick={() => removeServiceAtIndex(idx)}
                                     title="Remover serviço"
                                   >
                                     <Trash2 className="h-4 w-4" />

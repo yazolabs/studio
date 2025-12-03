@@ -140,9 +140,15 @@ class AppointmentController extends Controller
 
     private function syncServices(Appointment $appointment, $services): void
     {
-        $pivotData = [];
+        $appointment->services()->detach();
 
-        foreach ((array) $services as $service) {
+        $services = (array) $services;
+
+        if (empty($services)) {
+            return;
+        }
+
+        foreach ($services as $service) {
             $serviceId = $service['service_id'] ?? $service['id'] ?? null;
             if (!$serviceId) {
                 continue;
@@ -154,25 +160,29 @@ class AppointmentController extends Controller
                 ? $service['commission_type']
                 : ($serviceModel?->commission_type ?? 'percentage');
 
-            $commissionValue = isset($service['commission_value']) && $service['commission_value'] !== null && $service['commission_value'] !== ''
+            $commissionValue =
+                isset($service['commission_value']) &&
+                $service['commission_value'] !== null &&
+                $service['commission_value'] !== ''
                 ? $service['commission_value']
                 : ($serviceModel?->commission_value ?? 0);
 
-            $servicePrice = isset($service['service_price']) && $service['service_price'] !== null && $service['service_price'] !== ''
+            $servicePrice =
+                isset($service['service_price']) &&
+                $service['service_price'] !== null &&
+                $service['service_price'] !== ''
                 ? $service['service_price']
                 : ($serviceModel?->price ?? 0);
 
-            $pivotData[$serviceId] = [
+            $appointment->services()->attach($serviceId, [
                 'service_price'    => $servicePrice,
                 'commission_type'  => $commissionType,
                 'commission_value' => $commissionValue,
                 'professional_id'  => $service['professional_id'] ?? null,
                 'starts_at'        => $service['starts_at'] ?? null,
                 'ends_at'          => $service['ends_at'] ?? null,
-            ];
+            ]);
         }
-
-        $appointment->services()->sync($pivotData);
     }
 
     private function syncItems(Appointment $appointment, $items): void
@@ -428,20 +438,22 @@ class AppointmentController extends Controller
     private function hasExternalProfessionalConflict(string $date, int $professionalId, Carbon $start, Carbon $end, ?int $ignoreAppointmentId = null): bool
     {
         return Appointment::whereDate('date', $date)
-            ->when($ignoreAppointmentId, fn ($q) =>
+            ->when(
+                $ignoreAppointmentId,
+                fn($q) =>
                 $q->where('id', '!=', $ignoreAppointmentId)
             )
 
             ->where(function ($q) {
                 $q->where('status', '!=', 'cancelled')
-                ->where('status', '!=', 'no_show');
+                    ->where('status', '!=', 'no_show');
             })
             ->whereHas('services', function ($q) use ($professionalId, $start, $end) {
                 $q->where('professional_id', $professionalId)
-                ->where(function ($query) use ($start, $end) {
-                    $query->where('starts_at', '<', $end->toDateTimeString())
+                    ->where(function ($query) use ($start, $end) {
+                        $query->where('starts_at', '<', $end->toDateTimeString())
                             ->where('ends_at', '>', $start->toDateTimeString());
-                });
+                    });
             })
             ->exists();
     }
@@ -460,9 +472,10 @@ class AppointmentController extends Controller
             : now()->toDateString();
 
         $timeSlots = $appointment->services
-            ->filter(fn ($service) =>
+            ->filter(
+                fn($service) =>
                 ! empty($service->pivot->starts_at) &&
-                ! empty($service->pivot->ends_at)
+                    ! empty($service->pivot->ends_at)
             )
             ->map(function ($service) {
                 return [
@@ -496,17 +509,25 @@ class AppointmentController extends Controller
     {
         $query = Appointment::with(['customer', 'services'])
             ->when($request->filled('professional_id'), function ($q) use ($request) {
-                $q->whereHas('services', fn ($sub) =>
+                $q->whereHas(
+                    'services',
+                    fn($sub) =>
                     $sub->where('professional_id', $request->professional_id)
                 );
             })
-            ->when($request->filled('status'), fn ($q) =>
+            ->when(
+                $request->filled('status'),
+                fn($q) =>
                 $q->where('status', $request->status)
             )
-            ->when($request->filled('start_date') && $request->filled('end_date'), fn ($q) =>
+            ->when(
+                $request->filled('start_date') && $request->filled('end_date'),
+                fn($q) =>
                 $q->whereBetween('date', [$request->start_date, $request->end_date])
             )
-            ->when($request->filled('date') && !$request->filled('start_date'), fn ($q) =>
+            ->when(
+                $request->filled('date') && !$request->filled('start_date'),
+                fn($q) =>
                 $q->whereDate('date', $request->date)
             )
             ->orderBy('date')
@@ -578,8 +599,8 @@ class AppointmentController extends Controller
 
                 $installmentFeeValue =
                     $appointment->payment_method === 'credit'
-                        ? ($totalAfterDiscount * $installmentFeePercent) / 100
-                        : 0;
+                    ? ($totalAfterDiscount * $installmentFeePercent) / 100
+                    : 0;
 
                 $finalPrice = $totalAfterDiscount + $installmentFeeValue;
 
@@ -643,7 +664,7 @@ class AppointmentController extends Controller
                         'professional_id'  => $professionalId,
                         'appointment_id'   => $appointment->id,
                         'service_id'       => $service->id,
-                        'commission_amount'=> $commissionAmount,
+                        'commission_amount' => $commissionAmount,
                     ]);
 
                     $account = AccountPayable::create([

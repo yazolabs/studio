@@ -14,6 +14,8 @@ import { useAccountsPayableQuery, useCreateAccountPayable, useUpdateAccountPayab
 import { displayCurrency, formatCurrencyInput } from "@/utils/formatters";
 import { CreateAccountPayableDto } from "@/types/account-payable";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { cn } from "@/lib/utils";
 
 export default function AccountsPayable() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -22,6 +24,8 @@ export default function AccountsPayable() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  const isMobile = useIsMobile();
 
   const { data, isLoading } = useAccountsPayableQuery({
     perPage: 200,
@@ -42,9 +46,11 @@ export default function AccountsPayable() {
     notes: "",
   });
 
+  const today = format(new Date(), "yyyy-MM-dd");
+
   const [paymentData, setPaymentData] = useState({
     payment_method: "",
-    payment_date: format(new Date(), "yyyy-MM-dd"),
+    payment_date: today,
   });
 
   const openCreate = () => {
@@ -64,7 +70,10 @@ export default function AccountsPayable() {
     setFormData({
       description: account.description ?? "",
       category: account.category ?? "",
-      amount: account.amount != null ? displayCurrency(account.amount) : "",
+      amount:
+        account.amount != null
+          ? formatCurrencyInput(String(account.amount))
+          : "",
       due_date: account.due_date ?? "",
       notes: account.notes ?? "",
     });
@@ -73,6 +82,10 @@ export default function AccountsPayable() {
 
   const openPaymentDialog = (id: number) => {
     setSelectedId(id);
+    setPaymentData({
+      payment_method: "",
+      payment_date: today,
+    });
     setIsPaymentDialogOpen(true);
   };
 
@@ -130,6 +143,7 @@ export default function AccountsPayable() {
       }
 
       setIsDialogOpen(false);
+      setEditingId(null);
     } catch (error: any) {
       toast.error(
         error?.response?.data?.message ??
@@ -150,6 +164,7 @@ export default function AccountsPayable() {
       await markPaidMutation.mutateAsync(selectedId);
       toast.success("Pagamento registrado com sucesso!");
       setIsPaymentDialogOpen(false);
+      setSelectedId(null);
     } catch (error: any) {
       toast.error(
         error?.response?.data?.message ??
@@ -177,8 +192,8 @@ export default function AccountsPayable() {
 
   const getStatusBadge = (status: string) => {
     const colors: Record<string, string> = {
-      pending: "bg-yellow-500",
-      paid: "bg-green-600",
+      pending: "bg-yellow-500 text-yellow-50",
+      paid: "bg-green-600 text-green-50",
     };
 
     const labels: Record<string, string> = {
@@ -186,7 +201,9 @@ export default function AccountsPayable() {
       paid: "Paga",
     };
 
-    return <Badge className={colors[status]}>{labels[status]}</Badge>;
+    return (
+      <Badge className={colors[status] ?? ""}>{labels[status] ?? status}</Badge>
+    );
   };
 
   const columns = [
@@ -207,7 +224,8 @@ export default function AccountsPayable() {
     {
       key: "amount",
       header: "Valor",
-      render: (row: any) => displayCurrency(row.amount),
+      render: (row: any) =>
+        displayCurrency(Number(row.amount) || 0),
     },
     {
       key: "status",
@@ -221,7 +239,7 @@ export default function AccountsPayable() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
-              size="icon"
+              size={isMobile ? "sm" : "icon"}
               variant="ghost"
               className="h-8 w-8"
             >
@@ -244,7 +262,9 @@ export default function AccountsPayable() {
                   Editar
                 </DropdownMenuItem>
 
-                <DropdownMenuItem onClick={() => openPaymentDialog(row.id)}>
+                <DropdownMenuItem
+                  onClick={() => openPaymentDialog(row.id)}
+                >
                   <Check className="mr-2 h-4 w-4" />
                   Registrar pagamento
                 </DropdownMenuItem>
@@ -285,7 +305,7 @@ export default function AccountsPayable() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-wrap justify-between items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold">Contas a Pagar</h1>
           <p className="text-muted-foreground">
@@ -293,7 +313,10 @@ export default function AccountsPayable() {
           </p>
         </div>
 
-        <Button onClick={openCreate}>
+        <Button
+          onClick={openCreate}
+          className={cn("shadow-md", isMobile && "w-full")}
+        >
           <Plus className="mr-2 h-4 w-4" />
           Nova Conta
         </Button>
@@ -325,92 +348,166 @@ export default function AccountsPayable() {
       <DataTable
         data={accounts}
         columns={columns}
+        loading={isLoading}
         emptyMessage="Nenhuma conta encontrada"
+        searchPlaceholder="Buscar contas..."
       />
 
-      <Dialog open={isDialogOpen} onOpenChange={() => setIsDialogOpen(false)}>
-        <DialogContent className="max-w-xl">
+      <Dialog
+        open={isDialogOpen}
+        onOpenChange={(open) => {
+          setIsDialogOpen(open);
+          if (!open) {
+            setEditingId(null);
+            setIsSaving(false);
+            setFormData({
+              description: "",
+              category: "",
+              amount: "",
+              due_date: "",
+              notes: "",
+            });
+          }
+        }}
+      >
+        <DialogContent
+          className={cn(
+            "max-h-[90vh]",
+            isMobile ? "max-w-[95vw]" : "max-w-2xl"
+          )}
+        >
           <DialogHeader>
             <DialogTitle>
               {editingId ? "Editar Conta" : "Nova Conta"}
             </DialogTitle>
           </DialogHeader>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label>Descrição *</Label>
-              <Input
-                value={formData.description}
-                onChange={(e) =>
-                  setFormData({ ...formData, description: e.target.value })
-                }
-                required
-              />
-            </div>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <section className="space-y-3">
+              <h3 className="text-sm font-medium text-muted-foreground">
+                Informações principais
+              </h3>
 
-            <div className="space-y-2">
-              <Label>Categoria *</Label>
-              <Input
-                value={formData.category}
-                onChange={(e) =>
-                  setFormData({ ...formData, category: e.target.value })
-                }
-                required
-              />
-            </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>
+                    Descrição <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    value={formData.description}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        description: e.target.value,
+                      })
+                    }
+                    required
+                    placeholder="Ex: Aluguel do salão"
+                  />
+                </div>
 
-            <div className="space-y-2">
-              <Label>Valor *</Label>
-              <Input
-                type="text"
-                inputMode="decimal"
-                value={formData.amount}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    amount: formatCurrencyInput(e.target.value),
-                  })
-                }
-                placeholder="R$ 0,00"
-                required
-              />
-            </div>
+                <div className="space-y-2">
+                  <Label>
+                    Categoria <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    value={formData.category}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        category: e.target.value,
+                      })
+                    }
+                    required
+                    placeholder="Ex: Fixas, Fornecedores..."
+                  />
+                </div>
+              </div>
+            </section>
 
-            <div className="space-y-2">
-              <Label>Data de Vencimento *</Label>
-              <Input
-                type="date"
-                value={formData.due_date}
-                onChange={(e) =>
-                  setFormData({ ...formData, due_date: e.target.value })
-                }
-                required
-              />
-            </div>
+            <section className="space-y-3">
+              <h3 className="text-sm font-medium text-muted-foreground">
+                Valores e vencimento
+              </h3>
 
-            <div className="space-y-2">
-              <Label>Observações</Label>
-              <Textarea
-                rows={3}
-                value={formData.notes}
-                onChange={(e) =>
-                  setFormData({ ...formData, notes: e.target.value })
-                }
-              />
-            </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>
+                    Valor (R$) <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    type="text"
+                    inputMode="decimal"
+                    value={formData.amount}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        amount: formatCurrencyInput(e.target.value),
+                      })
+                    }
+                    placeholder="R$ 0,00"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>
+                    Data de Vencimento{" "}
+                    <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    type="date"
+                    value={formData.due_date}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        due_date: e.target.value,
+                      })
+                    }
+                    required
+                  />
+                </div>
+              </div>
+            </section>
+
+            <section className="space-y-3">
+              <h3 className="text-sm font-medium text-muted-foreground">
+                Observações
+              </h3>
+
+              <div className="space-y-2">
+                <Label>Observações</Label>
+                <Textarea
+                  rows={3}
+                  value={formData.notes}
+                  onChange={(e) =>
+                    setFormData({ ...formData, notes: e.target.value })
+                  }
+                  placeholder="Informações adicionais sobre a conta (opcional)"
+                />
+              </div>
+            </section>
 
             <DialogFooter>
               <Button
                 variant="outline"
                 type="button"
                 onClick={() => setIsDialogOpen(false)}
-                disabled={isSaving || createMutation.isPending || updateMutation.isPending}
+                disabled={
+                  isSaving ||
+                  createMutation.isPending ||
+                  updateMutation.isPending
+                }
               >
                 Cancelar
               </Button>
               <Button
                 type="submit"
-                disabled={isSaving || createMutation.isPending || updateMutation.isPending}
+                disabled={
+                  isSaving ||
+                  createMutation.isPending ||
+                  updateMutation.isPending
+                }
               >
                 {editingId ? "Atualizar" : "Cadastrar"}
               </Button>
@@ -419,47 +516,86 @@ export default function AccountsPayable() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isPaymentDialogOpen} onOpenChange={() => setIsPaymentDialogOpen(false)}>
-        <DialogContent>
+      <Dialog
+        open={isPaymentDialogOpen}
+        onOpenChange={(open) => {
+          setIsPaymentDialogOpen(open);
+          if (!open) {
+            setSelectedId(null);
+            setPaymentData({
+              payment_method: "",
+              payment_date: today,
+            });
+          }
+        }}
+      >
+        <DialogContent
+          className={cn(
+            "max-h-[90vh]",
+            isMobile ? "max-w-[95vw]" : "max-w-md"
+          )}
+        >
           <DialogHeader>
             <DialogTitle>Registrar Pagamento</DialogTitle>
           </DialogHeader>
 
-          <form onSubmit={handlePayment} className="space-y-4">
-            <div className="space-y-2">
-              <Label>Forma de Pagamento *</Label>
-              <Select
-                value={paymentData.payment_method}
-                onValueChange={(v) =>
-                  setPaymentData({ ...paymentData, payment_method: v })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cash">Dinheiro</SelectItem>
-                  <SelectItem value="pix">PIX</SelectItem>
-                  <SelectItem value="debit">Débito</SelectItem>
-                  <SelectItem value="credit">Crédito</SelectItem>
-                  <SelectItem value="boleto">Boleto</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <form onSubmit={handlePayment} className="space-y-6">
+            <section className="space-y-3">
+              <h3 className="text-sm font-medium text-muted-foreground">
+                Dados do pagamento
+              </h3>
 
-            <div className="space-y-2">
-              <Label>Data do Pagamento *</Label>
-              <Input
-                type="date"
-                value={paymentData.payment_date}
-                onChange={(e) =>
-                  setPaymentData({ ...paymentData, payment_date: e.target.value })
-                }
-              />
-            </div>
+              <div className="space-y-2">
+                <Label>
+                  Forma de Pagamento{" "}
+                  <span className="text-red-500">*</span>
+                </Label>
+                <Select
+                  value={paymentData.payment_method}
+                  onValueChange={(v) =>
+                    setPaymentData({
+                      ...paymentData,
+                      payment_method: v,
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cash">Dinheiro</SelectItem>
+                    <SelectItem value="pix">PIX</SelectItem>
+                    <SelectItem value="debit">Débito</SelectItem>
+                    <SelectItem value="credit">Crédito</SelectItem>
+                    <SelectItem value="boleto">Boleto</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>
+                  Data do Pagamento{" "}
+                  <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  type="date"
+                  value={paymentData.payment_date}
+                  onChange={(e) =>
+                    setPaymentData({
+                      ...paymentData,
+                      payment_date: e.target.value,
+                    })
+                  }
+                />
+              </div>
+            </section>
 
             <DialogFooter>
-              <Button variant="outline" type="button" onClick={() => setIsPaymentDialogOpen(false)}>
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => setIsPaymentDialogOpen(false)}
+              >
                 Cancelar
               </Button>
               <Button type="submit" disabled={markPaidMutation.isPending}>
@@ -470,8 +606,21 @@ export default function AccountsPayable() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isDetailsDialogOpen} onOpenChange={() => setIsDetailsDialogOpen(false)}>
-        <DialogContent>
+      <Dialog
+        open={isDetailsDialogOpen}
+        onOpenChange={(open) => {
+          setIsDetailsDialogOpen(open);
+          if (!open) {
+            setSelectedId(null);
+          }
+        }}
+      >
+        <DialogContent
+          className={cn(
+            'max-h-[90vh]',
+            isMobile ? 'max-w-[95vw]' : 'max-w-2xl',
+          )}
+        >
           <DialogHeader>
             <DialogTitle>Detalhes da Conta</DialogTitle>
           </DialogHeader>
@@ -483,53 +632,83 @@ export default function AccountsPayable() {
                 if (!acc) return null;
 
                 return (
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <Label className="text-muted-foreground">Descrição</Label>
+                      <Label className="text-muted-foreground">
+                        Descrição
+                      </Label>
                       <p className="font-medium">{acc.description}</p>
                     </div>
 
                     <div>
-                      <Label className="text-muted-foreground">Categoria</Label>
+                      <Label className="text-muted-foreground">
+                        Categoria
+                      </Label>
                       <p className="font-medium">{acc.category}</p>
                     </div>
 
                     <div>
-                      <Label className="text-muted-foreground">Valor</Label>
-                      <p className="font-medium">{displayCurrency(acc.amount)}</p>
-                    </div>
-
-                    <div>
-                      <Label className="text-muted-foreground">Vencimento</Label>
+                      <Label className="text-muted-foreground">
+                        Valor
+                      </Label>
                       <p className="font-medium">
-                        {acc.due_date ? format(parseISO(acc.due_date), "dd/MM/yyyy") : "-"}
+                        {displayCurrency(Number(acc.amount) || 0)}
                       </p>
                     </div>
 
                     <div>
-                      <Label className="text-muted-foreground">Status</Label>
-                      <div className="mt-1">{getStatusBadge(acc.status)}</div>
+                      <Label className="text-muted-foreground">
+                        Vencimento
+                      </Label>
+                      <p className="font-medium">
+                        {acc.due_date
+                          ? format(
+                              parseISO(acc.due_date),
+                              "dd/MM/yyyy"
+                            )
+                          : "-"}
+                      </p>
+                    </div>
+
+                    <div>
+                      <Label className="text-muted-foreground">
+                        Status
+                      </Label>
+                      <div className="mt-1">
+                        {getStatusBadge(acc.status)}
+                      </div>
                     </div>
 
                     {acc.payment_date && (
                       <>
                         <div>
-                          <Label className="text-muted-foreground">Pagamento</Label>
+                          <Label className="text-muted-foreground">
+                            Pagamento
+                          </Label>
                           <p className="font-medium">
-                            {format(parseISO(acc.payment_date), "dd/MM/yyyy")}
+                            {format(
+                              parseISO(acc.payment_date),
+                              "dd/MM/yyyy"
+                            )}
                           </p>
                         </div>
 
                         <div>
-                          <Label className="text-muted-foreground">Forma</Label>
-                          <p className="font-medium">{acc.payment_method}</p>
+                          <Label className="text-muted-foreground">
+                            Forma
+                          </Label>
+                          <p className="font-medium">
+                            {acc.payment_method}
+                          </p>
                         </div>
                       </>
                     )}
 
                     {acc.notes && (
-                      <div className="col-span-2">
-                        <Label className="text-muted-foreground">Observações</Label>
+                      <div className="sm:col-span-2">
+                        <Label className="text-muted-foreground">
+                          Observações
+                        </Label>
                         <p className="font-medium">{acc.notes}</p>
                       </div>
                     )}

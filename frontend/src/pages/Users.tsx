@@ -6,10 +6,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/DataTable";
-import { Plus, Edit, Trash2, ChevronsUpDown, Check } from "lucide-react";
+import { Plus, Pencil, Trash2, ChevronsUpDown, Check } from "lucide-react";
 import { usePermission } from "@/hooks/usePermission";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { listUsers, createUser, updateUser, deleteUser } from "@/services/userService";
@@ -61,7 +61,8 @@ export default function Users() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: UpdateUserDto }) => updateUser(id, data),
+    mutationFn: ({ id, data }: { id: number; data: UpdateUserDto }) =>
+      updateUser(id, data),
     onSuccess: () => {
       toast.success("Usuário atualizado com sucesso!");
       queryClient.invalidateQueries({ queryKey: ["users"] });
@@ -162,8 +163,12 @@ export default function Users() {
       render: (user: User) => (
         <div className="flex gap-2">
           {can("users", "update") && (
-            <Button variant="ghost" size={isMobile ? "sm" : "icon"} onClick={() => handleEdit(user)}>
-              <Edit className="h-4 w-4" />
+            <Button
+              variant="ghost"
+              size={isMobile ? "sm" : "icon"}
+              onClick={() => handleEdit(user)}
+            >
+              <Pencil className="h-4 w-4" />
             </Button>
           )}
           {can("users", "delete") && (
@@ -181,17 +186,26 @@ export default function Users() {
   ];
 
   if (isLoading) return <p>Carregando usuários...</p>;
-  if (isError) return <p className="text-destructive">Erro ao carregar usuários.</p>;
+  if (isError) return (
+    <p className="text-destructive">Erro ao carregar usuários.</p>
+  );
+
+  const isSaving = createMutation.isPending || updateMutation.isPending;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Usuários</h1>
-          <p className="text-muted-foreground">Gerencie os usuários do sistema</p>
+          <p className="text-muted-foreground">
+            Gerencie os usuários do sistema
+          </p>
         </div>
         {can("users", "create") && (
-          <Button className={cn("shadow-md", isMobile && "w-full")} onClick={handleAdd}>
+          <Button
+            className={cn("shadow-md", isMobile && "w-full")}
+            onClick={handleAdd}
+          >
             <Plus className="mr-2 h-4 w-4" />
             Novo Usuário
           </Button>
@@ -223,144 +237,200 @@ export default function Users() {
       >
         <DialogContent
           className={cn(
-            "max-h-[90vh] overflow-y-auto",
-            isMobile ? "w-[95vw] max-w-full p-4" : "max-w-4xl"
+            "max-h-[90vh]",
+            isMobile ? "max-w-[95vw]" : "max-w-2xl"
           )}
         >
           <DialogHeader>
-            <DialogTitle>{editingUser ? "Editar Usuário" : "Novo Usuário"}</DialogTitle>
+            <DialogTitle>
+              {editingUser ? "Editar Usuário" : "Novo Usuário"}
+            </DialogTitle>
             <DialogDescription>
               Preencha os dados do usuário e defina seus perfis de acesso.
             </DialogDescription>
           </DialogHeader>
 
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Nome Completo</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Nome do usuário" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            <form
+              onSubmit={form.handleSubmit(onSubmit)}
+              className="space-y-6"
+            >
+              <section className="space-y-3">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Dados do usuário
+                </h3>
 
-              <div className={cn("grid gap-4", isMobile ? "grid-cols-1" : "grid-cols-2")}>
                 <FormField
                   control={form.control}
-                  name="email"
+                  name="name"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Email</FormLabel>
+                      <FormLabel>Nome Completo <span className="text-red-500">*</span></FormLabel>
                       <FormControl>
-                        <Input type="email" placeholder="email@example.com" {...field} />
+                        <Input placeholder="Nome do usuário" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
+
+                <div
+                  className={cn(
+                    "grid gap-4",
+                    isMobile ? "grid-cols-1" : "grid-cols-2"
+                  )}
+                >
+                  <FormField
+                    control={form.control}
+                    name="email"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Email <span className="text-red-500">*</span></FormLabel>
+                        <FormControl>
+                          <Input
+                            type="email"
+                            placeholder="email@example.com"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="username"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Nome de Usuário <span className="text-red-500">*</span></FormLabel>
+                        <FormControl>
+                          <Input placeholder="Nome de usuário" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </section>
+
+              <section className="space-y-3">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Segurança
+                </h3>
+
                 <FormField
                   control={form.control}
-                  name="username"
+                  name="password"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Nome de Usuário</FormLabel>
+                      <FormLabel>Senha</FormLabel>
                       <FormControl>
-                        <Input placeholder="Nome de usuário" {...field} />
+                        <Input
+                          type="password"
+                          placeholder={
+                            editingUser
+                              ? "Deixe em branco para manter a senha atual"
+                              : "Senha do usuário"
+                          }
+                          {...field}
+                        />
                       </FormControl>
+                      {editingUser && (
+                        <FormDescription>
+                          Se você não informar uma nova senha, a senha atual será mantida.
+                        </FormDescription>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-              </div>
+              </section>
 
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Senha</FormLabel>
-                    <FormControl>
-                      <Input type="password" placeholder="Senha do usuário" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <section className="space-y-3">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Perfis de acesso
+                </h3>
 
-              <FormField
-                control={form.control}
-                name="roles"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Perfis de Acesso</FormLabel>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          role="combobox"
+                <FormField
+                  control={form.control}
+                  name="roles"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Perfis de Acesso</FormLabel>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            role="combobox"
+                            className={cn(
+                              "justify-between w-full",
+                              !field.value?.length && "text-muted-foreground"
+                            )}
+                          >
+                            {field.value?.length
+                              ? `${field.value.length} perfil${
+                                  field.value.length > 1 ? "es" : ""
+                                } selecionado${
+                                  field.value.length > 1 ? "s" : ""
+                                }`
+                              : "Selecionar perfis"}
+                            <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent
                           className={cn(
-                            "justify-between",
-                            "w-full",
-                            !field.value?.length && "text-muted-foreground"
+                            "p-0",
+                            isMobile ? "w-[90vw]" : "w-[300px]"
                           )}
                         >
-                          {field.value?.length
-                            ? `${field.value.length} perfil${
-                                field.value.length > 1 ? "es" : ""
-                              } selecionado${field.value.length > 1 ? "s" : ""}`
-                            : "Selecionar perfis"}
-                          <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent
-                        className={cn("p-0", isMobile ? "w-[90vw]" : "w-[300px]")}
-                      >
-                        <Command>
-                          <CommandInput placeholder="Buscar perfil..." />
-                          <CommandList>
-                            <CommandEmpty>Nenhum perfil encontrado.</CommandEmpty>
-                            <CommandGroup>
-                              {rolesData.map((role: Role) => {
-                                const isSelected = field.value?.includes(role.id);
-                                return (
-                                  <CommandItem
-                                    key={role.id}
-                                    onSelect={() => {
-                                      const newRoles = isSelected
-                                        ? field.value.filter((id) => id !== role.id)
-                                        : [...(field.value || []), role.id];
-                                      field.onChange(newRoles);
-                                    }}
-                                  >
-                                    <div
-                                      className={cn(
-                                        "mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary",
-                                        isSelected &&
-                                          "bg-primary text-primary-foreground"
-                                      )}
+                          <Command>
+                            <CommandInput placeholder="Buscar perfil..." />
+                            <CommandList>
+                              <CommandEmpty>
+                                Nenhum perfil encontrado.
+                              </CommandEmpty>
+                              <CommandGroup>
+                                {rolesData.map((role: Role) => {
+                                  const isSelected =
+                                    field.value?.includes(role.id);
+                                  return (
+                                    <CommandItem
+                                      key={role.id}
+                                      onSelect={() => {
+                                        const newRoles = isSelected
+                                          ? field.value.filter(
+                                              (id) => id !== role.id
+                                            )
+                                          : [...(field.value || []), role.id];
+                                        field.onChange(newRoles);
+                                      }}
                                     >
-                                      {isSelected && <Check className="h-3 w-3" />}
-                                    </div>
-                                    {role.name}
-                                  </CommandItem>
-                                );
-                              })}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                                      <div
+                                        className={cn(
+                                          "mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary",
+                                          isSelected &&
+                                            "bg-primary text-primary-foreground"
+                                        )}
+                                      >
+                                        {isSelected && (
+                                          <Check className="h-3 w-3" />
+                                        )}
+                                      </div>
+                                      {role.name}
+                                    </CommandItem>
+                                  );
+                                })}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </section>
 
               <DialogFooter
                 className={cn(isMobile && "flex-col space-y-2", "pt-2")}
@@ -375,10 +445,14 @@ export default function Users() {
                 </Button>
                 <Button
                   type="submit"
-                  disabled={createMutation.isPending || updateMutation.isPending}
+                  disabled={isSaving}
                   className={cn(isMobile && "w-full")}
                 >
-                  {editingUser ? "Atualizar" : "Cadastrar"}
+                  {isSaving
+                    ? "Salvando..."
+                    : editingUser
+                    ? "Atualizar"
+                    : "Cadastrar"}
                 </Button>
               </DialogFooter>
             </form>

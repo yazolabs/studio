@@ -1,34 +1,43 @@
-import { useEffect, useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { DataTable } from '@/components/DataTable';
-import { Plus, Edit } from 'lucide-react';
-import { usePermission } from '@/hooks/usePermission';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
-import { toast } from '@/hooks/use-toast';
-import { format } from 'date-fns';
-import { listItems } from '@/services/itemsService';
-import { listItemPrices, createItemPrice, updateItemPrice } from '@/services/itemPricesService';
-import type { Item } from '@/types/item';
-import type { ItemPrice, CreateItemPriceDto } from '@/types/item-price';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { cn } from '@/lib/utils';
-import { formatCurrencyInput, displayCurrency } from '@/utils/formatters';
+import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { DataTable } from "@/components/DataTable";
+import { Plus, Pencil } from "lucide-react";
+import { usePermission } from "@/hooks/usePermission";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
+import { toast } from "@/hooks/use-toast";
+import { format } from "date-fns";
+import { listItems } from "@/services/itemsService";
+import { listItemPrices, createItemPrice, updateItemPrice } from "@/services/itemPricesService";
+import type { Item } from "@/types/item";
+import type { ItemPrice, CreateItemPriceDto } from "@/types/item-price";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { cn } from "@/lib/utils";
+import { formatCurrencyInput, displayCurrency, displayPercentage } from "@/utils/formatters";
 
 const priceSchema = z.object({
-  item_id: z.string().min(1, 'Item é obrigatório'),
-  cost: z.coerce.number().min(0, 'Preço de custo inválido'),
-  price: z.coerce.number().min(0, 'Preço de venda inválido'),
+  item_id: z.string().min(1, "Item é obrigatório"),
+  cost: z.coerce.number().min(0, "Preço de custo inválido"),
+  price: z.coerce.number().min(0, "Preço de venda inválido"),
   margin: z.coerce.number().optional(),
   notes: z.string().trim().max(200).optional(),
 });
+
+type PriceFormData = z.infer<typeof priceSchema>;
+
+const defaultFormValues: PriceFormData = {
+  item_id: "",
+  cost: 0,
+  price: 0,
+  margin: 0,
+  notes: "",
+};
 
 export default function ItemPrices() {
   const [itemPrices, setItemPrices] = useState<ItemPrice[]>([]);
@@ -39,15 +48,9 @@ export default function ItemPrices() {
   const { can } = usePermission();
   const isMobile = useIsMobile();
 
-  const form = useForm<z.infer<typeof priceSchema>>({
+  const form = useForm<PriceFormData>({
     resolver: zodResolver(priceSchema),
-    defaultValues: {
-      item_id: '',
-      cost: 0,
-      price: 0,
-      margin: 0,
-      notes: '',
-    },
+    defaultValues: defaultFormValues,
   });
 
   function extractData<T>(response: T[] | { data: T[] }): T[] {
@@ -68,10 +71,11 @@ export default function ItemPrices() {
       setItemPrices(extractData<ItemPrice>(pricesData));
     } catch (err: any) {
       toast({
-        title: 'Erro ao carregar dados',
+        title: "Erro ao carregar dados",
         description:
-          err?.response?.data?.message ?? 'Não foi possível carregar os preços.',
-        variant: 'destructive',
+          err?.response?.data?.message ??
+          "Não foi possível carregar os preços.",
+        variant: "destructive",
       });
     } finally {
       setLoading(false);
@@ -90,17 +94,11 @@ export default function ItemPrices() {
         cost: Number(price.cost ?? 0),
         price: Number(price.price ?? 0),
         margin: Number(price.margin ?? 0),
-        notes: price.notes ?? '',
+        notes: price.notes ?? "",
       });
     } else {
       setEditing(null);
-      form.reset({
-        item_id: '',
-        cost: 0,
-        price: 0,
-        margin: 0,
-        notes: '',
-      });
+      form.reset(defaultFormValues);
     }
     setIsDialogOpen(true);
   };
@@ -108,20 +106,22 @@ export default function ItemPrices() {
   const handleCloseDialog = () => {
     setEditing(null);
     setIsDialogOpen(false);
+    form.reset(defaultFormValues);
   };
 
-  const onSubmit = async (values: z.infer<typeof priceSchema>) => {
+  const onSubmit = async (values: PriceFormData) => {
+    const costNumber = Number(values.cost) || 0;
+    const priceNumber = Number(values.price) || 0;
+
     const marginPercent =
-      values.cost > 0
-        ? ((values.price - values.cost) / values.cost) * 100
-        : 0;
+      costNumber > 0 ? ((priceNumber - costNumber) / costNumber) * 100 : 0;
 
     const payload: CreateItemPriceDto = {
       item_id: Number(values.item_id),
-      price: values.price.toFixed(2),
-      cost: values.cost.toFixed(2),
+      price: priceNumber.toFixed(2),
+      cost: costNumber.toFixed(2),
       margin: marginPercent.toFixed(2),
-      effective_date: format(new Date(), 'yyyy-MM-dd'),
+      effective_date: format(new Date(), "yyyy-MM-dd"),
       notes: values.notes ?? null,
     };
 
@@ -129,76 +129,81 @@ export default function ItemPrices() {
       if (editing) {
         await updateItemPrice(editing.id, payload);
         toast({
-          title: 'Preço atualizado',
-          description: 'Alterações salvas com sucesso.',
+          title: "Preço atualizado",
+          description: "Alterações salvas com sucesso.",
         });
       } else {
         await createItemPrice(payload);
         toast({
-          title: 'Preço cadastrado',
-          description: 'Novo preço adicionado com sucesso.',
+          title: "Preço cadastrado",
+          description: "Novo preço adicionado com sucesso.",
         });
       }
       handleCloseDialog();
       await load();
     } catch (err: any) {
       toast({
-        title: 'Erro ao salvar preço',
+        title: "Erro ao salvar preço",
         description:
           err?.response?.data?.message ??
-          'Verifique os campos e tente novamente.',
-        variant: 'destructive',
+          "Verifique os campos e tente novamente.",
+        variant: "destructive",
       });
     }
   };
 
   const columns = [
     {
-      key: 'item_id',
-      header: 'Item',
-      render: (p: ItemPrice) => items.find((i) => i.id === p.item_id)?.name ?? '-',
-    },
-    {
-      key: 'price',
-      header: 'Preço Venda',
-      render: (p: ItemPrice) => `R$ ${Number(p.price).toFixed(2)}`,
-    },
-    {
-      key: 'cost',
-      header: 'Custo',
-      render: (p: ItemPrice) => `R$ ${Number(p.cost).toFixed(2)}`,
-    },
-    {
-      key: 'margin',
-      header: 'Margem',
+      key: "item_id",
+      header: "Item",
       render: (p: ItemPrice) =>
-        p.margin ? `${Number(p.margin).toFixed(1)}%` : '-',
+        items.find((i) => i.id === p.item_id)?.name ?? "-",
     },
     {
-      key: 'effective_date',
-      header: 'Vigência',
+      key: "price",
+      header: "Preço Venda",
+      render: (p: ItemPrice) =>
+        displayCurrency(Number(p.price) || 0),
+    },
+    {
+      key: "cost",
+      header: "Custo",
+      render: (p: ItemPrice) =>
+        displayCurrency(Number(p.cost) || 0),
+    },
+    {
+      key: "margin",
+      header: "Margem",
+      render: (p: ItemPrice) =>
+        p.margin != null
+          ? `${displayPercentage(Number(p.margin) || 0)}%`
+          : "-",
+    },
+    {
+      key: "effective_date",
+      header: "Vigência",
       render: (p: ItemPrice) =>
         p.effective_date
-          ? new Date(p.effective_date).toLocaleDateString('pt-BR')
-          : '-',
+          ? new Date(p.effective_date).toLocaleDateString("pt-BR")
+          : "-",
     },
     {
-      key: 'notes',
-      header: 'Observações',
-      render: (p: ItemPrice) => p.notes ?? '-',
+      key: "notes",
+      header: "Observações",
+      render: (p: ItemPrice) => p.notes ?? "-",
     },
     {
-      key: 'actions',
-      header: 'Ações',
+      key: "actions",
+      header: "Ações",
       render: (p: ItemPrice) => (
         <div className="flex gap-2">
-          {can('item-prices', 'update') && (
+          {can("item-prices", "update") && (
             <Button
               variant="ghost"
-              size="icon"
+              size={isMobile ? "sm" : "icon"}
               onClick={() => handleOpenDialog(p)}
             >
-              <Edit className="h-4 w-4" />
+              <Pencil className="h-4 w-4" />
             </Button>
           )}
         </div>
@@ -206,8 +211,16 @@ export default function ItemPrices() {
     },
   ];
 
-  const selecteditem_id = form.watch('item_id');
+  const selecteditem_id = form.watch("item_id");
   const selectedItem = items.find((i) => String(i.id) === selecteditem_id);
+
+  const watchedCost = Number(form.watch("cost") || 0);
+  const watchedPrice = Number(form.watch("price") || 0);
+  const hasMargin = watchedCost > 0 && watchedPrice > 0;
+  const profit = hasMargin ? watchedPrice - watchedCost : 0;
+  const marginPercent = hasMargin
+    ? ((watchedPrice - watchedCost) / watchedCost) * 100
+    : 0;
 
   return (
     <div className="space-y-6">
@@ -218,9 +231,9 @@ export default function ItemPrices() {
             Gerencie os preços e margens de lucro dos produtos
           </p>
         </div>
-        {can('item-prices', 'create') && (
+        {can("item-prices", "create") && (
           <Button
-            className={cn('shadow-md', isMobile && 'w-full')}
+            className={cn("shadow-md", isMobile && "w-full")}
             onClick={() => handleOpenDialog()}
           >
             <Plus className="mr-2 h-4 w-4" />
@@ -236,159 +249,208 @@ export default function ItemPrices() {
         loading={loading}
       />
 
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent
-          className={
-            isMobile
-              ? 'max-w-[95vw] h-[90vh] overflow-y-auto'
-              : 'max-w-lg max-h-[90vh] overflow-y-auto'
+      <Dialog
+        open={isDialogOpen}
+        onOpenChange={(open) => {
+          setIsDialogOpen(open);
+          if (!open) {
+            setEditing(null);
+            form.reset(defaultFormValues);
           }
+        }}
+      >
+        <DialogContent
+          className={cn(
+            "max-h-[90vh]",
+            isMobile ? "max-w-[95vw]" : "max-w-2xl"
+          )}
         >
           <DialogHeader>
-            <DialogTitle>{editing ? 'Editar Preço' : 'Novo Preço'}</DialogTitle>
+            <DialogTitle>
+              {editing ? "Editar Preço" : "Novo Preço"}
+            </DialogTitle>
             <DialogDescription>
               Defina o preço, custo e margem de lucro do item selecionado.
             </DialogDescription>
           </DialogHeader>
 
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="item_id"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Item *</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                      disabled={!!editing}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione o item" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {items.map((i) => (
-                          <SelectItem key={i.id} value={String(i.id)}>
-                            {i.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+              {/* Seção: Item */}
+              <section className="space-y-3">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Item
+                </h3>
 
-              {selectedItem && (
-                <div className="p-3 bg-muted rounded-md text-sm">
-                  <p className="font-medium">{selectedItem.name}</p>
-                  <div className="flex justify-between mt-2 text-muted-foreground text-sm">
-                    <span>
-                      Custo atual: R$ {Number(selectedItem.cost ?? 0).toFixed(2)}
-                    </span>
-                    <span>
-                      Venda atual: R$ {Number(selectedItem.price ?? 0).toFixed(2)}
-                    </span>
+                <FormField
+                  control={form.control}
+                  name="item_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        Item <span className="text-red-500">*</span>
+                      </FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                        disabled={!!editing}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione o item" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {items.map((i) => (
+                            <SelectItem key={i.id} value={String(i.id)}>
+                              {i.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {selectedItem && (
+                  <div className="p-3 bg-muted rounded-md text-sm">
+                    <p className="font-medium">{selectedItem.name}</p>
+                    <div className="flex justify-between mt-2 text-muted-foreground text-sm">
+                      <span>
+                        Custo atual:{" "}
+                        {displayCurrency(Number(selectedItem.cost ?? 0) || 0)}
+                      </span>
+                      <span>
+                        Venda atual:{" "}
+                        {displayCurrency(Number(selectedItem.price ?? 0) || 0)}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="cost"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Preço de Custo *</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="Ex: R$ 10,00"
-                          value={
-                            Number(field.value) > 1
-                              ? displayCurrency(field.value)
-                              : formatCurrencyInput(field.value?.toString() || '')
-                          }
-                          onChange={(e) => {
-                            const formatted = formatCurrencyInput(e.target.value);
-                            field.onChange(
-                              formatted.replace(/[^\d,]/g, '').replace(',', '.')
-                            );
-                          }}
-                        />
-                      </FormControl>
-                      <FormDescription>Preço pago ao fornecedor</FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="price"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Preço de Venda *</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="Ex: R$ 25,00"
-                          value={
-                            Number(field.value) > 1
-                              ? displayCurrency(field.value)
-                              : formatCurrencyInput(field.value?.toString() || '')
-                          }
-                          onChange={(e) => {
-                            const formatted = formatCurrencyInput(e.target.value);
-                            field.onChange(
-                              formatted.replace(/[^\d,]/g, '').replace(',', '.')
-                            );
-                          }}
-                        />
-                      </FormControl>
-                      <FormDescription>Preço cobrado ao cliente</FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              {form.watch('cost') > 0 && form.watch('price') > 0 && (
-                <div className="p-3 bg-muted rounded-md text-sm">
-                  <p className="font-medium">Margem de Lucro Estimada</p>
-                  <p className="text-2xl font-bold mt-1">
-                    {(
-                      ((form.watch('price') - form.watch('cost')) /
-                        form.watch('cost')) *
-                      100
-                    ).toFixed(1)}
-                    %
-                  </p>
-                  <p className="text-muted-foreground">
-                    Lucro unitário: R${' '}
-                    {(form.watch('price') - form.watch('cost')).toFixed(2)}
-                  </p>
-                </div>
-              )}
-
-              <FormField
-                control={form.control}
-                name="notes"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Observações</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder="Motivo da alteração (opcional)"
-                        className="resize-none"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
                 )}
-              />
+              </section>
+
+              {/* Seção: Preços e margem */}
+              <section className="space-y-3">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Preços e margem
+                </h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="cost"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          Preço de Custo <span className="text-red-500">*</span>
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="Ex: R$ 10,00"
+                            value={
+                              Number(field.value) > 1
+                                ? displayCurrency(Number(field.value))
+                                : formatCurrencyInput(
+                                    field.value?.toString() || ""
+                                  )
+                            }
+                            onChange={(e) => {
+                              const formatted = formatCurrencyInput(
+                                e.target.value
+                              );
+                              field.onChange(
+                                formatted
+                                  .replace(/[^\d,]/g, "")
+                                  .replace(",", ".")
+                              );
+                            }}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Preço pago ao fornecedor
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="price"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          Preço de Venda <span className="text-red-500">*</span>
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="Ex: R$ 25,00"
+                            value={
+                              Number(field.value) > 1
+                                ? displayCurrency(Number(field.value))
+                                : formatCurrencyInput(
+                                    field.value?.toString() || ""
+                                  )
+                            }
+                            onChange={(e) => {
+                              const formatted = formatCurrencyInput(
+                                e.target.value
+                              );
+                              field.onChange(
+                                formatted
+                                  .replace(/[^\d,]/g, "")
+                                  .replace(",", ".")
+                              );
+                            }}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Preço cobrado ao cliente
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                {hasMargin && (
+                  <div className="p-3 bg-muted rounded-md text-sm">
+                    <p className="font-medium">Margem de Lucro Estimada</p>
+                    <p className="text-2xl font-bold mt-1">
+                      {displayPercentage(marginPercent)}%
+                    </p>
+                    <p className="text-muted-foreground">
+                      Lucro unitário: {displayCurrency(profit)}
+                    </p>
+                  </div>
+                )}
+              </section>
+
+              {/* Seção: Observações */}
+              <section className="space-y-3">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Observações
+                </h3>
+
+                <FormField
+                  control={form.control}
+                  name="notes"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Observações</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          placeholder="Motivo da alteração (opcional)"
+                          className="resize-none"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </section>
 
               <DialogFooter>
                 <Button
@@ -399,7 +461,7 @@ export default function ItemPrices() {
                   Cancelar
                 </Button>
                 <Button type="submit">
-                  {editing ? 'Salvar Alterações' : 'Criar Preço'}
+                  {editing ? "Salvar Alterações" : "Criar Preço"}
                 </Button>
               </DialogFooter>
             </form>

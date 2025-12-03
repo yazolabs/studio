@@ -5,9 +5,9 @@ import * as z from "zod";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/DataTable";
-import { Plus, Edit, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2 } from "lucide-react";
 import { usePermission } from "@/hooks/usePermission";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -39,11 +39,23 @@ const serviceSchema = z.object({
   description: z.string().min(1, "Descrição é obrigatória").max(500),
   status: z.enum(["active", "inactive"]),
   commission_type: z.enum(["percentage", "fixed"]),
-  commission_value: z
-    .coerce
+  commission_value: z.coerce
     .number()
     .min(0, "Valor da comissão deve ser positivo"),
 });
+
+type ServiceFormData = z.infer<typeof serviceSchema>;
+
+const defaultFormValues: ServiceFormData = {
+  name: "",
+  category: "",
+  duration: 30,
+  price: 0,
+  description: "",
+  status: "active",
+  commission_type: "percentage",
+  commission_value: 40,
+};
 
 export default function Services() {
   const [services, setServices] = useState<Service[]>([]);
@@ -58,18 +70,9 @@ export default function Services() {
   const { toast } = useToast();
   const isMobile = useIsMobile();
 
-  const form = useForm<z.infer<typeof serviceSchema>>({
+  const form = useForm<ServiceFormData>({
     resolver: zodResolver(serviceSchema),
-    defaultValues: {
-      name: "",
-      category: "",
-      duration: 30,
-      price: 0,
-      description: "",
-      status: "active",
-      commission_type: "percentage",
-      commission_value: 40,
-    },
+    defaultValues: defaultFormValues,
   });
 
   async function load() {
@@ -94,16 +97,7 @@ export default function Services() {
 
   const handleAdd = () => {
     setEditingService(null);
-    form.reset({
-      name: "",
-      category: "",
-      duration: 30,
-      price: 0,
-      description: "",
-      status: "active",
-      commission_type: "percentage",
-      commission_value: 40,
-    });
+    form.reset(defaultFormValues);
     setDialogOpen(true);
   };
 
@@ -148,7 +142,7 @@ export default function Services() {
     }
   };
 
-  const onSubmit = async (values: z.infer<typeof serviceSchema>) => {
+  const onSubmit = async (values: ServiceFormData) => {
     const payload: CreateServiceDto = {
       name: values.name,
       description: values.description || null,
@@ -175,7 +169,7 @@ export default function Services() {
         });
       }
       setDialogOpen(false);
-      form.reset();
+      form.reset(defaultFormValues);
       await load();
     } catch (err: any) {
       toast({
@@ -204,8 +198,7 @@ export default function Services() {
     {
       key: "price",
       header: "Preço",
-      render: (s: Service) =>
-        `R$ ${Number(s.price).toFixed(2).replace(".", ",")}`,
+      render: (s: Service) => displayCurrency(Number(s.price) || 0),
     },
     {
       key: "status",
@@ -222,14 +215,18 @@ export default function Services() {
       render: (s: Service) => (
         <div className="flex gap-2">
           {can("services", "update") && (
-            <Button variant="ghost" size="icon" onClick={() => handleEdit(s)}>
-              <Edit className="h-4 w-4" />
+            <Button
+              variant="ghost"
+              size={isMobile ? "sm" : "icon"}
+              onClick={() => handleEdit(s)}
+            >
+              <Pencil className="h-4 w-4" />
             </Button>
           )}
           {can("services", "delete") && (
             <Button
               variant="ghost"
-              size="icon"
+              size={isMobile ? "sm" : "icon"}
               onClick={() => handleDelete(Number(s.id))}
             >
               <Trash2 className="h-4 w-4 text-destructive" />
@@ -267,10 +264,19 @@ export default function Services() {
         loading={loading}
       />
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) {
+            setEditingService(null);
+            form.reset(defaultFormValues);
+          }
+        }}
+      >
         <DialogContent
           className={cn(
-            "max-h-[90vh] overflow-y-auto",
+            "max-h-[90vh]",
             isMobile ? "max-w-[95vw]" : "max-w-2xl"
           )}
         >
@@ -286,219 +292,249 @@ export default function Services() {
           </DialogHeader>
 
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Nome</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Nome do serviço" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+              <section className="space-y-3">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Informações gerais
+                </h3>
 
-                <FormField
-                  control={form.control}
-                  name="category"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Categoria</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value || undefined}
-                      >
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="name"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Nome <span className="text-red-500">*</span></FormLabel>
                         <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecione a categoria" />
-                          </SelectTrigger>
+                          <Input placeholder="Nome do serviço" {...field} />
                         </FormControl>
-                        <SelectContent>
-                          {SERVICE_CATEGORIES.map((cat) => (
-                            <SelectItem key={cat} value={cat}>
-                              {cat}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="category"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Categoria</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value || undefined}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione a categoria" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {SERVICE_CATEGORIES.map((cat) => (
+                              <SelectItem key={cat} value={cat}>
+                                {cat}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="status"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Status</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="active">Ativo</SelectItem>
+                            <SelectItem value="inactive">Inativo</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </section>
+
+              <section className="space-y-3">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Preço e duração
+                </h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="duration"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Duração (min)</FormLabel>
+                        <FormControl>
+                          <Input type="number" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="price"
+                    render={({ field }) => (
+                      <FormItem className="sm:col-span-2">
+                        <FormLabel>Preço (R$) <span className="text-red-500">*</span></FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="R$ 0,00"
+                            value={
+                              Number(field.value) > 1
+                                ? displayCurrency(Number(field.value))
+                                : formatCurrencyInput(
+                                    field.value?.toString() || ""
+                                  )
+                            }
+                            onChange={(e) => {
+                              const formatted = formatCurrencyInput(
+                                e.target.value
+                              );
+                              field.onChange(
+                                formatted
+                                  .replace(/[^\d,]/g, "")
+                                  .replace(",", ".")
+                              );
+                            }}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </section>
+
+              <section className="space-y-3">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Comissão
+                </h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="commission_type"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Tipo de Comissão</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="percentage">
+                              Percentual (%)
+                            </SelectItem>
+                            <SelectItem value="fixed">
+                              Valor Fixo (R$)
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="commission_value"
+                    render={({ field }) => {
+                      const type = form.watch("commission_type");
+
+                      return (
+                        <FormItem>
+                          <FormLabel>
+                            {type === "percentage"
+                              ? "Percentual (%)"
+                              : "Valor Fixo (R$)"}
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder={
+                                type === "percentage"
+                                  ? "Ex: 5,00"
+                                  : "Ex: R$ 15,00"
+                              }
+                              value={
+                                type === "percentage"
+                                  ? displayPercentage(field.value)
+                                  : Number(field.value) > 1
+                                    ? displayCurrency(Number(field.value))
+                                    : formatCurrencyInput(field.value?.toString() || "")
+                              }
+                              onChange={(e) => {
+                                const value = e.target.value;
+
+                                if (type === "percentage") {
+                                  const formatted = formatPercentageInput(value);
+                                  field.onChange(formatted.replace(",", "."));
+                                } else {
+                                  const formatted = formatCurrencyInput(value);
+                                  field.onChange(
+                                    formatted
+                                      .replace(/[^\d,]/g, "")
+                                      .replace(",", ".")
+                                  );
+                                }
+                              }}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      );
+                    }}
+                  />
+                </div>
+              </section>
+
+              <section className="space-y-3">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Descrição
+                </h3>
+
                 <FormField
                   control={form.control}
-                  name="duration"
+                  name="description"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Duração (min)</FormLabel>
+                      <FormLabel>Descrição Detalhada <span className="text-red-500">*</span></FormLabel>
                       <FormControl>
-                        <Input type="number" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="price"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Preço (R$)</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="R$ 0,00"
-                          value={
-                            Number(field.value) > 1
-                              ? displayCurrency(field.value)
-                              : formatCurrencyInput(
-                                  field.value?.toString() || ""
-                                )
-                          }
-                          onChange={(e) => {
-                            const formatted = formatCurrencyInput(
-                              e.target.value
-                            );
-                            field.onChange(
-                              formatted
-                                .replace(/[^\d,]/g, "")
-                                .replace(",", ".")
-                            );
-                          }}
+                        <Textarea
+                          placeholder="Descreva o serviço em detalhes..."
+                          className="min-h-[100px]"
+                          {...field}
                         />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={form.control}
-                  name="status"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Status</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecione" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="active">Ativo</SelectItem>
-                          <SelectItem value="inactive">Inativo</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="commission_type"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Tipo de Comissão</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecione" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="percentage">
-                            Percentual (%)
-                          </SelectItem>
-                          <SelectItem value="fixed">Valor Fixo (R$)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="commission_value"
-                  render={({ field }) => {
-                    const type = form.watch("commission_type");
-
-                    return (
-                      <FormItem>
-                        <FormLabel>
-                          {type === "percentage"
-                            ? "Percentual (%)"
-                            : "Valor Fixo (R$)"}
-                        </FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder={
-                              type === "percentage"
-                                ? "Ex: 5,00"
-                                : "Ex: R$ 15,00"
-                            }
-                            value={
-                              type === "percentage"
-                                ? displayPercentage(field.value)
-                                : formatCurrencyInput(
-                                    field.value?.toString() || ""
-                                  )
-                            }
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              if (type === "percentage") {
-                                const formatted =
-                                  formatPercentageInput(value);
-                                field.onChange(formatted.replace(",", "."));
-                              } else {
-                                const formatted =
-                                  formatCurrencyInput(value);
-                                field.onChange(
-                                  formatted
-                                    .replace(/[^\d,]/g, "")
-                                    .replace(",", ".")
-                                );
-                              }
-                            }}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    );
-                  }}
-                />
-              </div>
-
-              <FormField
-                control={form.control}
-                name="description"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Descrição Detalhada</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder="Descreva o serviço em detalhes..."
-                        className="min-h-[100px]"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              </section>
 
               <DialogFooter>
                 <Button
@@ -517,7 +553,10 @@ export default function Services() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      <AlertDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>

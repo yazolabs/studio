@@ -5,7 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/DataTable";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -51,6 +51,8 @@ export default function Customers() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [isFetchingCep, setIsFetchingCep] = useState(false);
+
   const { toast } = useToast();
   const { can } = usePermission();
   const isMobile = useIsMobile();
@@ -86,6 +88,29 @@ export default function Customers() {
   });
 
   const customers = customersData?.data ?? [];
+  const isSaving = createMutation.isPending || updateMutation.isPending;
+
+  const resetForm = () =>
+    form.reset({
+      name: "",
+      cpf: "",
+      email: "",
+      phone: "",
+      alternate_phone: "",
+      address: "",
+      number: "",
+      complement: "",
+      neighborhood: "",
+      city: "",
+      state: "",
+      zip_code: "",
+      birth_date: "",
+      gender: "not_informed",
+      contact_preferences: ["email"],
+      accepts_marketing: true,
+      active: true,
+      notes: "",
+    });
 
   const onSubmit = (values: CustomerFormData) => {
     const payload: CreateCustomerDto = {
@@ -113,10 +138,10 @@ export default function Customers() {
 
     mutation.mutate(payload, {
       onSuccess: () => {
-        toast({ title: editingCustomer ? "Cliente atualizado!" : "Cliente criado!" });
+        toast({
+          title: editingCustomer ? "Cliente atualizado!" : "Cliente criado!",
+        });
         handleCloseDialog();
-        form.reset();
-        setEditingCustomer(null);
       },
       onError: () =>
         toast({ title: "Erro ao salvar cliente", variant: "destructive" }),
@@ -126,12 +151,11 @@ export default function Customers() {
   const handleEdit = (customer: Customer) => {
     setEditingCustomer(customer);
 
-    const safeGender =
-      ["male", "female", "other", "not_informed"].includes(
-        customer.gender as any
-      )
-        ? (customer.gender as any)
-        : "not_informed";
+    const safeGender = (["male", "female", "other", "not_informed"] as const).includes(
+      customer.gender as any,
+    )
+      ? (customer.gender as any)
+      : "not_informed";
 
     form.reset({
       name: customer.name ?? "",
@@ -146,7 +170,7 @@ export default function Customers() {
       city: customer.city ?? "",
       state: customer.state ?? "",
       zip_code: customer.zip_code ?? "",
-          birth_date: customer.birth_date ?? "",
+      birth_date: customer.birth_date ?? "",
       gender: safeGender,
       contact_preferences: (customer.contact_preferences ?? ["email"]) as any,
       accepts_marketing: customer.accepts_marketing ?? true,
@@ -172,7 +196,7 @@ export default function Customers() {
   const handleCloseDialog = () => {
     setDialogOpen(false);
     setEditingCustomer(null);
-    form.reset();
+    resetForm();
   };
 
   const columns = [
@@ -219,9 +243,14 @@ export default function Customers() {
       key: "actions",
       header: "Ações",
       render: (c: Customer) => (
-        <div className="flex gap-2">
+        <div className="flex gap-2 justify-end">
           {can("customers", "update") && (
-            <Button variant="ghost" size="icon" onClick={() => handleEdit(c)}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => handleEdit(c)}
+              aria-label="Editar cliente"
+            >
               <Pencil className="h-4 w-4" />
             </Button>
           )}
@@ -233,8 +262,10 @@ export default function Customers() {
                 setDeletingId(c.id);
                 setDeleteDialogOpen(true);
               }}
+              aria-label="Excluir cliente"
+              className="text-destructive hover:text-destructive hover:bg-destructive/10"
             >
-              <Trash2 className="h-4 w-4 text-destructive" />
+              <Trash2 className="h-4 w-4" />
             </Button>
           )}
         </div>
@@ -247,7 +278,9 @@ export default function Customers() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold">Clientes</h1>
-          <p className="text-muted-foreground">Gerencie seus clientes e preferências de marketing</p>
+          <p className="text-muted-foreground">
+            Gerencie seus clientes e preferências de marketing
+          </p>
         </div>
 
         {can("customers", "create") && (
@@ -256,27 +289,7 @@ export default function Customers() {
             onOpenChange={(open) => {
               setDialogOpen(open);
               if (!open) {
-                setEditingCustomer(null);
-                form.reset({
-                  name: "",
-                  cpf: "",
-                  email: "",
-                  phone: "",
-                  alternate_phone: "",
-                  address: "",
-                  number: "",
-                  complement: "",
-                  neighborhood: "",
-                  city: "",
-                  state: "",
-                  zip_code: "",
-                  birth_date: "",
-                  gender: "not_informed",
-                  contact_preferences: ["email"],
-                  accepts_marketing: true,
-                  active: true,
-                  notes: "",
-                });
+                handleCloseDialog();
               }
             }}
           >
@@ -285,26 +298,7 @@ export default function Customers() {
                 className={cn("shadow-md", isMobile && "w-full")}
                 onClick={() => {
                   setEditingCustomer(null);
-                  form.reset({
-                    name: "",
-                    cpf: "",
-                    email: "",
-                    phone: "",
-                    alternate_phone: "",
-                    address: "",
-                    number: "",
-                    complement: "",
-                    neighborhood: "",
-                    city: "",
-                    state: "",
-                    zip_code: "",
-                    birth_date: "",
-                    gender: "not_informed",
-                    contact_preferences: ["email"],
-                    accepts_marketing: true,
-                    active: true,
-                    notes: "",
-                  });
+                  resetForm();
                 }}
               >
                 <Plus className="mr-2 h-4 w-4" />
@@ -313,11 +307,10 @@ export default function Customers() {
             </DialogTrigger>
 
             <DialogContent
-              className={
-                isMobile
-                  ? "max-w-[95vw] h-[90vh] overflow-y-auto"
-                  : "max-w-4xl max-h-[90vh] overflow-y-auto"
-              }
+              className={cn(
+                "max-h-[90vh]",
+                isMobile ? "max-w-[95vw]" : "max-w-2xl"
+              )}
             >
               <DialogHeader>
                 <DialogTitle>
@@ -330,263 +323,451 @@ export default function Customers() {
                   onSubmit={form.handleSubmit(onSubmit)}
                   className="space-y-6 pb-4"
                 >
-                  <div className="space-y-4">
-                    <h3 className="text-lg font-semibold">Dados Pessoais</h3>
-                    <FormField
-                      control={form.control}
-                      name="name"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Nome Completo <span className="text-red-500">*</span></FormLabel>
-                          <FormControl>
-                            <Input {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-medium text-muted-foreground">
+                      Dados pessoais
+                    </h3>
+                    <div className="space-y-4">
                       <FormField
                         control={form.control}
-                        name="cpf"
+                        name="name"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>CPF</FormLabel>
+                            <FormLabel>
+                              Nome Completo <span className="text-red-500">*</span>
+                            </FormLabel>
                             <FormControl>
-                              <Input
-                                {...field}
-                                onChange={(e) =>
-                                  field.onChange(formatCPF(e.target.value))
-                                }
-                                placeholder="000.000.000-00"
-                              />
+                              <Input {...field} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
                         )}
                       />
-                      <FormField
-                        control={form.control}
-                        name="birth_date"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Data de Nascimento</FormLabel>
-                            <FormControl>
-                              <Input type="date" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
 
-                    <FormField
-                      control={form.control}
-                      name="gender"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Gênero</FormLabel>
-                          <Select
-                            onValueChange={field.onChange}
-                            value={field.value}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Selecione" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="male">Masculino</SelectItem>
-                              <SelectItem value="female">Feminino</SelectItem>
-                              <SelectItem value="other">Outro</SelectItem>
-                              <SelectItem value="not_informed">
-                                Não informado
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  <div className="space-y-4">
-                    <h3 className="text-lg font-semibold">Contato</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <FormField
-                        control={form.control}
-                        name="phone"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Telefone/WhatsApp <span className="text-red-500">*</span></FormLabel>
-                            <FormControl>
-                              <Input
-                                {...field}
-                                onChange={(e) =>
-                                  field.onChange(formatPhone(e.target.value))
-                                }
-                                placeholder="(00) 00000-0000"
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="alternate_phone"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Telefone Alternativo</FormLabel>
-                            <FormControl>
-                              <Input
-                                {...field}
-                                onChange={(e) =>
-                                  field.onChange(formatPhone(e.target.value))
-                                }
-                                placeholder="(00) 00000-0000"
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-
-                    <FormField
-                      control={form.control}
-                      name="email"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Email</FormLabel>
-                          <FormControl>
-                            <Input type="email" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  <div className="space-y-4">
-                    <h3 className="text-lg font-semibold">Endereço</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                      <FormField
-                        control={form.control}
-                        name="zip_code"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>CEP</FormLabel>
-                            <FormControl>
-                              <Input
-                                {...field}
-                                placeholder="00000-000"
-                                onChange={(e) =>
-                                  field.onChange(formatCEP(e.target.value))
-                                }
-                                onBlur={async (e) => {
-                                  const value = e.target.value.replace(/\D/g, "");
-                                  if (value.length === 8) {
-                                    const address = await getAddressByCep(value);
-                                    if (address) {
-                                      form.setValue("address", address.address);
-                                      form.setValue(
-                                        "neighborhood",
-                                        address.neighborhood
-                                      );
-                                      form.setValue("city", address.city);
-                                      form.setValue("state", address.state);
-                                    }
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <FormField
+                          control={form.control}
+                          name="cpf"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>CPF</FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  onChange={(e) =>
+                                    field.onChange(formatCPF(e.target.value))
                                   }
-                                }}
+                                  placeholder="000.000.000-00"
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="birth_date"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Data de Nascimento</FormLabel>
+                              <FormControl>
+                                <Input type="date" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="gender"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Gênero</FormLabel>
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Selecione" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="male">Masculino</SelectItem>
+                                  <SelectItem value="female">Feminino</SelectItem>
+                                  <SelectItem value="other">Outro</SelectItem>
+                                  <SelectItem value="not_informed">
+                                    Não informado
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-medium text-muted-foreground">
+                      Contato
+                    </h3>
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <FormField
+                          control={form.control}
+                          name="phone"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>
+                                Telefone/WhatsApp{" "}
+                                <span className="text-red-500">*</span>
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  onChange={(e) =>
+                                    field.onChange(
+                                      formatPhone(e.target.value),
+                                    )
+                                  }
+                                  placeholder="(00) 00000-0000"
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="alternate_phone"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Telefone Alternativo</FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  onChange={(e) =>
+                                    field.onChange(
+                                      formatPhone(e.target.value),
+                                    )
+                                  }
+                                  placeholder="(00) 00000-0000"
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <FormField
+                        control={form.control}
+                        name="email"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Email</FormLabel>
+                            <FormControl>
+                              <Input type="email" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-medium text-muted-foreground">
+                      Endereço
+                    </h3>
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <FormField
+                          control={form.control}
+                          name="zip_code"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>
+                                CEP{" "}
+                                {isFetchingCep && (
+                                  <span className="text-xs text-muted-foreground">
+                                    (buscando endereço...)
+                                  </span>
+                                )}
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  placeholder="00000-000"
+                                  onChange={(e) => {
+                                    const formatted = formatCEP(
+                                      e.target.value,
+                                    );
+                                    field.onChange(formatted);
+
+                                    const digits = formatted.replace(
+                                      /\D/g,
+                                      "",
+                                    );
+                                    if (digits.length !== 8) {
+                                      form.setValue("address", "");
+                                      form.setValue("neighborhood", "");
+                                      form.setValue("city", "");
+                                      form.setValue("state", "");
+                                    }
+                                  }}
+                                  onBlur={async (e) => {
+                                    const value = e.target.value
+                                      .replace(/\D/g, "");
+                                    if (value.length === 8) {
+                                      try {
+                                        setIsFetchingCep(true);
+                                        const address =
+                                          await getAddressByCep(value);
+                                        if (address) {
+                                          form.setValue(
+                                            "address",
+                                            address.address ?? "",
+                                          );
+                                          form.setValue(
+                                            "neighborhood",
+                                            address.neighborhood ?? "",
+                                          );
+                                          form.setValue(
+                                            "city",
+                                            address.city ?? "",
+                                          );
+                                          form.setValue(
+                                            "state",
+                                            address.state ?? "",
+                                          );
+                                        }
+                                      } finally {
+                                        setIsFetchingCep(false);
+                                      }
+                                    }
+                                  }}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="address"
+                          render={({ field }) => (
+                            <FormItem className="sm:col-span-2">
+                              <FormLabel>Logradouro</FormLabel>
+                              <FormControl>
+                                <Input {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <FormField
+                          control={form.control}
+                          name="number"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Número</FormLabel>
+                              <FormControl>
+                                <Input {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="complement"
+                          render={({ field }) => (
+                            <FormItem className="sm:col-span-2">
+                              <FormLabel>Complemento</FormLabel>
+                              <FormControl>
+                                <Input {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <FormField
+                          control={form.control}
+                          name="neighborhood"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Bairro</FormLabel>
+                              <FormControl>
+                                <Input {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="city"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Cidade</FormLabel>
+                              <FormControl>
+                                <Input {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="state"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Estado</FormLabel>
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value || ""}
+                                disabled={statesLoading}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Selecione" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {states?.map((s) => (
+                                    <SelectItem
+                                      key={s.id}
+                                      value={s.uf}
+                                    >
+                                      {s.name} ({s.uf})
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-medium text-muted-foreground">
+                      Marketing e comunicação
+                    </h3>
+                    <div className="space-y-4">
+                      <FormField
+                        control={form.control}
+                        name="contact_preferences"
+                        render={() => (
+                          <FormItem>
+                            <FormLabel>Preferências de contato</FormLabel>
+                            <div className="space-y-2">
+                              {["email", "sms", "whatsapp"].map((item) => (
+                                <FormField
+                                  key={item}
+                                  control={form.control}
+                                  name="contact_preferences"
+                                  render={({ field }) => (
+                                    <FormItem className="flex items-center space-x-2">
+                                      <FormControl>
+                                        <Checkbox
+                                          checked={field.value?.includes(
+                                            item as any,
+                                          )}
+                                          onCheckedChange={(checked) => {
+                                            const value =
+                                              field.value || [];
+                                            field.onChange(
+                                              checked
+                                                ? [...value, item]
+                                                : value.filter(
+                                                    (v) => v !== item,
+                                                  ),
+                                            );
+                                          }}
+                                        />
+                                      </FormControl>
+                                      <FormLabel className="font-normal capitalize">
+                                        {item}
+                                      </FormLabel>
+                                    </FormItem>
+                                  )}
+                                />
+                              ))}
+                            </div>
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="accepts_marketing"
+                        render={({ field }) => (
+                          <FormItem className="flex items-center space-x-2 rounded-md border p-4">
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
                               />
                             </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="address"
-                        render={({ field }) => (
-                          <FormItem className="sm:col-span-2">
-                            <FormLabel>Logradouro</FormLabel>
-                            <FormControl>
-                              <Input {...field} />
-                            </FormControl>
-                            <FormMessage />
+                            <div>
+                              <FormLabel className="font-normal">
+                                Aceita receber promoções
+                              </FormLabel>
+                              <FormDescription>
+                                O cliente autoriza o recebimento de
+                                campanhas.
+                              </FormDescription>
+                            </div>
                           </FormItem>
                         )}
                       />
                     </div>
+                  </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-medium text-muted-foreground">
+                      Observações e status
+                    </h3>
+                    <div className="space-y-4">
                       <FormField
                         control={form.control}
-                        name="number"
+                        name="notes"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Número</FormLabel>
+                            <FormLabel>Observações</FormLabel>
                             <FormControl>
-                              <Input {...field} />
+                              <Textarea {...field} rows={3} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
                         )}
                       />
-                      <FormField
-                        control={form.control}
-                        name="complement"
-                        render={({ field }) => (
-                          <FormItem className="sm:col-span-2">
-                            <FormLabel>Complemento</FormLabel>
-                            <FormControl>
-                              <Input {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <FormField
                         control={form.control}
-                        name="neighborhood"
+                        name="active"
                         render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Bairro</FormLabel>
-                            <FormControl>
-                              <Input {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="city"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Cidade</FormLabel>
-                            <FormControl>
-                              <Input {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="state"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Estado</FormLabel>
+                          <FormItem className="max-w-xs">
+                            <FormLabel>Status</FormLabel>
                             <Select
-                              onValueChange={field.onChange}
-                              value={field.value || ""}
-                              disabled={statesLoading}
+                              onValueChange={(v) =>
+                                field.onChange(v === "true")
+                              }
+                              value={String(field.value)}
                             >
                               <FormControl>
                                 <SelectTrigger>
@@ -594,11 +775,8 @@ export default function Customers() {
                                 </SelectTrigger>
                               </FormControl>
                               <SelectContent>
-                                {states?.map((s) => (
-                                  <SelectItem key={s.id} value={s.uf}>
-                                    {s.name} ({s.uf})
-                                  </SelectItem>
-                                ))}
+                                <SelectItem value="true">Ativo</SelectItem>
+                                <SelectItem value="false">Inativo</SelectItem>
                               </SelectContent>
                             </Select>
                             <FormMessage />
@@ -608,111 +786,7 @@ export default function Customers() {
                     </div>
                   </div>
 
-                  <div className="space-y-4">
-                    <h3 className="text-lg font-semibold">
-                      Marketing e Comunicação
-                    </h3>
-                    <FormField
-                      control={form.control}
-                      name="contact_preferences"
-                      render={() => (
-                        <FormItem>
-                          <FormLabel>Preferências de Contato</FormLabel>
-                          <div className="space-y-2">
-                            {["email", "sms", "whatsapp"].map((item) => (
-                              <FormField
-                                key={item}
-                                control={form.control}
-                                name="contact_preferences"
-                                render={({ field }) => (
-                                  <FormItem className="flex items-center space-x-2">
-                                    <FormControl>
-                                      <Checkbox
-                                        checked={field.value?.includes(item as any)}
-                                        onCheckedChange={(checked) => {
-                                          const value = field.value || [];
-                                          field.onChange(
-                                            checked
-                                              ? [...value, item]
-                                              : value.filter((v) => v !== item)
-                                          );
-                                        }}
-                                      />
-                                    </FormControl>
-                                    <FormLabel className="font-normal capitalize">
-                                      {item}
-                                    </FormLabel>
-                                  </FormItem>
-                                )}
-                              />
-                            ))}
-                          </div>
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="accepts_marketing"
-                      render={({ field }) => (
-                        <FormItem className="flex items-center space-x-2 rounded-md border p-4">
-                          <FormControl>
-                            <Checkbox
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                            />
-                          </FormControl>
-                          <div>
-                            <FormLabel className="font-normal">
-                              Aceita receber promoções
-                            </FormLabel>
-                            <FormDescription>
-                              O cliente autoriza o recebimento de campanhas.
-                            </FormDescription>
-                          </div>
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  <FormField
-                    control={form.control}
-                    name="notes"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Observações</FormLabel>
-                        <FormControl>
-                          <Textarea {...field} rows={3} />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="active"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Status</FormLabel>
-                        <Select
-                          onValueChange={(v) => field.onChange(v === "true")}
-                          value={String(field.value)}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Selecione" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="true">Ativo</SelectItem>
-                            <SelectItem value="false">Inativo</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </FormItem>
-                    )}
-                  />
-
-                  <div className="flex justify-end gap-2">
+                  <DialogFooter className="pt-2">
                     <Button
                       type="button"
                       variant="outline"
@@ -720,10 +794,14 @@ export default function Customers() {
                     >
                       Cancelar
                     </Button>
-                    <Button type="submit">
-                      {editingCustomer ? "Salvar" : "Cadastrar"}
+                    <Button type="submit" disabled={isSaving}>
+                      {isSaving
+                        ? "Salvando..."
+                        : editingCustomer
+                        ? "Salvar"
+                        : "Cadastrar"}
                     </Button>
-                  </div>
+                  </DialogFooter>
                 </form>
               </Form>
             </DialogContent>
@@ -738,8 +816,8 @@ export default function Customers() {
           <AlertDialogHeader>
             <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja excluir este cliente? Esta ação não pode ser
-              desfeita.
+              Tem certeza que deseja excluir este cliente? Esta ação não pode
+              ser desfeita.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

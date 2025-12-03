@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/DataTable";
-import { Plus, Edit, Trash2, Calendar as CalendarIcon, X } from "lucide-react";
+import { Plus, Pencil, Trash2, Calendar as CalendarIcon, X } from "lucide-react";
 import { usePermission } from "@/hooks/usePermission";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -144,8 +144,7 @@ const OPEN_WINDOW_MAX_DAYS = 180;
 export default function Professionals() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [editingProfessional, setEditingProfessional] =
-    useState<Professional | null>(null);
+  const [editingProfessional, setEditingProfessional] = useState<Professional | null>(null);
 
   const [users, setUsers] = useState<User[]>([]);
   const { can } = usePermission();
@@ -159,7 +158,6 @@ export default function Professionals() {
     to: undefined,
   });
 
-  // --- HOOKS das janelas de agenda (professional_open_windows) ---
   const professionalId = editingProfessional?.id;
 
   const {
@@ -174,7 +172,6 @@ export default function Professionals() {
   const closeOpenWindowMutation = useCloseProfessionalOpenWindow();
   const deleteOpenWindowMutation = useDeleteProfessionalOpenWindow();
 
-  // --- Profissionais (index sem paginação, como combinamos) ---
   const {
     data: professionalsData,
     refetch,
@@ -221,8 +218,7 @@ export default function Professionals() {
         phone: professional.phone ?? "",
         specialties: professional.specialties ?? [],
         active: professional.active ?? true,
-        work_schedule:
-          (professional.work_schedule as WorkScheduleDay[]) ?? defaultSchedule,
+        work_schedule: (professional.work_schedule as WorkScheduleDay[]) ?? defaultSchedule,
       });
 
       setEditingProfessional(professional);
@@ -293,14 +289,10 @@ export default function Professionals() {
     return existingWindows.some((window) => {
       if (window.status === "closed") return false;
 
-      const existingStart = startOfDay(
-        new Date(`${window.start_date}T00:00:00`)
-      );
+      const existingStart = startOfDay(new Date(`${window.start_date}T00:00:00`));
       const existingEnd = startOfDay(new Date(`${window.end_date}T00:00:00`));
 
-      return !(
-        isAfter(newStartDay, existingEnd) || isBefore(newEndDay, existingStart)
-      );
+      return !(isAfter(newStartDay, existingEnd) || isBefore(newEndDay, existingStart));
     });
   };
 
@@ -337,9 +329,7 @@ export default function Professionals() {
       });
 
       setDateRange({ from: undefined, to: undefined });
-      // toasts e refetch das janelas já são tratados pelo hook/mutation
     } catch {
-      // erro já tratado pelo mutation (toast)
     }
   };
 
@@ -352,7 +342,6 @@ export default function Professionals() {
         professional_id: editingProfessional.id,
       });
     } catch {
-      // erro já tratado no hook
     }
   };
 
@@ -365,7 +354,6 @@ export default function Professionals() {
         professional_id: editingProfessional.id,
       });
     } catch {
-      // erro já tratado no hook
     }
   };
 
@@ -409,7 +397,7 @@ export default function Professionals() {
         <div className="flex gap-2">
           {can("professionals", "update") && (
             <Button variant="ghost" size="icon" onClick={() => openDialog(p)}>
-              <Edit className="h-4 w-4" />
+              <Pencil className="h-4 w-4" />
             </Button>
           )}
           {can("professionals", "delete") && (
@@ -465,11 +453,10 @@ export default function Professionals() {
         }}
       >
         <DialogContent
-          className={
-            isMobile
-              ? "max-w-[95vw] h-[90vh] overflow-y-auto"
-              : "max-w-4xl max-h-[90vh] overflow-y-auto"
-          }
+          className={cn(
+            "max-h-[90vh]",
+            isMobile ? "max-w-[95vw]" : "max-w-2xl"
+          )}
         >
           <DialogHeader>
             <DialogTitle>
@@ -492,241 +479,256 @@ export default function Professionals() {
               </TabsTrigger>
             </TabsList>
 
-            {/* ABA: DADOS BÁSICOS */}
             <TabsContent value="dados" className="mt-4">
               <Form {...form}>
                 <form
                   onSubmit={form.handleSubmit(onSubmit)}
-                  className="space-y-4"
+                  className="space-y-6"
                 >
-                  <FormField
-                    control={form.control}
-                    name="user_id"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Usuário do Sistema</FormLabel>
-                        <FormControl>
-                          <Select
-                            value={field.value ? String(field.value) : ""}
-                            onValueChange={(val) => {
-                              const userId = Number(val);
-                              field.onChange(userId);
+                  <section className="space-y-2">
+                    <h3 className="text-sm font-medium text-muted-foreground">
+                      Dados do profissional
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <FormField
+                        control={form.control}
+                        name="user_id"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Usuário do Sistema <span className="text-red-500">*</span></FormLabel>
+                            <FormControl>
+                              <Select
+                                value={field.value ? String(field.value) : ""}
+                                onValueChange={(val) => {
+                                  const userId = Number(val);
+                                  field.onChange(userId);
 
-                              const selectedUser = users.find(
-                                (u) => u.id === userId
-                              );
-                              if (selectedUser) {
-                                const defaults =
-                                  defaultSpecialtiesByUserName[
-                                    selectedUser.name
-                                  ] ?? [];
-                                form.setValue("specialties", defaults);
-                              }
-                            }}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Selecione um usuário" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {users.length === 0 ? (
-                                <div className="p-2 text-sm text-muted-foreground">
-                                  Carregando usuários...
-                                </div>
-                              ) : (
-                                users.map((user) => (
-                                  <SelectItem
-                                    key={user.id}
-                                    value={String(user.id)}
-                                  >
-                                    {user.name} ({user.email})
-                                  </SelectItem>
-                                ))
-                              )}
-                            </SelectContent>
-                          </Select>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="phone"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Telefone</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder="(81) 90011-2233"
-                            value={field.value || ""}
-                            onChange={(e) =>
-                              field.onChange(formatPhone(e.target.value))
-                            }
-                            maxLength={15}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="specialties"
-                    render={() => (
-                      <FormItem>
-                        <FormLabel>Especializações / Serviços</FormLabel>
-                        <div className="grid grid-cols-2 gap-3 mt-2 sm:grid-cols-3">
-                          {mockServices.map((service) => (
-                            <FormField
-                              key={service.id}
-                              control={form.control}
-                              name="specialties"
-                              render={({ field }) => (
-                                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                                  <FormControl>
-                                    <Checkbox
-                                      checked={field.value?.includes(
-                                        service.name
-                                      )}
-                                      onCheckedChange={(checked) =>
-                                        checked
-                                          ? field.onChange([
-                                              ...(field.value ?? []),
-                                              service.name,
-                                            ])
-                                          : field.onChange(
-                                              field.value?.filter(
-                                                (v) => v !== service.name
-                                              )
-                                            )
-                                      }
-                                    />
-                                  </FormControl>
-                                  <FormLabel className="font-normal">
-                                    {service.name}
-                                  </FormLabel>
-                                </FormItem>
-                              )}
-                            />
-                          ))}
-                        </div>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="active"
-                    render={({ field }) => (
-                      <FormItem className="flex items-center justify-between border p-3 rounded-lg">
-                        <FormLabel>Status do Profissional</FormLabel>
-                        <FormControl>
-                          <Checkbox
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-
-                  <div className="space-y-4 border-t pt-4">
-                    <FormLabel className="text-base">
-                      Horário de Trabalho
-                    </FormLabel>
-                    {form.watch("work_schedule")?.map((day, index) => (
-                      <div
-                        key={day.day}
-                        className="border rounded-lg p-4 space-y-3"
-                      >
-                        <div className="flex items-center justify-between flex-wrap gap-2">
-                          <FormLabel className="text-sm font-medium">
-                            {day.day}
-                          </FormLabel>
-                          <div className="flex gap-4 flex-wrap">
-                            <FormField
-                              control={form.control}
-                              name={`work_schedule.${index}.isWorkingDay`}
-                              render={({ field }) => (
-                                <FormItem className="flex flex-row items-center space-x-2">
-                                  <FormControl>
-                                    <Checkbox
-                                      checked={field.value}
-                                      onCheckedChange={field.onChange}
-                                    />
-                                  </FormControl>
-                                  <FormLabel className="text-xs font-normal">
-                                    Dia útil
-                                  </FormLabel>
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={form.control}
-                              name={`work_schedule.${index}.isDayOff`}
-                              render={({ field }) => (
-                                <FormItem className="flex flex-row items-center space-x-2">
-                                  <FormControl>
-                                    <Checkbox
-                                      checked={field.value}
-                                      onCheckedChange={field.onChange}
-                                    />
-                                  </FormControl>
-                                  <FormLabel className="text-xs font-normal">
-                                    Folga
-                                  </FormLabel>
-                                </FormItem>
-                              )}
-                            />
-                          </div>
-                        </div>
-
-                        {form.watch(
-                          `work_schedule.${index}.isWorkingDay`
-                        ) &&
-                          !form.watch(`work_schedule.${index}.isDayOff`) && (
-                            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                              {[
-                                "startTime",
-                                "endTime",
-                                "lunchStart",
-                                "lunchEnd",
-                              ].map((key, i) => (
-                                <FormField
-                                  key={key}
-                                  control={form.control}
-                                  name={`work_schedule.${index}.${key}` as any}
-                                  render={({ field }) => (
-                                    <FormItem>
-                                      <FormLabel className="text-xs text-muted-foreground">
-                                        {
-                                          [
-                                            "Entrada",
-                                            "Saída",
-                                            "Início do Almoço",
-                                            "Fim do Almoço",
-                                          ][i]
-                                        }
-                                      </FormLabel>
-                                      <FormControl>
-                                        <Input
-                                          type="time"
-                                          value={field.value ?? ""}
-                                          onChange={field.onChange}
-                                        />
-                                      </FormControl>
-                                    </FormItem>
+                                  const selectedUser = users.find(
+                                    (u) => u.id === userId
+                                  );
+                                  if (selectedUser) {
+                                    const defaults =
+                                      defaultSpecialtiesByUserName[
+                                        selectedUser.name
+                                      ] ?? [];
+                                    form.setValue("specialties", defaults);
+                                  }
+                                }}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Selecione um usuário" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {users.length === 0 ? (
+                                    <div className="p-2 text-sm text-muted-foreground">
+                                      Carregando usuários...
+                                    </div>
+                                  ) : (
+                                    users.map((user) => (
+                                      <SelectItem
+                                        key={user.id}
+                                        value={String(user.id)}
+                                      >
+                                        {user.name} ({user.email})
+                                      </SelectItem>
+                                    ))
                                   )}
-                                />
-                              ))}
+                                </SelectContent>
+                              </Select>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="phone"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Telefone</FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder="(81) 90011-2233"
+                                value={field.value || ""}
+                                onChange={(e) =>
+                                  field.onChange(formatPhone(e.target.value))
+                                }
+                                maxLength={15}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  </section>
+
+                  <section className="space-y-2">
+                    <h3 className="text-sm font-medium text-muted-foreground">
+                      Especializações / Serviços
+                    </h3>
+                    <FormField
+                      control={form.control}
+                      name="specialties"
+                      render={() => (
+                        <FormItem>
+                          <FormLabel className="text-xs text-muted-foreground">
+                            Selecione os serviços que este profissional executa
+                          </FormLabel>
+                          <div className="grid grid-cols-2 gap-3 mt-2 sm:grid-cols-3">
+                            {mockServices.map((service) => (
+                              <FormField
+                                key={service.id}
+                                control={form.control}
+                                name="specialties"
+                                render={({ field }) => (
+                                  <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                                    <FormControl>
+                                      <Checkbox
+                                        checked={field.value?.includes(
+                                          service.name
+                                        )}
+                                        onCheckedChange={(checked) =>
+                                          checked
+                                            ? field.onChange([
+                                                ...(field.value ?? []),
+                                                service.name,
+                                              ])
+                                            : field.onChange(
+                                                field.value?.filter(
+                                                  (v) => v !== service.name
+                                                )
+                                              )
+                                        }
+                                      />
+                                    </FormControl>
+                                    <FormLabel className="font-normal">
+                                      {service.name}
+                                    </FormLabel>
+                                  </FormItem>
+                                )}
+                              />
+                            ))}
+                          </div>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </section>
+
+                  <section className="space-y-2">
+                    <h3 className="text-sm font-medium text-muted-foreground">
+                      Status
+                    </h3>
+                    <FormField
+                      control={form.control}
+                      name="active"
+                      render={({ field }) => (
+                        <FormItem className="flex items-center justify-between border p-3 rounded-lg">
+                          <FormLabel>Status do Profissional</FormLabel>
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  </section>
+
+                  <section className="space-y-3">
+                    <h3 className="text-sm font-medium text-muted-foreground">
+                      Horário de trabalho
+                    </h3>
+                    <div className="space-y-4 border rounded-lg p-4">
+                      {form.watch("work_schedule")?.map((day, index) => (
+                        <div
+                          key={day.day}
+                          className="border rounded-lg p-4 space-y-3 bg-muted/40"
+                        >
+                          <div className="flex items-center justify-between flex-wrap gap-2">
+                            <FormLabel className="text-sm font-medium">
+                              {day.day}
+                            </FormLabel>
+                            <div className="flex gap-4 flex-wrap">
+                              <FormField
+                                control={form.control}
+                                name={`work_schedule.${index}.isWorkingDay`}
+                                render={({ field }) => (
+                                  <FormItem className="flex flex-row items-center space-x-2">
+                                    <FormControl>
+                                      <Checkbox
+                                        checked={field.value}
+                                        onCheckedChange={field.onChange}
+                                      />
+                                    </FormControl>
+                                    <FormLabel className="text-xs font-normal">
+                                      Dia útil
+                                    </FormLabel>
+                                  </FormItem>
+                                )}
+                              />
+                              <FormField
+                                control={form.control}
+                                name={`work_schedule.${index}.isDayOff`}
+                                render={({ field }) => (
+                                  <FormItem className="flex flex-row items-center space-x-2">
+                                    <FormControl>
+                                      <Checkbox
+                                        checked={field.value}
+                                        onCheckedChange={field.onChange}
+                                      />
+                                    </FormControl>
+                                    <FormLabel className="text-xs font-normal">
+                                      Folga
+                                    </FormLabel>
+                                  </FormItem>
+                                )}
+                              />
                             </div>
-                          )}
-                      </div>
-                    ))}
-                  </div>
+                          </div>
+
+                          {form.watch(`work_schedule.${index}.isWorkingDay`) &&
+                            !form.watch(`work_schedule.${index}.isDayOff`) && (
+                              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                                {["startTime", "endTime", "lunchStart", "lunchEnd"].map(
+                                  (key, i) => (
+                                    <FormField
+                                      key={key}
+                                      control={form.control}
+                                      name={`work_schedule.${index}.${key}` as any}
+                                      render={({ field }) => (
+                                        <FormItem>
+                                          <FormLabel className="text-xs text-muted-foreground">
+                                            {
+                                              [
+                                                "Entrada",
+                                                "Saída",
+                                                "Início do Almoço",
+                                                "Fim do Almoço",
+                                              ][i]
+                                            }
+                                          </FormLabel>
+                                          <FormControl>
+                                            <Input
+                                              type="time"
+                                              value={field.value ?? ""}
+                                              onChange={field.onChange}
+                                            />
+                                          </FormControl>
+                                        </FormItem>
+                                      )}
+                                    />
+                                  )
+                                )}
+                              </div>
+                            )}
+                        </div>
+                      ))}
+                    </div>
+                  </section>
 
                   <DialogFooter>
                     <Button
@@ -748,7 +750,6 @@ export default function Professionals() {
               </Form>
             </TabsContent>
 
-            {/* ABA: AGENDA ABERTA */}
             <TabsContent value="agenda" className="mt-4 space-y-6">
               {!editingProfessional || !editingProfessional.id ? (
                 <div className="text-sm text-muted-foreground">
@@ -801,10 +802,7 @@ export default function Professionals() {
                               )}
                             </Button>
                           </PopoverTrigger>
-                          <PopoverContent
-                            className="w-auto p-0"
-                            align="start"
-                          >
+                          <PopoverContent className="w-auto p-0" align="start">
                             <Calendar
                               mode="range"
                               selected={{

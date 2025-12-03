@@ -10,30 +10,38 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import { format, parseISO } from 'date-fns';
-import { useCommissionsQuery } from '@/hooks/commissions';
-import { useMarkCommissionAsPaid } from '@/hooks/commissions';
+import { useCommissionsQuery, useMarkCommissionAsPaid } from '@/hooks/commissions';
 import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { Commission } from '@/types/commission';
+import { displayCurrency } from '@/utils/formatters';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { cn } from '@/lib/utils';
 
 export default function Commissions() {
   const [selectedProfessional, setSelectedProfessional] = useState<string>('all');
   const [start_date, setStartDate] = useState(format(new Date(), 'yyyy-MM-01'));
   const [end_date, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
 
+  const isMobile = useIsMobile();
+
   const { data, isLoading } = useCommissionsQuery({
     start_date,
     end_date,
-    professional_id: selectedProfessional !== 'all' ? Number(selectedProfessional) : undefined,
+    professional_id:
+      selectedProfessional !== 'all'
+        ? Number(selectedProfessional)
+        : undefined,
   });
 
-  const { mutate: markAsPaid, isPending: isMarkingPaid } = useMarkCommissionAsPaid();
+  const { mutate: markAsPaid, isPending: isMarkingPaid } =
+    useMarkCommissionAsPaid();
 
   const commissions = data?.data ?? [];
 
   const uniqueProfessionals = useMemo(() => {
     const names = new Map<number, string>();
-    commissions.forEach(c => {
+    commissions.forEach((c) => {
       if (c.professional) names.set(c.professional.id, c.professional.name);
     });
     return Array.from(names.entries());
@@ -50,8 +58,14 @@ export default function Commissions() {
   }, [commissions, selectedProfessional]);
 
   const summary = useMemo(() => {
-    const totalCommissions = filteredCommissions.reduce((sum, c) => sum + Number(c.commission_amount || 0), 0);
-    const totalServices = filteredCommissions.reduce((sum, c) => sum + Number(c.service_price || 0), 0);
+    const totalCommissions = filteredCommissions.reduce(
+      (sum, c) => sum + Number(c.commission_amount || 0),
+      0
+    );
+    const totalServices = filteredCommissions.reduce(
+      (sum, c) => sum + Number(c.service_price || 0),
+      0
+    );
     const serviceCount = filteredCommissions.length;
 
     const byProfessional = filteredCommissions.reduce((acc, c) => {
@@ -70,21 +84,44 @@ export default function Commissions() {
     doc.setFontSize(18);
     doc.text('Relatório de Comissões', 14, 22);
     doc.setFontSize(11);
-    doc.text(`Período: ${format(new Date(start_date), 'dd/MM/yyyy')} a ${format(new Date(end_date), 'dd/MM/yyyy')}`, 14, 32);
-    doc.text(`Profissional: ${selectedProfessional === 'all' ? 'Todos' : selectedProfessional}`, 14, 40);
-    doc.text(`Total em Comissões: R$ ${summary.totalCommissions.toFixed(2)}`, 14, 48);
-    doc.text(`Total em Serviços: R$ ${summary.totalServices.toFixed(2)}`, 14, 56);
+    doc.text(
+      `Período: ${format(new Date(start_date), 'dd/MM/yyyy')} a ${format(
+        new Date(end_date),
+        'dd/MM/yyyy'
+      )}`,
+      14,
+      32
+    );
+    doc.text(
+      `Profissional: ${
+        selectedProfessional === 'all' ? 'Todos' : selectedProfessional
+      }`,
+      14,
+      40
+    );
+    doc.text(
+      `Total em Comissões: ${displayCurrency(summary.totalCommissions)}`,
+      14,
+      48
+    );
+    doc.text(
+      `Total em Serviços: ${displayCurrency(summary.totalServices)}`,
+      14,
+      56
+    );
 
     autoTable(doc, {
       startY: 65,
-      head: [['Data', 'Profissional', 'Cliente', 'Serviço', 'Valor Serv.', 'Comissão']],
-      body: filteredCommissions.map(c => [
+      head: [
+        ['Data', 'Profissional', 'Cliente', 'Serviço', 'Valor Serv.', 'Comissão'],
+      ],
+      body: filteredCommissions.map((c) => [
         c.date ? format(parseISO(c.date), 'dd/MM/yyyy HH:mm') : '-',
         c.professional?.name ?? '-',
         c.customer?.name ?? '-',
         c.service?.name ?? '-',
-        `R$ ${Number(c.service_price || 0).toFixed(2)}`,
-        `R$ ${Number(c.commission_amount || 0).toFixed(2)}`,
+        displayCurrency(Number(c.service_price || 0)),
+        displayCurrency(Number(c.commission_amount || 0)),
       ]),
     });
 
@@ -93,28 +130,34 @@ export default function Commissions() {
 
   const exportToExcel = () => {
     const ws = XLSX.utils.json_to_sheet(
-      filteredCommissions.map(c => ({
+      filteredCommissions.map((c) => ({
         Data: c.date ? format(parseISO(c.date), 'dd/MM/yyyy HH:mm') : '-',
         Profissional: c.professional?.name ?? '-',
         Cliente: c.customer?.name ?? '-',
         Serviço: c.service?.name ?? '-',
-        'Valor do Serviço': Number(c.service_price || 0).toFixed(2),
-        'Tipo Comissão': c.commission_type === 'percentage' ? 'Percentual' : 'Fixa',
-        'Valor Comissão': c.commission_type === 'percentage'
-          ? `${c.commission_value}%`
-          : `R$ ${Number(c.commission_value || 0).toFixed(2)}`,
-        'Total Comissão': Number(c.commission_amount || 0).toFixed(2),
+        'Valor do Serviço': displayCurrency(Number(c.service_price || 0)),
+        'Tipo Comissão':
+          c.commission_type === 'percentage' ? 'Percentual' : 'Fixa',
+        'Valor Comissão':
+          c.commission_type === 'percentage'
+            ? `${c.commission_value}%`
+            : displayCurrency(Number(c.commission_value || 0)),
+        'Total Comissão': displayCurrency(
+          Number(c.commission_amount || 0)
+        ),
         Status: c.status === 'paid' ? 'Paga' : 'Pendente',
       }))
     );
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Comissões');
 
-    const summaryData = Object.entries(summary.byProfessional).map(([prof, data]) => ({
-      Profissional: prof,
-      'Qtd Atendimentos': data.services,
-      'Total em Comissões': `R$ ${data.total.toFixed(2)}`,
-    }));
+    const summaryData = Object.entries(summary.byProfessional).map(
+      ([prof, data]) => ({
+        Profissional: prof,
+        'Qtd Atendimentos': data.services,
+        'Total em Comissões': displayCurrency(data.total),
+      })
+    );
     const wsSummary = XLSX.utils.json_to_sheet(summaryData);
     XLSX.utils.book_append_sheet(wb, wsSummary, 'Resumo por Profissional');
     XLSX.writeFile(wb, `comissoes-${start_date}-${end_date}.xlsx`);
@@ -131,7 +174,8 @@ export default function Commissions() {
     {
       key: 'date',
       header: 'Data/Hora',
-      render: (c: Commission) => (c.date ? format(parseISO(c.date), 'dd/MM/yyyy HH:mm') : '-'),
+      render: (c: Commission) =>
+        c.date ? format(parseISO(c.date), 'dd/MM/yyyy HH:mm') : '-',
     },
     {
       key: 'professional',
@@ -151,18 +195,23 @@ export default function Commissions() {
     {
       key: 'service_price',
       header: 'Valor Serviço',
-      render: (c: Commission) => `R$ ${Number(c.service_price || 0).toFixed(2)}`,
+      render: (c: Commission) =>
+        displayCurrency(Number(c.service_price || 0)),
     },
     {
       key: 'commission_amount',
       header: 'Comissão',
       render: (c: Commission) => (
         <div className="space-y-1">
-          <div className="font-medium text-green-600">R$ {Number(c.commission_amount || 0).toFixed(2)}</div>
+          <div className="font-medium text-green-600">
+            {displayCurrency(Number(c.commission_amount || 0))}
+          </div>
           <div className="text-xs text-muted-foreground">
             {c.commission_type === 'percentage'
               ? `${c.commission_value}%`
-              : `Fixo: R$ ${Number(c.commission_value || 0).toFixed(2)}`}
+              : `Fixo: ${displayCurrency(
+                  Number(c.commission_value || 0)
+                )}`}
           </div>
         </div>
       ),
@@ -199,17 +248,32 @@ export default function Commissions() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold">Comissões</h1>
-          <p className="text-muted-foreground">Relatório de comissões dos profissionais</p>
+          <p className="text-muted-foreground">
+            Relatório de comissões dos profissionais
+          </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={exportToPDF}>
+        <div
+          className={cn(
+            'flex gap-2',
+            isMobile && 'w-full flex-col',
+          )}
+        >
+          <Button
+            variant="outline"
+            onClick={exportToPDF}
+            className={cn(isMobile && 'w-full')}
+          >
             <FileText className="h-4 w-4 mr-2" />
             Exportar PDF
           </Button>
-          <Button variant="outline" onClick={exportToExcel}>
+          <Button
+            variant="outline"
+            onClick={exportToExcel}
+            className={cn(isMobile && 'w-full')}
+          >
             <Download className="h-4 w-4 mr-2" />
             Exportar Excel
           </Button>
@@ -219,13 +283,18 @@ export default function Commissions() {
       <Card>
         <CardHeader>
           <CardTitle>Filtros</CardTitle>
-          <CardDescription>Selecione o profissional e período para visualizar as comissões</CardDescription>
+          <CardDescription>
+            Selecione o profissional e período para visualizar as comissões
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 md:grid-cols-3">
             <div className="space-y-2">
               <Label>Profissional</Label>
-              <Select value={selectedProfessional} onValueChange={setSelectedProfessional}>
+              <Select
+                value={selectedProfessional}
+                onValueChange={setSelectedProfessional}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
@@ -241,11 +310,19 @@ export default function Commissions() {
             </div>
             <div className="space-y-2">
               <Label>Data Início</Label>
-              <Input type="date" value={start_date} onChange={(e) => setStartDate(e.target.value)} />
+              <Input
+                type="date"
+                value={start_date}
+                onChange={(e) => setStartDate(e.target.value)}
+              />
             </div>
             <div className="space-y-2">
               <Label>Data Fim</Label>
-              <Input type="date" value={end_date} onChange={(e) => setEndDate(e.target.value)} />
+              <Input
+                type="date"
+                value={end_date}
+                onChange={(e) => setEndDate(e.target.value)}
+              />
             </div>
           </div>
         </CardContent>
@@ -254,22 +331,34 @@ export default function Commissions() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader className="flex justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Total em Comissões</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              Total em Comissões
+            </CardTitle>
             <DollarSign className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">R$ {summary.totalCommissions.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">No período selecionado</p>
+            <div className="text-2xl font-bold text-green-600">
+              {displayCurrency(summary.totalCommissions)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              No período selecionado
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Total em Serviços</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              Total em Serviços
+            </CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">R$ {summary.totalServices.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">Valor total dos serviços</p>
+            <div className="text-2xl font-bold">
+              {displayCurrency(summary.totalServices)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Valor total dos serviços
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -278,8 +367,12 @@ export default function Commissions() {
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{summary.serviceCount}</div>
-            <p className="text-xs text-muted-foreground">Total de atendimentos</p>
+            <div className="text-2xl font-bold">
+              {summary.serviceCount}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Total de atendimentos
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -287,7 +380,9 @@ export default function Commissions() {
       <Card>
         <CardHeader>
           <CardTitle>Detalhamento de Comissões</CardTitle>
-          <CardDescription>Lista completa de comissões por atendimento</CardDescription>
+          <CardDescription>
+            Lista completa de comissões por atendimento
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <DataTable
@@ -302,26 +397,40 @@ export default function Commissions() {
       <Card>
         <CardHeader>
           <CardTitle>Resumo por Profissional</CardTitle>
-          <CardDescription>Total de comissões agrupadas por profissional</CardDescription>
+          <CardDescription>
+            Total de comissões agrupadas por profissional
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
             {Object.entries(summary.byProfessional)
               .sort(([, a], [, b]) => b.total - a.total)
-              .map(([prof, data]) => (
-                <div key={prof} className="flex items-center justify-between border-b pb-3">
-                  <div>
-                    <p className="font-medium">{prof}</p>
-                    <p className="text-sm text-muted-foreground">{data.services} atendimento(s)</p>
+              .map(([prof, data]) => {
+                const media =
+                  data.services > 0 ? data.total / data.services : 0;
+
+                return (
+                  <div
+                    key={prof}
+                    className="flex items-center justify-between border-b pb-3"
+                  >
+                    <div>
+                      <p className="font-medium">{prof}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {data.services} atendimento(s)
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-lg font-bold text-green-600">
+                        {displayCurrency(data.total)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Média: {displayCurrency(media)}
+                      </p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-lg font-bold text-green-600">R$ {data.total.toFixed(2)}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Média: R$ {(data.total / data.services).toFixed(2)}
-                    </p>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
           </div>
         </CardContent>
       </Card>

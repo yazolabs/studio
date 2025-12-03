@@ -18,14 +18,27 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { getAddressByCep } from "@/services/cepService";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
 
-const supplierFormSchema = z.object({
+const baseSchema = z.object({
   name: z.string().min(1, "Razão Social é obrigatória"),
   trade_name: z.string().optional().or(z.literal("")),
   cnpj: z.string().optional().or(z.literal("")),
   cpf: z.string().optional().or(z.literal("")),
   email: z.string().email("Email inválido").optional().or(z.literal("")),
-  phone: z.string().optional().or(z.literal("")),
+  phone: z
+    .string()
+    .optional()
+    .or(z.literal(""))
+    .refine(
+      (val) => {
+        if (!val) return true;
+        const digits = unmaskDigits(val);
+        return digits.length === 10 || digits.length === 11;
+      },
+      { message: "Telefone deve ter 10 ou 11 dígitos" },
+    ),
   address: z.string().optional().or(z.literal("")),
   city: z.string().optional().or(z.literal("")),
   state: z.string().optional().or(z.literal("")),
@@ -33,6 +46,32 @@ const supplierFormSchema = z.object({
   contact_person: z.string().optional().or(z.literal("")),
   payment_terms: z.string().optional().or(z.literal("")),
   notes: z.string().optional().or(z.literal("")),
+});
+
+const supplierFormSchema = baseSchema.superRefine((data, ctx) => {
+  const cnpj = unmaskDigits(data.cnpj || "");
+  const cpf = unmaskDigits(data.cpf || "");
+
+  if (!cnpj && !cpf) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Informe CPF ou CNPJ",
+      path: ["cnpj"],
+    });
+  }
+
+  if (cnpj && cpf) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Preencha apenas um dos documentos (CPF ou CNPJ)",
+      path: ["cnpj"],
+    });
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Preencha apenas um dos documentos (CPF ou CNPJ)",
+      path: ["cpf"],
+    });
+  }
 });
 
 type SupplierFormValues = z.infer<typeof supplierFormSchema>;
@@ -69,10 +108,19 @@ export default function Suppliers() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
+  const [isFetchingCep, setIsFetchingCep] = useState(false);
+
+  const isMobile = useIsMobile();
+
   const form = useForm<SupplierFormValues>({
     resolver: zodResolver(supplierFormSchema),
     defaultValues: defaultFormValues,
   });
+
+  const isSaving = createMutation.isPending || updateMutation.isPending;
+
+  const watchCnpj = form.watch("cnpj");
+  const watchCpf = form.watch("cpf");
 
   const resetForm = () => {
     form.reset(defaultFormValues);
@@ -133,6 +181,8 @@ export default function Suppliers() {
     if (cleanCep.length !== 8) return;
 
     try {
+      setIsFetchingCep(true);
+
       const address = await getAddressByCep(cleanCep);
       if (!address) return;
 
@@ -153,6 +203,8 @@ export default function Suppliers() {
       form.setValue("state", address.state ?? "");
     } catch (error) {
       console.error("Erro ao buscar CEP", error);
+    } finally {
+      setIsFetchingCep(false);
     }
   };
 
@@ -300,7 +352,12 @@ export default function Suppliers() {
           if (!open) handleCloseDialog();
         }}
       >
-        <DialogContent className="w-full sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent
+          className={cn(
+            'max-h-[90vh]',
+            isMobile ? 'max-w-[95vw]' : 'max-w-2xl',
+          )}
+        >
           <DialogHeader>
             <DialogTitle>
               {editingId ? "Editar Fornecedor" : "Novo Fornecedor"}
@@ -313,268 +370,328 @@ export default function Suppliers() {
           <Form {...form}>
             <form
               onSubmit={form.handleSubmit(onSubmit)}
-              className="space-y-4"
+              className="space-y-6"
             >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        Razão Social <span className="text-red-500">*</span>
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          placeholder="Ex: Beleza & Cia Comércio de Cosméticos LTDA"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="trade_name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Nome Fantasia</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          placeholder="Ex: Beleza & Cia"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="cnpj"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>CNPJ</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          placeholder="00.000.000/0000-00"
-                          onChange={(e) =>
-                            field.onChange(formatCNPJ(e.target.value))
-                          }
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="cpf"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>CPF</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          placeholder="000.000.000-00"
-                          onChange={(e) =>
-                            field.onChange(formatCPF(e.target.value))
-                          }
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          type="email"
-                          placeholder="contato@fornecedor.com.br"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="phone"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Telefone</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          placeholder="(00) 00000-0000"
-                          onChange={(e) =>
-                            field.onChange(formatPhone(e.target.value))
-                          }
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="zip_code"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>CEP</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          placeholder="00000-000"
-                          onChange={(e) => {
-                            const formatted = formatCEP(e.target.value);
-                            field.onChange(formatted);
-
-                            const clean = formatted.replace(/\D/g, "");
-                            if (clean.length !== 8) {
-                              form.setValue("address", "");
-                              form.setValue("city", "");
-                              form.setValue("state", "");
-                            }
-                          }}
-                          onBlur={(e) => handleCepBlur(e.target.value)}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="city"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Cidade</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          placeholder="Ex: Recife"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="state"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Estado</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value || ""}
-                        disabled={statesLoading}
-                      >
+              {/* DADOS FISCAIS */}
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Dados fiscais
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="name"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          Razão Social{" "}
+                          <span className="text-red-500">*</span>
+                        </FormLabel>
                         <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecione" />
-                          </SelectTrigger>
+                          <Input
+                            {...field}
+                            placeholder="Ex: Beleza & Cia Comércio de Cosméticos LTDA"
+                          />
                         </FormControl>
-                        <SelectContent>
-                          {states?.map((s) => (
-                            <SelectItem key={s.id} value={s.uf}>
-                              {s.name} ({s.uf})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="trade_name"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Nome Fantasia</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="Ex: Beleza & Cia"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="cnpj"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          CNPJ{" "}
+                          <span className="text-xs text-muted-foreground">
+                            (preencha apenas um: CPF ou CNPJ)
+                          </span>
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="00.000.000/0000-00"
+                            onChange={(e) =>
+                              field.onChange(
+                                formatCNPJ(e.target.value),
+                              )
+                            }
+                            disabled={!!unmaskDigits(watchCpf)}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="cpf"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>CPF</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="000.000.000-00"
+                            onChange={(e) =>
+                              field.onChange(
+                                formatCPF(e.target.value),
+                              )
+                            }
+                            disabled={!!unmaskDigits(watchCnpj)}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+
+              {/* CONTATO */}
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Contato
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="email"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Email</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            type="email"
+                            placeholder="contato@fornecedor.com.br"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="phone"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Telefone</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="(00) 00000-0000"
+                            onChange={(e) =>
+                              field.onChange(
+                                formatPhone(e.target.value),
+                              )
+                            }
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="contact_person"
+                    render={({ field }) => (
+                      <FormItem className="md:col-span-2">
+                        <FormLabel>Pessoa de Contato</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="Nome da pessoa responsável"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+
+              {/* ENDEREÇO */}
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Endereço
+                </h3>
+                <div className="grid grid-cols-1 gap-4">
+                  <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-[1fr_2fr_auto] gap-4">
+                    <FormField
+                      control={form.control}
+                      name="zip_code"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            CEP{" "}
+                            {isFetchingCep && (
+                              <span className="text-xs text-muted-foreground">
+                                (buscando endereço...)
+                              </span>
+                            )}
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              placeholder="00000-000"
+                              onChange={(e) => {
+                                const formatted = formatCEP(
+                                  e.target.value,
+                                );
+                                field.onChange(formatted);
+
+                                const clean =
+                                  formatted.replace(/\D/g, "");
+                                if (clean.length !== 8) {
+                                  form.setValue("address", "");
+                                  form.setValue("city", "");
+                                  form.setValue("state", "");
+                                }
+                              }}
+                              onBlur={(e) =>
+                                handleCepBlur(e.target.value)
+                              }
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="city"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Cidade</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              placeholder="Ex: Recife"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="state"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Estado</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value || ""}
+                            disabled={statesLoading}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="UF" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {states?.map((s) => (
+                                <SelectItem
+                                  key={s.id}
+                                  value={s.uf}
+                                >
+                                  {s.name} ({s.uf})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  <FormField
+                    control={form.control}
+                    name="address"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Endereço</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="Rua, número, bairro, complemento"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+
+              {/* CONDIÇÕES COMERCIAIS */}
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Condições comerciais
+                </h3>
+
+                <FormField
+                  control={form.control}
+                  name="payment_terms"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Condições de Pagamento</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          {...field}
+                          placeholder="Ex: 28 dias, 30 dias, 50% entrada + 50% na entrega..."
+                          rows={2}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="notes"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Observações</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          {...field}
+                          placeholder="Observações gerais sobre o fornecedor"
+                          rows={3}
+                        />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
               </div>
-
-              <FormField
-                control={form.control}
-                name="address"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Endereço</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        placeholder="Rua, número, bairro, complemento"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="contact_person"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Pessoa de Contato</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        placeholder="Nome da pessoa responsável"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="payment_terms"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Condições de Pagamento</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        {...field}
-                        placeholder="Ex: 28 dias, 30 dias, 50% entrada + 50% na entrega..."
-                        rows={2}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="notes"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Observações</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        {...field}
-                        placeholder="Observações gerais sobre o fornecedor"
-                        rows={3}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
 
               <DialogFooter>
                 <Button
@@ -584,11 +701,12 @@ export default function Suppliers() {
                 >
                   Cancelar
                 </Button>
-                <Button
-                  type="submit"
-                  disabled={createMutation.isPending || updateMutation.isPending}
-                >
-                  {editingId ? "Atualizar" : "Cadastrar"}
+                <Button type="submit" disabled={isSaving}>
+                  {isSaving
+                    ? "Salvando..."
+                    : editingId
+                    ? "Atualizar"
+                    : "Cadastrar"}
                 </Button>
               </DialogFooter>
             </form>
@@ -596,12 +714,16 @@ export default function Suppliers() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      <AlertDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja excluir este fornecedor? Esta ação não poderá ser desfeita.
+              Tem certeza que deseja excluir este fornecedor? Esta ação
+              não poderá ser desfeita.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -194,8 +194,14 @@ export default function Promotions() {
       start_date: promotion.start_date ?? '',
       end_date: promotion.end_date ?? '',
       status: promotion.active ? 'active' : 'inactive',
-      min_purchase_amount: promotion.min_purchase_amount != null ? Number(promotion.min_purchase_amount) : undefined,
-      max_discount: promotion.max_discount != null ? Number(promotion.max_discount) : undefined,
+      min_purchase_amount:
+        promotion.min_purchase_amount != null
+          ? Number(promotion.min_purchase_amount)
+          : undefined,
+      max_discount:
+        promotion.max_discount != null
+          ? Number(promotion.max_discount)
+          : undefined,
       recurrence_type: recurrenceType as PromotionFormData['recurrence_type'],
       recurrence_weekdays: promotion.recurrence_weekdays ?? [],
       recurrence_week_of_month: promotion.recurrence_week_of_month ?? undefined,
@@ -235,7 +241,6 @@ export default function Promotions() {
 
   const onSubmit = async (values: PromotionFormData) => {
     const isRecurring = values.recurrence_type !== 'none';
-
     const discountValueForApi = values.discount_value.toFixed(2);
 
     const payload: CreatePromotionDto = {
@@ -380,7 +385,16 @@ export default function Promotions() {
         </div>
 
         {can('promotions', 'create') && (
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <Dialog
+            open={dialogOpen}
+            onOpenChange={(open) => {
+              if (!open) {
+                handleCloseDialog();
+              } else {
+                setDialogOpen(true);
+              }
+            }}
+          >
             <DialogTrigger asChild>
               <Button
                 className={cn('shadow-md', isMobile && 'w-full')}
@@ -393,7 +407,7 @@ export default function Promotions() {
 
             <DialogContent
               className={cn(
-                'max-h-[90vh] overflow-y-auto',
+                'max-h-[90vh]',
                 isMobile ? 'max-w-[95vw]' : 'max-w-2xl',
               )}
             >
@@ -406,148 +420,25 @@ export default function Promotions() {
               <Form {...form}>
                 <form
                   onSubmit={form.handleSubmit(onSubmit)}
-                  className="space-y-4"
+                  className="space-y-6"
                 >
-                  <FormField
-                    control={form.control}
-                    name="name"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Nome <span className="text-red-500">*</span></FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder="Nome da promoção"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  <section className="space-y-3">
+                    <h3 className="text-sm font-medium text-muted-foreground">
+                      Informações gerais
+                    </h3>
 
-                  <FormField
-                    control={form.control}
-                    name="description"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Descrição</FormLabel>
-                        <FormControl>
-                          <Textarea
-                            placeholder="Descreva a promoção em detalhes..."
-                            rows={3}
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <FormField
                       control={form.control}
-                      name="discount_type"
+                      name="name"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Tipo de desconto</FormLabel>
-                          <Select
-                            onValueChange={field.onChange}
-                            value={field.value}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Selecione" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="percentage">
-                                Percentual (%)
-                              </SelectItem>
-                              <SelectItem value="fixed">
-                                Valor Fixo (R$)
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="discount_value"
-                      render={({ field }) => (
-                        <FormItem className="sm:col-span-2">
                           <FormLabel>
-                            {discountType === 'percentage'
-                              ? 'Desconto (%)'
-                              : 'Desconto (R$)'}
+                            Nome <span className="text-red-500">*</span>
                           </FormLabel>
                           <FormControl>
                             <Input
-                              placeholder={
-                                discountType === 'percentage'
-                                  ? 'Ex: 10,00'
-                                  : 'Ex: R$ 20,00'
-                              }
-                              value={
-                                discountType === 'percentage'
-                                  ? displayPercentage(field.value)
-                                  : formatCurrencyInput(
-                                      Math.round(Number(field.value || 0) * 100).toString()
-                                    )
-                              }
-                              onChange={(e) => {
-                                const value = e.target.value;
-
-                                if (discountType === 'percentage') {
-                                  const formatted = formatPercentageInput(value);
-                                  field.onChange(
-                                    formatted.replace(',', '.'),
-                                  );
-                                } else {
-                                  const formatted = formatCurrencyInput(value);
-                                  field.onChange(
-                                    formatted
-                                      .replace(/[^\d,]/g, '')
-                                      .replace(',', '.'),
-                                  );
-                                }
-                              }}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="start_date"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Data de início <span className="text-red-500">*</span></FormLabel>
-                          <FormControl>
-                            <Input type="date" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="end_date"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Data de término (opcional)</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="date"
+                              placeholder="Nome da promoção"
                               {...field}
-                              value={field.value ?? ''}
                             />
                           </FormControl>
                           <FormMessage />
@@ -557,38 +448,191 @@ export default function Promotions() {
 
                     <FormField
                       control={form.control}
-                      name="status"
+                      name="description"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Status</FormLabel>
-                          <Select
-                            onValueChange={field.onChange}
-                            value={field.value}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Selecione" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="active">Ativa</SelectItem>
-                              <SelectItem value="inactive">Inativa</SelectItem>
-                            </SelectContent>
-                          </Select>
+                          <FormLabel>Descrição</FormLabel>
+                          <FormControl>
+                            <Textarea
+                              placeholder="Descreva a promoção em detalhes..."
+                              rows={3}
+                              {...field}
+                            />
+                          </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
-                  </div>
+                  </section>
 
-                  {/* Recorrência */}
-                  <div className="border rounded-md p-3 space-y-3">
+                  <section className="space-y-3">
+                    <h3 className="text-sm font-medium text-muted-foreground">
+                      Desconto
+                    </h3>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <FormField
+                        control={form.control}
+                        name="discount_type"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Tipo de desconto</FormLabel>
+                            <Select
+                              onValueChange={field.onChange}
+                              value={field.value}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Selecione" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="percentage">
+                                  Percentual (%)
+                                </SelectItem>
+                                <SelectItem value="fixed">
+                                  Valor Fixo (R$)
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="discount_value"
+                        render={({ field }) => (
+                          <FormItem className="sm:col-span-2">
+                            <FormLabel>
+                              {discountType === 'percentage'
+                                ? 'Desconto (%)'
+                                : 'Desconto (R$)'}
+                            </FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder={
+                                  discountType === 'percentage'
+                                    ? 'Ex: 10,00'
+                                    : 'Ex: R$ 20,00'
+                                }
+                                value={
+                                  discountType === 'percentage'
+                                    ? displayPercentage(field.value)
+                                    : Number(field.value) > 1
+                                    ? displayCurrency(Number(field.value))
+                                    : formatCurrencyInput(
+                                        field.value?.toString() || '',
+                                      )
+                                }
+                                onChange={(e) => {
+                                  const value = e.target.value;
+
+                                  if (discountType === 'percentage') {
+                                    const formatted =
+                                      formatPercentageInput(value);
+                                    field.onChange(
+                                      formatted.replace(',', '.'),
+                                    );
+                                  } else {
+                                    const formatted =
+                                      formatCurrencyInput(value);
+                                    field.onChange(
+                                      formatted
+                                        .replace(/[^\d,]/g, '')
+                                        .replace(',', '.'),
+                                    );
+                                  }
+                                }}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  </section>
+
+                  <section className="space-y-3">
+                    <h3 className="text-sm font-medium text-muted-foreground">
+                      Período e status
+                    </h3>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <FormField
+                        control={form.control}
+                        name="start_date"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              Data de início{' '}
+                              <span className="text-red-500">*</span>
+                            </FormLabel>
+                            <FormControl>
+                              <Input type="date" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="end_date"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Data de término (opcional)</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="date"
+                                {...field}
+                                value={field.value ?? ''}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="status"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Status</FormLabel>
+                            <Select
+                              onValueChange={field.onChange}
+                              value={field.value}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Selecione" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="active">Ativa</SelectItem>
+                                <SelectItem value="inactive">Inativa</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  </section>
+
+                  <section className="space-y-3 border rounded-md p-3">
+                    <h3 className="text-sm font-medium text-muted-foreground">
+                      Recorrência
+                    </h3>
+
                     <FormField
                       control={form.control}
                       name="recurrence_type"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Recorrência</FormLabel>
+                          <FormLabel>Tipo de recorrência</FormLabel>
                           <Select
                             onValueChange={field.onChange}
                             value={field.value}
@@ -679,14 +723,10 @@ export default function Promotions() {
                             <FormLabel>Semana do mês</FormLabel>
                             <Select
                               onValueChange={(v) =>
-                                field.onChange(
-                                  v ? Number(v) : undefined,
-                                )
+                                field.onChange(v ? Number(v) : undefined)
                               }
                               value={
-                                field.value != null
-                                  ? String(field.value)
-                                  : ''
+                                field.value != null ? String(field.value) : ''
                               }
                             >
                               <FormControl>
@@ -719,9 +759,7 @@ export default function Promotions() {
                               <Input
                                 type="date"
                                 value={
-                                  field.value
-                                    ? `2000-${field.value}`
-                                    : ''
+                                  field.value ? `2000-${field.value}` : ''
                                 }
                                 onChange={(e) => {
                                   const val = e.target.value;
@@ -741,77 +779,87 @@ export default function Promotions() {
                         )}
                       />
                     )}
-                  </div>
+                  </section>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="min_purchase_amount"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>
-                            Valor mínimo da compra (opcional)
-                          </FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder="Ex: R$ 50,00"
-                              value={
-                                field.value != null
-                                  ? formatCurrencyInput(
-                                      Math.round(Number(field.value || 0) * 100).toString()
-                                    )
-                                  : ''
-                              }
-                              onChange={(e) => {
-                                const formatted =
-                                  formatCurrencyInput(e.target.value);
-                                field.onChange(
-                                  formatted
-                                    .replace(/[^\d,]/g, '')
-                                    .replace(',', '.'),
-                                );
-                              }}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                  <section className="space-y-3">
+                    <h3 className="text-sm font-medium text-muted-foreground">
+                      Regras de valor (opcional)
+                    </h3>
 
-                    <FormField
-                      control={form.control}
-                      name="max_discount"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>
-                            Desconto máximo (R$) (opcional)
-                          </FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder="Ex: R$ 100,00"
-                              value={
-                                field.value != null
-                                  ? formatCurrencyInput(
-                                      Math.round(Number(field.value || 0) * 100).toString()
-                                    )
-                                  : ''
-                              }
-                              onChange={(e) => {
-                                const formatted =
-                                  formatCurrencyInput(e.target.value);
-                                field.onChange(
-                                  formatted
-                                    .replace(/[^\d,]/g, '')
-                                    .replace(',', '.'),
-                                );
-                              }}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <FormField
+                        control={form.control}
+                        name="min_purchase_amount"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              Valor mínimo da compra (opcional)
+                            </FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder="Ex: R$ 50,00"
+                                value={
+                                  field.value != null
+                                    ? Number(field.value) > 1
+                                      ? displayCurrency(Number(field.value))
+                                      : formatCurrencyInput(
+                                          field.value.toString(),
+                                        )
+                                    : ''
+                                }
+                                onChange={(e) => {
+                                  const formatted =
+                                    formatCurrencyInput(e.target.value);
+                                  field.onChange(
+                                    formatted
+                                      .replace(/[^\d,]/g, '')
+                                      .replace(',', '.'),
+                                  );
+                                }}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="max_discount"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              Desconto máximo (R$) (opcional)
+                            </FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder="Ex: R$ 100,00"
+                                value={
+                                  field.value != null
+                                    ? Number(field.value) > 1
+                                      ? displayCurrency(Number(field.value))
+                                      : formatCurrencyInput(
+                                          field.value.toString(),
+                                        )
+                                    : ''
+                                }
+                                onChange={(e) => {
+                                  const formatted =
+                                    formatCurrencyInput(e.target.value);
+                                  field.onChange(
+                                    formatted
+                                      .replace(/[^\d,]/g, '')
+                                      .replace(',', '.'),
+                                  );
+                                }}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  </section>
 
                   <div className="flex justify-end gap-2">
                     <Button

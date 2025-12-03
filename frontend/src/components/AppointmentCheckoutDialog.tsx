@@ -19,6 +19,8 @@ import { usePromotionsQuery } from "@/hooks/promotions";
 import { useItemsQuery } from "@/hooks/items";
 import { Promotion } from "@/types/promotion";
 import { formatPercentageInput, displayPercentage, formatCurrencyInput, displayCurrency } from "@/utils/formatters";
+import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const checkoutSchema = z.object({
   discount_type: z.enum(["percentage", "fixed"]),
@@ -68,6 +70,8 @@ export function AppointmentCheckoutDialog({
   const [loadingAppointment, setLoadingAppointment] = useState(false);
   const [discountDisplay, setDiscountDisplay] = useState("");
   const [installmentFeeDisplay, setInstallmentFeeDisplay] = useState("");
+
+  const isMobile = useIsMobile();
 
   const form = useForm<z.infer<typeof checkoutSchema>>({
     resolver: zodResolver(checkoutSchema),
@@ -363,7 +367,12 @@ export function AppointmentCheckoutDialog({
   if (isLoading || loadingAppointment) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-md flex flex-col items-center justify-center gap-4 py-10">
+        <DialogContent
+          className={cn(
+            "max-h-[90vh]",
+            isMobile ? "max-w-[95vw]" : "max-w-2xl"
+          )}
+        >
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
             Requisitando dados do sistema...
@@ -377,7 +386,12 @@ export function AppointmentCheckoutDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent
+        className={cn(
+          "max-h-[90vh]",
+          isMobile ? "max-w-[95vw]" : "max-w-2xl"
+        )}
+      >
         <DialogHeader>
           <DialogTitle>Finalizar Atendimento</DialogTitle>
           <DialogDescription>
