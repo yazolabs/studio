@@ -17,8 +17,9 @@ class AppointmentController extends Controller
     public function index(Request $request)
     {
         $appointments = Appointment::with(['customer', 'services', 'items', 'promotion'])
-            ->orderByDesc('date')
-            ->paginate($request->get('per_page', 15));
+            ->orderBy('date', 'desc')
+            ->orderBy('start_time', 'desc')
+            ->get();
 
         return AppointmentResource::collection($appointments);
     }
