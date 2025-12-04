@@ -13,7 +13,7 @@ Ao executar `php artisan migrate --seed`, os perfis abaixo serão criados automa
 | Profissional   | Profissional do Salão      | `professional` | `professional@yazolabs.com` |
 | Recepcionista  | Recepcionista do Salão     | `receptionist` | `receptionist@yazolabs.com` |
 
-Use essas credenciais para acessar o frontend e validar cenários de RBAC. Cada usuário recebe automaticamente as permissões descritas no Lovable YAML (dashboard, usuários, serviços, agendamentos, caixa, etc.).
+Use essas credenciais para acessar o frontend e validar cenários de RBAC. Cada usuário recebe automaticamente as permissões descritas no YAML (dashboard, usuários, serviços, agendamentos, caixa, etc.).
 
 ## Principais pastas
 

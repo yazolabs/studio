@@ -18,7 +18,38 @@ class PromotionController extends Controller
 
     public function index(Request $request)
     {
-        $promotions = $this->service->paginate($request->all());
+        $query = Promotion::query()
+            ->with(['services:id', 'items:id'])
+            ->orderByDesc('start_date')
+            ->orderBy('name');
+
+        if ($search = trim($request->get('search', ''))) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                    ->orWhere('description', 'like', "%{$search}%");
+            });
+        }
+
+        if ($request->filled('active')) {
+            $active = $request->input('active');
+
+            if ($active === '1' || $active === 1 || $active === true || $active === 'true') {
+                $query->where('active', true);
+            } elseif ($active === '0' || $active === 0 || $active === false || $active === 'false') {
+                $query->where('active', false);
+            }
+        }
+
+        if ($validOn = $request->input('valid_on')) {
+            $query
+                ->whereDate('start_date', '<=', $validOn)
+                ->where(function ($q) use ($validOn) {
+                    $q->whereNull('end_date')
+                        ->orWhereDate('end_date', '>=', $validOn);
+                });
+        }
+
+        $promotions = $query->get();
 
         return PromotionResource::collection($promotions);
     }
@@ -35,6 +66,12 @@ class PromotionController extends Controller
             'active',
             'min_purchase_amount',
             'max_discount',
+            'is_recurring',
+            'recurrence_type',
+            'recurrence_weekdays',
+            'recurrence_week_of_month',
+            'recurrence_month',
+            'recurrence_day_of_month',
         ]);
 
         $promotion = $this->service->create($payload);
@@ -48,7 +85,9 @@ class PromotionController extends Controller
 
     public function show(Promotion $promotion)
     {
-        return new PromotionResource($promotion);
+        return new PromotionResource(
+            $promotion->load(['services:id', 'items:id'])
+        );
     }
 
     public function update(Request $request, Promotion $promotion)
@@ -63,6 +102,12 @@ class PromotionController extends Controller
             'active',
             'min_purchase_amount',
             'max_discount',
+            'is_recurring',
+            'recurrence_type',
+            'recurrence_weekdays',
+            'recurrence_week_of_month',
+            'recurrence_month',
+            'recurrence_day_of_month',
         ]);
 
         $updated = $this->service->update($promotion, $payload);

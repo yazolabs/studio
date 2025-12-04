@@ -1,9 +1,9 @@
 services:
-  teste-integracao-frontend:
+  studio-frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
-    container_name: teste-integracao-frontend
+    container_name: studio-frontend
     ports:
       - "5173:5173"
     environment:
@@ -12,7 +12,7 @@ services:
       - WATCHPACK_POLLING=true
     volumes:
       - ./frontend:/app
-      - teste_integracao_node_modules:/app/node_modules
+      - studio_node_modules:/app/node_modules
     command: >
       sh -lc "
         mkdir -p /app/node_modules &&
@@ -20,14 +20,14 @@ services:
         su node -s /bin/sh -c 'npm ci && npm run dev -- --host 0.0.0.0 --port 5173'
       "
 
-  teste-integracao-backend:
+  studio-backend:
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
       args:
         UID: ${UID}
         GID: ${GID}
-    container_name: teste-integracao-backend
+    container_name: studio-backend
     volumes:
       - ./backend:/var/www/html
     ports:
@@ -36,33 +36,33 @@ services:
       - APACHE_RUN_USER=www-data
       - APACHE_RUN_GROUP=www-data
     depends_on:
-      - teste-integracao-db
+      - studio-db
 
-  teste-integracao-db:
+  studio-db:
     image: mysql:8.0
-    container_name: teste-integracao-db
+    container_name: studio-db
     restart: "no"
     ports:
       - "3306:3306"
     environment:
-      MYSQL_DATABASE: teste_integracao_db
+      MYSQL_DATABASE: studio_db
       MYSQL_ROOT_PASSWORD: laravel
       MYSQL_USER: laravel
       MYSQL_PASSWORD: laravel
     volumes:
-      - teste_integracao_db_data:/var/lib/mysql
+      - studio_db_data:/var/lib/mysql
 
-  teste-integracao-phpmyadmin:
+  studio-phpmyadmin:
     image: phpmyadmin/phpmyadmin
-    container_name: teste-integracao-phpmyadmin
+    container_name: studio-phpmyadmin
     restart: "no"
     ports:
       - "8080:80"
     environment:
-      PMA_HOST: teste-integracao-db
+      PMA_HOST: studio-db
       PMA_USER: laravel
       PMA_PASSWORD: laravel
 
 volumes:
-  teste_integracao_db_data:
-  teste_integracao_node_modules:
+  studio_db_data:
+  studio_node_modules:

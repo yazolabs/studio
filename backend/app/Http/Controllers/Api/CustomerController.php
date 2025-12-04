@@ -16,13 +16,14 @@ class CustomerController extends Controller
         $query = Customer::query()->orderBy('name');
 
         if ($search = trim($request->get('search', ''))) {
-            $query->where('name', 'like', "%{$search}%")
-                  ->orWhere('email', 'like', "%{$search}%")
-                  ->orWhere('phone', 'like', "%{$search}%");
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                ->orWhere('email', 'like', "%{$search}%")
+                ->orWhere('phone', 'like', "%{$search}%");
+            });
         }
 
-        $perPage = min(100, max(1, (int) $request->get('per_page', 10)));
-        $customers = $query->paginate($perPage)->appends($request->all());
+        $customers = $query->get();
 
         return CustomerResource::collection($customers);
     }
@@ -35,7 +36,7 @@ class CustomerController extends Controller
             'gender' => 'nullable|string|max:20',
             'active' => 'boolean',
             'email' => 'nullable|email|max:160',
-            'phone' => 'nullable|string|max:40',
+            'phone' => 'required|string|max:40',
             'alternate_phone' => 'nullable|string|max:40',
             'address' => 'nullable|string|max:255',
             'number' => 'nullable|string|max:20',
@@ -71,7 +72,7 @@ class CustomerController extends Controller
             'gender' => 'nullable|string|max:20',
             'active' => 'boolean',
             'email' => 'nullable|email|max:160',
-            'phone' => 'nullable|string|max:40',
+            'phone' => 'required|string|max:40',
             'alternate_phone' => 'nullable|string|max:40',
             'address' => 'nullable|string|max:255',
             'number' => 'nullable|string|max:20',

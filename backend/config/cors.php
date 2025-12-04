@@ -7,7 +7,8 @@ return [
 
     'allowed_origins' => [
         'http://localhost:5173',
-        'https://yazolabs.com.br',
+        'https://studio.yazolabs.com.br',
+        'https://api.studio.yazolabs.com.br',
         'https://*.yazolabs.com.br',
     ],
 

@@ -12,21 +12,27 @@ class PromotionResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'description' => $this->description,
-            'discountType' => $this->discount_type,
-            'discountValue' => $this->discount_value,
-            'startDate' => $this->start_date?->toDateString(),
-            'endDate' => $this->end_date?->toDateString(),
+            'discount_type' => $this->discount_type?->value,
+            'discount_value' => $this->discount_value,
+            'start_date' => $this->start_date?->toDateString(),
+            'end_date' => $this->end_date?->toDateString(),
             'active' => $this->active,
-            'minPurchaseAmount' => $this->min_purchase_amount,
-            'maxDiscount' => $this->max_discount,
-            'applicableServices' => $this->whenLoaded('services', function () {
+            'min_purchase_amount' => $this->min_purchase_amount,
+            'max_discount' => $this->max_discount,
+            'is_recurring' => $this->is_recurring,
+            'recurrence_type' => $this->recurrence_type?->value,
+            'recurrence_weekdays' => $this->recurrence_weekdays,
+            'recurrence_week_of_month' => $this->recurrence_week_of_month,
+            'recurrence_month' => $this->recurrence_month,
+            'recurrence_day_of_month' => $this->recurrence_day_of_month,
+            'applicable_services' => $this->whenLoaded('services', function () {
                 return $this->services->pluck('id');
             }),
-            'applicableItems' => $this->whenLoaded('items', function () {
+            'applicable_items' => $this->whenLoaded('items', function () {
                 return $this->items->pluck('id');
             }),
-            'createdAt' => $this->created_at?->toISOString(),
-            'updatedAt' => $this->updated_at?->toISOString(),
+            'created_at' => $this->created_at?->toISOString(),
+            'updated_at' => $this->updated_at?->toISOString(),
         ];
     }
 }

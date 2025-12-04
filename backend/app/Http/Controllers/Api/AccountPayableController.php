@@ -26,7 +26,6 @@ class AccountPayableController extends Controller
             'start_date',
             'end_date',
             'search',
-            'perPage',
         ]);
 
         $query = AccountPayable::with(['professional', 'appointment', 'commission'])
@@ -34,9 +33,12 @@ class AccountPayableController extends Controller
             ->when($filters['category'] ?? null, fn($q, $cat) => $q->where('category', 'like', "%{$cat}%"))
             ->when($filters['professional_id'] ?? null, fn($q, $id) => $q->where('professional_id', $id))
             ->when($filters['appointment_id'] ?? null, fn($q, $id) => $q->where('appointment_id', $id))
-            ->when(($filters['start_date'] ?? null) && ($filters['end_date'] ?? null), function ($q) use ($filters) {
-                $q->whereBetween('due_date', [$filters['start_date'], $filters['end_date']]);
-            })
+            ->when(
+                ($filters['start_date'] ?? null) && ($filters['end_date'] ?? null),
+                function ($q) use ($filters) {
+                    $q->whereBetween('due_date', [$filters['start_date'], $filters['end_date']]);
+                }
+            )
             ->when($filters['search'] ?? null, function ($q, $term) {
                 $q->where(function ($sub) use ($term) {
                     $sub->where('description', 'like', "%{$term}%")
@@ -46,7 +48,7 @@ class AccountPayableController extends Controller
             })
             ->orderByDesc('due_date');
 
-        $records = $query->paginate($filters['perPage'] ?? 15);
+        $records = $query->get();
 
         return AccountPayableResource::collection($records);
     }

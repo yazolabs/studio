@@ -18,7 +18,45 @@ class ServiceController extends Controller
 
     public function index(Request $request)
     {
-        $services = $this->service->paginate($request->all());
+        $query = Service::query()->orderBy('name');
+
+        if ($search = trim($request->get('search', ''))) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                ->orWhere('description', 'like', "%{$search}%")
+                ->orWhere('category', 'like', "%{$search}%");
+            });
+        }
+
+        if ($category = $request->get('category')) {
+            $query->where('category', $category);
+        }
+
+        if (!is_null($request->get('active'))) {
+            $active = filter_var(
+                $request->get('active'),
+                FILTER_VALIDATE_BOOLEAN,
+                FILTER_NULL_ON_FAILURE
+            );
+
+            if (!is_null($active)) {
+                $query->where('active', $active);
+            }
+        }
+
+        if ($commissionType = $request->get('commission_type')) {
+            $query->where('commission_type', $commissionType);
+        }
+
+        if ($minPrice = $request->get('min_price')) {
+            $query->where('price', '>=', $minPrice);
+        }
+
+        if ($maxPrice = $request->get('max_price')) {
+            $query->where('price', '<=', $maxPrice);
+        }
+
+        $services = $query->get();
 
         return ServiceResource::collection($services);
     }

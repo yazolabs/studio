@@ -19,6 +19,7 @@ class Appointment extends Model
         'status',
         'total_price',
         'discount_amount',
+        'discount_type',
         'final_price',
         'payment_method',
         'card_brand',
@@ -36,6 +37,7 @@ class Appointment extends Model
         'duration' => 'integer',
         'total_price' => 'decimal:2',
         'discount_amount' => 'decimal:2',
+        'discount_type' => 'string',
         'final_price' => 'decimal:2',
         'installments' => 'integer',
         'installment_fee' => 'decimal:2',
@@ -54,7 +56,14 @@ class Appointment extends Model
     public function services()
     {
         return $this->belongsToMany(Service::class, 'appointment_service')
-            ->withPivot(['service_price', 'commission_type', 'commission_value', 'professional_id'])
+            ->withPivot([
+                'service_price',
+                'commission_type',
+                'commission_value',
+                'professional_id',
+                'starts_at',
+                'ends_at',
+            ])
             ->withTimestamps();
     }
 

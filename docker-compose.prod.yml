@@ -1,18 +1,10 @@
 services:
-
   studio-frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile.prod
     container_name: studio-frontend
     restart: unless-stopped
-    ports:
-      - "5173:80"
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
 
   studio-backend:
     build:
@@ -27,57 +19,35 @@ services:
       DB_CONNECTION: mysql
       DB_HOST: studio-db
       DB_PORT: 3306
-      DB_DATABASE: studio_db
-      DB_USERNAME: laravel
-      DB_PASSWORD: laravel
+      DB_DATABASE: studio
+      DB_USERNAME: studio
+      DB_PASSWORD: a0adff46cc4d1838816a42b1d1ad14e8
     depends_on:
-      studio-db:
-        condition: service_healthy
-    ports:
-      - "8000:80"
+      - studio-db
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost"]
+      test: ["CMD", "curl", "-f", "http://localhost/api/health"]
       interval: 30s
+      retries: 3
+      start_period: 10s
       timeout: 5s
-      retries: 5
 
   studio-db:
     image: mysql:8.0
     container_name: studio-db
     restart: unless-stopped
     environment:
-      MYSQL_DATABASE: studio_db
-      MYSQL_ROOT_PASSWORD: laravel
-      MYSQL_USER: laravel
-      MYSQL_PASSWORD: laravel
+      MYSQL_DATABASE: studio
+      MYSQL_USER: studio
+      MYSQL_PASSWORD: a0adff46cc4d1838816a42b1d1ad14e8
+      MYSQL_ROOT_PASSWORD: 723bbdba721637e7a63b91f4b5df8520
     volumes:
-      - studio_db_data:/var/lib/mysql
-    ports:
-      - "3306:3306"
+      - studio_data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  studio-phpmyadmin:
-    image: phpmyadmin/phpmyadmin
-    container_name: studio-phpmyadmin
-    restart: unless-stopped
-    environment:
-      PMA_HOST: studio-db
-      PMA_USER: laravel
-      PMA_PASSWORD: laravel
-    ports:
-      - "8080:80"
-    depends_on:
-      studio-db:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost"]
       interval: 30s
-      timeout: 5s
       retries: 3
+      start_period: 10s
+      timeout: 5s
 
 volumes:
-  studio_db_data:
+  studio_data:
