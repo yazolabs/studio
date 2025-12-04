@@ -1400,7 +1400,6 @@ future_enhancements:
   backend:
     priority: "Alta"
     items:
-      - lovable_cloud: "Integração com Lovable Cloud/Supabase"
       - database: "Persistência real de dados em PostgreSQL"
       - authentication: "Autenticação com Supabase Auth"
       - storage: "Armazenamento de arquivos/imagens"

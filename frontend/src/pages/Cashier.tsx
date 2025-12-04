@@ -20,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
+import InDevelopment from '@/components/InDevelopment';
 
 type Period = 'day' | 'week' | 'month';
 type PaymentMethod = 'Dinheiro' | 'Cartão de Crédito' | 'Cartão de Débito' | 'PIX' | 'Transferência' | 'Boleto';
@@ -490,380 +491,392 @@ export default function Cashier() {
     },
   ];
 
+  // return (
+  //   <div className="space-y-6">
+  //     <div className="flex items-center justify-between">
+  //       <div>
+  //         <h1 className="text-3xl font-bold">Caixa</h1>
+  //         <p className="text-muted-foreground">Gestão financeira e relatórios</p>
+  //       </div>
+  //       <div className="flex gap-2">
+  //         <Button variant="outline" onClick={exportToPDF}>
+  //           <FileText className="h-4 w-4 mr-2" />
+  //           Exportar PDF
+  //         </Button>
+  //         <Button variant="outline" onClick={exportToExcel}>
+  //           <Download className="h-4 w-4 mr-2" />
+  //           Exportar Excel
+  //         </Button>
+  //       </div>
+  //     </div>
+
+  //     {/* Filters Section */}
+  //     <Card>
+  //       <CardHeader>
+  //         <CardTitle>Filtros</CardTitle>
+  //         <CardDescription>Refine os resultados por período e outros critérios</CardDescription>
+  //       </CardHeader>
+  //       <CardContent>
+  //         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
+  //           <div className="space-y-2">
+  //             <label className="text-sm font-medium">Período</label>
+  //             <Select value={period} onValueChange={(value) => setPeriod(value as Period)}>
+  //               <SelectTrigger>
+  //                 <SelectValue />
+  //               </SelectTrigger>
+  //               <SelectContent>
+  //                 <SelectItem value="day">Hoje</SelectItem>
+  //                 <SelectItem value="week">Última Semana</SelectItem>
+  //                 <SelectItem value="month">Último Mês</SelectItem>
+  //               </SelectContent>
+  //             </Select>
+  //           </div>
+
+  //           <div className="space-y-2">
+  //             <label className="text-sm font-medium">Tipo</label>
+  //             <Select value={selectedType} onValueChange={setSelectedType}>
+  //               <SelectTrigger>
+  //                 <SelectValue />
+  //               </SelectTrigger>
+  //               <SelectContent>
+  //                 <SelectItem value="all">Todas</SelectItem>
+  //                 <SelectItem value="entrada">Entradas</SelectItem>
+  //                 <SelectItem value="saida">Saídas</SelectItem>
+  //               </SelectContent>
+  //             </Select>
+  //           </div>
+
+  //           <div className="space-y-2">
+  //             <label className="text-sm font-medium">Serviço</label>
+  //             <Select value={selectedService} onValueChange={setSelectedService}>
+  //               <SelectTrigger>
+  //                 <SelectValue />
+  //               </SelectTrigger>
+  //               <SelectContent>
+  //                 <SelectItem value="all">Todos os Serviços</SelectItem>
+  //                 {uniqueServices.map((service) => (
+  //                   <SelectItem key={service} value={service}>
+  //                     {service}
+  //                   </SelectItem>
+  //                 ))}
+  //               </SelectContent>
+  //             </Select>
+  //           </div>
+
+  //           <div className="space-y-2">
+  //             <label className="text-sm font-medium">Profissional</label>
+  //             <Select value={selectedProfessional} onValueChange={setSelectedProfessional}>
+  //               <SelectTrigger>
+  //                 <SelectValue />
+  //               </SelectTrigger>
+  //               <SelectContent>
+  //                 <SelectItem value="all">Todos os Profissionais</SelectItem>
+  //                 {uniqueProfessionals.map((professional) => (
+  //                   <SelectItem key={professional} value={professional}>
+  //                     {professional}
+  //                   </SelectItem>
+  //                 ))}
+  //               </SelectContent>
+  //             </Select>
+  //           </div>
+
+  //           <div className="space-y-2">
+  //             <label className="text-sm font-medium">Fornecedor</label>
+  //             <Select value={selectedSupplier} onValueChange={setSelectedSupplier}>
+  //               <SelectTrigger>
+  //                 <SelectValue />
+  //               </SelectTrigger>
+  //               <SelectContent>
+  //                 <SelectItem value="all">Todos os Fornecedores</SelectItem>
+  //                 {uniqueSuppliers.map((supplier) => (
+  //                   <SelectItem key={supplier} value={supplier}>
+  //                     {supplier}
+  //                   </SelectItem>
+  //                 ))}
+  //               </SelectContent>
+  //             </Select>
+  //           </div>
+
+  //           <div className="space-y-2">
+  //             <label className="text-sm font-medium">Forma de Pagamento</label>
+  //             <Select value={selectedPaymentMethod} onValueChange={setSelectedPaymentMethod}>
+  //               <SelectTrigger>
+  //                 <SelectValue />
+  //               </SelectTrigger>
+  //               <SelectContent>
+  //                 <SelectItem value="all">Todas as Formas</SelectItem>
+  //                 {uniquePaymentMethods.map((method) => (
+  //                   <SelectItem key={method} value={method}>
+  //                     {method}
+  //                   </SelectItem>
+  //                 ))}
+  //               </SelectContent>
+  //             </Select>
+  //           </div>
+  //         </div>
+  //       </CardContent>
+  //     </Card>
+
+  //     {/* Summary Cards */}
+  //     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+  //       <Card>
+  //         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+  //           <CardTitle className="text-sm font-medium">Total Entradas</CardTitle>
+  //           <ArrowUpCircle className="h-4 w-4 text-green-600" />
+  //         </CardHeader>
+  //         <CardContent>
+  //           <div className="text-2xl font-bold text-green-600">R$ {summary.totalEntradas.toFixed(2)}</div>
+  //           <p className="text-xs text-muted-foreground">{getPeriodLabel()}</p>
+  //         </CardContent>
+  //       </Card>
+  //       <Card>
+  //         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+  //           <CardTitle className="text-sm font-medium">Total Saídas</CardTitle>
+  //           <ArrowDownCircle className="h-4 w-4 text-red-600" />
+  //         </CardHeader>
+  //         <CardContent>
+  //           <div className="text-2xl font-bold text-red-600">R$ {summary.totalSaidas.toFixed(2)}</div>
+  //           <p className="text-xs text-muted-foreground">{getPeriodLabel()}</p>
+  //         </CardContent>
+  //       </Card>
+  //       <Card>
+  //         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+  //           <CardTitle className="text-sm font-medium">Saldo</CardTitle>
+  //           <DollarSign className="h-4 w-4 text-muted-foreground" />
+  //         </CardHeader>
+  //         <CardContent>
+  //           <div className={`text-2xl font-bold ${summary.saldo >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+  //             R$ {summary.saldo.toFixed(2)}
+  //           </div>
+  //           <p className="text-xs text-muted-foreground">Entradas - Saídas</p>
+  //         </CardContent>
+  //       </Card>
+  //       <Card>
+  //         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+  //           <CardTitle className="text-sm font-medium">Transações</CardTitle>
+  //           <TrendingUp className="h-4 w-4 text-muted-foreground" />
+  //         </CardHeader>
+  //         <CardContent>
+  //           <div className="text-2xl font-bold">{summary.transactions}</div>
+  //           <p className="text-xs text-muted-foreground">Total no período</p>
+  //         </CardContent>
+  //       </Card>
+  //       <Card>
+  //         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+  //           <CardTitle className="text-sm font-medium">Ticket Médio</CardTitle>
+  //           <Package className="h-4 w-4 text-muted-foreground" />
+  //         </CardHeader>
+  //         <CardContent>
+  //           <div className="text-2xl font-bold">R$ {summary.avgTicketEntradas.toFixed(2)}</div>
+  //           <p className="text-xs text-muted-foreground">Por atendimento</p>
+  //         </CardContent>
+  //       </Card>
+  //     </div>
+
+  //     {/* Detailed Reports */}
+  //     <Tabs defaultValue="transactions" className="space-y-4">
+  //       <TabsList className="grid grid-cols-3 lg:grid-cols-7 w-full">
+  //         <TabsTrigger value="transactions">Todas</TabsTrigger>
+  //         <TabsTrigger value="entradas">Entradas</TabsTrigger>
+  //         <TabsTrigger value="saidas">Saídas</TabsTrigger>
+  //         <TabsTrigger value="payment">Forma Pgto</TabsTrigger>
+  //         <TabsTrigger value="professional">Profissionais</TabsTrigger>
+  //         <TabsTrigger value="supplier">Fornecedores</TabsTrigger>
+  //         <TabsTrigger value="category">Categorias</TabsTrigger>
+  //       </TabsList>
+
+  //       <TabsContent value="transactions" className="space-y-4">
+  //         <Card>
+  //           <CardHeader>
+  //             <CardTitle>Todas as Transações</CardTitle>
+  //             <CardDescription>Lista completa de entradas e saídas do período</CardDescription>
+  //           </CardHeader>
+  //           <CardContent>
+  //             <DataTable
+  //               data={filteredTransactions}
+  //               columns={columns}
+  //               searchPlaceholder="Buscar por descrição, cliente, fornecedor..."
+  //             />
+  //           </CardContent>
+  //         </Card>
+  //       </TabsContent>
+
+  //       <TabsContent value="entradas" className="space-y-4">
+  //         <Card>
+  //           <CardHeader>
+  //             <CardTitle>Receitas (Entradas)</CardTitle>
+  //             <CardDescription>Receitas provenientes de agendamentos finalizados</CardDescription>
+  //           </CardHeader>
+  //           <CardContent>
+  //             <DataTable
+  //               data={filteredTransactions.filter(t => t.type === 'entrada')}
+  //               columns={columns}
+  //               searchPlaceholder="Buscar por cliente ou serviço..."
+  //             />
+  //           </CardContent>
+  //         </Card>
+  //       </TabsContent>
+
+  //       <TabsContent value="saidas" className="space-y-4">
+  //         <Card>
+  //           <CardHeader>
+  //             <CardTitle>Despesas (Saídas)</CardTitle>
+  //             <CardDescription>Despesas de contas pagas aos fornecedores</CardDescription>
+  //           </CardHeader>
+  //           <CardContent>
+  //             <DataTable
+  //               data={filteredTransactions.filter(t => t.type === 'saida')}
+  //               columns={columns}
+  //               searchPlaceholder="Buscar por fornecedor ou categoria..."
+  //             />
+  //           </CardContent>
+  //         </Card>
+  //       </TabsContent>
+
+  //       <TabsContent value="payment" className="space-y-4">
+  //         <Card>
+  //           <CardHeader>
+  //             <CardTitle>Faturamento por Forma de Pagamento</CardTitle>
+  //             <CardDescription>Distribuição de valores por método de pagamento</CardDescription>
+  //           </CardHeader>
+  //           <CardContent>
+  //             <div className="space-y-4">
+  //               {Object.entries(summary.byPaymentMethod).map(([method, amount]) => (
+  //                 <div key={method} className="flex items-center justify-between border-b pb-2">
+  //                   <span className="font-medium">{method}</span>
+  //                   <span className="text-lg font-bold">R$ {amount.toFixed(2)}</span>
+  //                 </div>
+  //               ))}
+  //             </div>
+  //           </CardContent>
+  //         </Card>
+  //       </TabsContent>
+
+  //       <TabsContent value="professional" className="space-y-4">
+  //         <Card>
+  //           <CardHeader>
+  //             <CardTitle>Faturamento por Profissional</CardTitle>
+  //             <CardDescription>Performance de cada profissional</CardDescription>
+  //           </CardHeader>
+  //           <CardContent>
+  //             <div className="space-y-4">
+  //               {Object.entries(summary.byProfessional)
+  //                 .sort(([, a], [, b]) => b - a)
+  //                 .map(([professional, amount]) => (
+  //                   <div key={professional} className="flex items-center justify-between border-b pb-2">
+  //                     <span className="font-medium">{professional}</span>
+  //                     <span className="text-lg font-bold">R$ {amount.toFixed(2)}</span>
+  //                   </div>
+  //                 ))}
+  //             </div>
+  //           </CardContent>
+  //         </Card>
+  //       </TabsContent>
+
+  //       <TabsContent value="service" className="space-y-4">
+  //         <Card>
+  //           <CardHeader>
+  //             <CardTitle>Faturamento por Serviço</CardTitle>
+  //             <CardDescription>Serviços mais vendidos</CardDescription>
+  //           </CardHeader>
+  //           <CardContent>
+  //             <div className="space-y-4">
+  //               {Object.entries(summary.byService)
+  //                 .sort(([, a], [, b]) => b - a)
+  //                 .map(([service, amount]) => (
+  //                   <div key={service} className="flex items-center justify-between border-b pb-2">
+  //                     <span className="font-medium">{service}</span>
+  //                     <span className="text-lg font-bold">R$ {amount.toFixed(2)}</span>
+  //                   </div>
+  //                 ))}
+  //             </div>
+  //           </CardContent>
+  //         </Card>
+  //       </TabsContent>
+
+  //       <TabsContent value="customer" className="space-y-4">
+  //         <Card>
+  //           <CardHeader>
+  //             <CardTitle>Faturamento por Cliente</CardTitle>
+  //             <CardDescription>Maiores clientes do período</CardDescription>
+  //           </CardHeader>
+  //           <CardContent>
+  //             <div className="space-y-4">
+  //               {Object.entries(summary.byCustomer)
+  //                 .sort(([, a], [, b]) => b - a)
+  //                 .map(([customer, amount]) => (
+  //                   <div key={customer} className="flex items-center justify-between border-b pb-2">
+  //                     <span className="font-medium">{customer}</span>
+  //                     <span className="text-lg font-bold text-green-600">R$ {amount.toFixed(2)}</span>
+  //                   </div>
+  //                 ))}
+  //             </div>
+  //           </CardContent>
+  //         </Card>
+  //       </TabsContent>
+
+  //       <TabsContent value="supplier" className="space-y-4">
+  //         <Card>
+  //           <CardHeader>
+  //             <CardTitle>Despesas por Fornecedor</CardTitle>
+  //             <CardDescription>Maiores fornecedores do período</CardDescription>
+  //           </CardHeader>
+  //           <CardContent>
+  //             <div className="space-y-4">
+  //               {Object.entries(summary.bySupplier).length > 0 ? (
+  //                 Object.entries(summary.bySupplier)
+  //                   .sort(([, a], [, b]) => b - a)
+  //                   .map(([supplier, amount]) => (
+  //                     <div key={supplier} className="flex items-center justify-between border-b pb-2">
+  //                       <span className="font-medium">{supplier}</span>
+  //                       <span className="text-lg font-bold text-red-600">R$ {amount.toFixed(2)}</span>
+  //                     </div>
+  //                   ))
+  //               ) : (
+  //                 <p className="text-muted-foreground text-center py-8">Nenhuma despesa com fornecedores no período</p>
+  //               )}
+  //             </div>
+  //           </CardContent>
+  //         </Card>
+  //       </TabsContent>
+
+  //       <TabsContent value="category" className="space-y-4">
+  //         <Card>
+  //           <CardHeader>
+  //             <CardTitle>Despesas por Categoria</CardTitle>
+  //             <CardDescription>Distribuição de despesas por tipo</CardDescription>
+  //           </CardHeader>
+  //           <CardContent>
+  //             <div className="space-y-4">
+  //               {Object.entries(summary.byCategory).length > 0 ? (
+  //                 Object.entries(summary.byCategory)
+  //                   .sort(([, a], [, b]) => b - a)
+  //                   .map(([category, amount]) => (
+  //                     <div key={category} className="flex items-center justify-between border-b pb-2">
+  //                       <span className="font-medium">{category}</span>
+  //                       <span className="text-lg font-bold text-red-600">R$ {amount.toFixed(2)}</span>
+  //                     </div>
+  //                   ))
+  //               ) : (
+  //                 <p className="text-muted-foreground text-center py-8">Nenhuma despesa categorizada no período</p>
+  //               )}
+  //             </div>
+  //           </CardContent>
+  //         </Card>
+  //       </TabsContent>
+  //     </Tabs>
+  //   </div>
+  // );
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-bold">Caixa</h1>
           <p className="text-muted-foreground">Gestão financeira e relatórios</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={exportToPDF}>
-            <FileText className="h-4 w-4 mr-2" />
-            Exportar PDF
-          </Button>
-          <Button variant="outline" onClick={exportToExcel}>
-            <Download className="h-4 w-4 mr-2" />
-            Exportar Excel
-          </Button>
-        </div>
       </div>
 
-      {/* Filters Section */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Filtros</CardTitle>
-          <CardDescription>Refine os resultados por período e outros critérios</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Período</label>
-              <Select value={period} onValueChange={(value) => setPeriod(value as Period)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="day">Hoje</SelectItem>
-                  <SelectItem value="week">Última Semana</SelectItem>
-                  <SelectItem value="month">Último Mês</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Tipo</label>
-              <Select value={selectedType} onValueChange={setSelectedType}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas</SelectItem>
-                  <SelectItem value="entrada">Entradas</SelectItem>
-                  <SelectItem value="saida">Saídas</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Serviço</label>
-              <Select value={selectedService} onValueChange={setSelectedService}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos os Serviços</SelectItem>
-                  {uniqueServices.map((service) => (
-                    <SelectItem key={service} value={service}>
-                      {service}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Profissional</label>
-              <Select value={selectedProfessional} onValueChange={setSelectedProfessional}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos os Profissionais</SelectItem>
-                  {uniqueProfessionals.map((professional) => (
-                    <SelectItem key={professional} value={professional}>
-                      {professional}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Fornecedor</label>
-              <Select value={selectedSupplier} onValueChange={setSelectedSupplier}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos os Fornecedores</SelectItem>
-                  {uniqueSuppliers.map((supplier) => (
-                    <SelectItem key={supplier} value={supplier}>
-                      {supplier}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Forma de Pagamento</label>
-              <Select value={selectedPaymentMethod} onValueChange={setSelectedPaymentMethod}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas as Formas</SelectItem>
-                  {uniquePaymentMethods.map((method) => (
-                    <SelectItem key={method} value={method}>
-                      {method}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Entradas</CardTitle>
-            <ArrowUpCircle className="h-4 w-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">R$ {summary.totalEntradas.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">{getPeriodLabel()}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Saídas</CardTitle>
-            <ArrowDownCircle className="h-4 w-4 text-red-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">R$ {summary.totalSaidas.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">{getPeriodLabel()}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Saldo</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className={`text-2xl font-bold ${summary.saldo >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-              R$ {summary.saldo.toFixed(2)}
-            </div>
-            <p className="text-xs text-muted-foreground">Entradas - Saídas</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Transações</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{summary.transactions}</div>
-            <p className="text-xs text-muted-foreground">Total no período</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Ticket Médio</CardTitle>
-            <Package className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">R$ {summary.avgTicketEntradas.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">Por atendimento</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Detailed Reports */}
-      <Tabs defaultValue="transactions" className="space-y-4">
-        <TabsList className="grid grid-cols-3 lg:grid-cols-7 w-full">
-          <TabsTrigger value="transactions">Todas</TabsTrigger>
-          <TabsTrigger value="entradas">Entradas</TabsTrigger>
-          <TabsTrigger value="saidas">Saídas</TabsTrigger>
-          <TabsTrigger value="payment">Forma Pgto</TabsTrigger>
-          <TabsTrigger value="professional">Profissionais</TabsTrigger>
-          <TabsTrigger value="supplier">Fornecedores</TabsTrigger>
-          <TabsTrigger value="category">Categorias</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="transactions" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Todas as Transações</CardTitle>
-              <CardDescription>Lista completa de entradas e saídas do período</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <DataTable
-                data={filteredTransactions}
-                columns={columns}
-                searchPlaceholder="Buscar por descrição, cliente, fornecedor..."
-              />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="entradas" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Receitas (Entradas)</CardTitle>
-              <CardDescription>Receitas provenientes de agendamentos finalizados</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <DataTable
-                data={filteredTransactions.filter(t => t.type === 'entrada')}
-                columns={columns}
-                searchPlaceholder="Buscar por cliente ou serviço..."
-              />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="saidas" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Despesas (Saídas)</CardTitle>
-              <CardDescription>Despesas de contas pagas aos fornecedores</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <DataTable
-                data={filteredTransactions.filter(t => t.type === 'saida')}
-                columns={columns}
-                searchPlaceholder="Buscar por fornecedor ou categoria..."
-              />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="payment" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Faturamento por Forma de Pagamento</CardTitle>
-              <CardDescription>Distribuição de valores por método de pagamento</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {Object.entries(summary.byPaymentMethod).map(([method, amount]) => (
-                  <div key={method} className="flex items-center justify-between border-b pb-2">
-                    <span className="font-medium">{method}</span>
-                    <span className="text-lg font-bold">R$ {amount.toFixed(2)}</span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="professional" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Faturamento por Profissional</CardTitle>
-              <CardDescription>Performance de cada profissional</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {Object.entries(summary.byProfessional)
-                  .sort(([, a], [, b]) => b - a)
-                  .map(([professional, amount]) => (
-                    <div key={professional} className="flex items-center justify-between border-b pb-2">
-                      <span className="font-medium">{professional}</span>
-                      <span className="text-lg font-bold">R$ {amount.toFixed(2)}</span>
-                    </div>
-                  ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="service" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Faturamento por Serviço</CardTitle>
-              <CardDescription>Serviços mais vendidos</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {Object.entries(summary.byService)
-                  .sort(([, a], [, b]) => b - a)
-                  .map(([service, amount]) => (
-                    <div key={service} className="flex items-center justify-between border-b pb-2">
-                      <span className="font-medium">{service}</span>
-                      <span className="text-lg font-bold">R$ {amount.toFixed(2)}</span>
-                    </div>
-                  ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="customer" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Faturamento por Cliente</CardTitle>
-              <CardDescription>Maiores clientes do período</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {Object.entries(summary.byCustomer)
-                  .sort(([, a], [, b]) => b - a)
-                  .map(([customer, amount]) => (
-                    <div key={customer} className="flex items-center justify-between border-b pb-2">
-                      <span className="font-medium">{customer}</span>
-                      <span className="text-lg font-bold text-green-600">R$ {amount.toFixed(2)}</span>
-                    </div>
-                  ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="supplier" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Despesas por Fornecedor</CardTitle>
-              <CardDescription>Maiores fornecedores do período</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {Object.entries(summary.bySupplier).length > 0 ? (
-                  Object.entries(summary.bySupplier)
-                    .sort(([, a], [, b]) => b - a)
-                    .map(([supplier, amount]) => (
-                      <div key={supplier} className="flex items-center justify-between border-b pb-2">
-                        <span className="font-medium">{supplier}</span>
-                        <span className="text-lg font-bold text-red-600">R$ {amount.toFixed(2)}</span>
-                      </div>
-                    ))
-                ) : (
-                  <p className="text-muted-foreground text-center py-8">Nenhuma despesa com fornecedores no período</p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="category" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Despesas por Categoria</CardTitle>
-              <CardDescription>Distribuição de despesas por tipo</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {Object.entries(summary.byCategory).length > 0 ? (
-                  Object.entries(summary.byCategory)
-                    .sort(([, a], [, b]) => b - a)
-                    .map(([category, amount]) => (
-                      <div key={category} className="flex items-center justify-between border-b pb-2">
-                        <span className="font-medium">{category}</span>
-                        <span className="text-lg font-bold text-red-600">R$ {amount.toFixed(2)}</span>
-                      </div>
-                    ))
-                ) : (
-                  <p className="text-muted-foreground text-center py-8">Nenhuma despesa categorizada no período</p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+      <InDevelopment/>
     </div>
   );
 }

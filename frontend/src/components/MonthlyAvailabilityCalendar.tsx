@@ -27,7 +27,7 @@ interface Appointment {
   date: string;
   time: string;
   duration?: number;
-  status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show';
+  status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show' | 'rescheduled';
 }
 
 interface MonthlyAvailabilityCalendarProps {

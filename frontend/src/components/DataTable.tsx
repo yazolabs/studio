@@ -1,10 +1,10 @@
-import { useState } from 'react';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Search } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { useState } from "react";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Search } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface Column<T> {
   key: string;
@@ -19,19 +19,20 @@ interface DataTableProps<T> {
   searchPlaceholder?: string;
   emptyMessage?: string;
   loading?: boolean;
+  itemsPerPage?: number;
 }
 
 export function DataTable<T extends Record<string, any>>({
   data,
   columns,
   onRowClick,
-  searchPlaceholder = 'Buscar...',
-  emptyMessage = 'Nenhum registro encontrado.',
+  searchPlaceholder = "Buscar...",
+  emptyMessage = "Nenhum registro encontrado.",
   loading = false,
+  itemsPerPage = 10,
 }: DataTableProps<T>) {
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
   const isMobile = useIsMobile();
 
   const filteredData = data.filter((item) =>
@@ -40,9 +41,20 @@ export function DataTable<T extends Record<string, any>>({
     )
   );
 
-  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredData.length / itemsPerPage)
+  );
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedData = filteredData.slice(startIndex, startIndex + itemsPerPage);
+  const paginatedData = filteredData.slice(
+    startIndex,
+    startIndex + itemsPerPage
+  );
+
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value);
+    setCurrentPage(1);
+  };
 
   return (
     <div className="space-y-4">
@@ -51,10 +63,7 @@ export function DataTable<T extends Record<string, any>>({
         <Input
           placeholder={searchPlaceholder}
           value={searchTerm}
-          onChange={(e) => {
-            setSearchTerm(e.target.value);
-            setCurrentPage(1);
-          }}
+          onChange={(e) => handleSearchChange(e.target.value)}
           className="pl-9"
         />
       </div>
@@ -68,44 +77,52 @@ export function DataTable<T extends Record<string, any>>({
       {!loading && (
         <>
           {!isMobile ? (
-            <div className="rounded-md border shadow-sm">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/50">
-                    {columns.map((column) => (
-                      <TableHead key={column.key} className="font-semibold">
-                        {column.header}
-                      </TableHead>
-                    ))}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {paginatedData.length === 0 ? (
-                    <TableRow>
-                      <TableCell
-                        colSpan={columns.length}
-                        className="h-24 text-center text-muted-foreground"
-                      >
-                        {emptyMessage}
-                      </TableCell>
+            <div className="rounded-md border shadow-sm overflow-hidden">
+              <div className="max-h-[480px] overflow-y-auto">
+                <Table>
+                  <TableHeader className="bg-muted">
+                    <TableRow className="sticky top-0 z-[1] bg-muted">
+                      {columns.map((column) => (
+                        <TableHead
+                          key={column.key}
+                          className="font-semibold text-sm align-middle"
+                        >
+                          {column.header}
+                        </TableHead>
+                      ))}
                     </TableRow>
-                  ) : (
-                    paginatedData.map((item, index) => (
-                      <TableRow
-                        key={index}
-                        onClick={() => onRowClick?.(item)}
-                        className={onRowClick ? 'cursor-pointer hover:bg-muted/50' : ''}
-                      >
-                        {columns.map((column) => (
-                          <TableCell key={column.key}>
-                            {column.render ? column.render(item) : item[column.key]}
-                          </TableCell>
-                        ))}
+                  </TableHeader>
+
+                  <TableBody>
+                    {paginatedData.length === 0 ? (
+                      <TableRow>
+                        <TableCell
+                          colSpan={columns.length}
+                          className="h-24 text-center text-muted-foreground"
+                        >
+                          {emptyMessage}
+                        </TableCell>
                       </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+                    ) : (
+                      paginatedData.map((item, index) => (
+                        <TableRow
+                          key={index}
+                          onClick={() => onRowClick?.(item)}
+                          className={cn(
+                            onRowClick && "cursor-pointer hover:bg-muted/50"
+                          )}
+                        >
+                          {columns.map((column) => (
+                            <TableCell key={column.key}>
+                              {column.render ? column.render(item) : item[column.key]}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4">
@@ -118,18 +135,23 @@ export function DataTable<T extends Record<string, any>>({
                   <div
                     key={index}
                     className={cn(
-                      'rounded-lg border p-4 shadow-sm bg-card space-y-2 transition-all hover:shadow-md',
-                      onRowClick && 'cursor-pointer'
+                      "rounded-lg border p-4 shadow-sm bg-card space-y-2 transition-all hover:shadow-md",
+                      onRowClick && "cursor-pointer"
                     )}
                     onClick={() => onRowClick?.(item)}
                   >
                     {columns.map((col) => (
-                      <div key={col.key} className="flex flex-col text-sm">
+                      <div
+                        key={col.key}
+                        className="flex flex-col text-sm"
+                      >
                         <span className="font-medium text-muted-foreground">
                           {col.header}
                         </span>
                         <span>
-                          {col.render ? col.render(item) : String(item[col.key] ?? '-')}
+                          {col.render
+                            ? col.render(item)
+                            : String(item[col.key] ?? "-")}
                         </span>
                       </div>
                     ))}
@@ -141,49 +163,69 @@ export function DataTable<T extends Record<string, any>>({
         </>
       )}
 
-      {totalPages > 1 && (
+      {filteredData.length > 0 && (
         <div className="flex items-center justify-between text-sm text-muted-foreground">
           <p>
-            Mostrando {startIndex + 1}–{Math.min(startIndex + itemsPerPage, filteredData.length)} de{' '}
-            {filteredData.length}
+            Mostrando{" "}
+            <span className="font-medium">
+              {startIndex + 1}–
+              {Math.min(startIndex + itemsPerPage, filteredData.length)}
+            </span>{" "}
+            de{" "}
+            <span className="font-medium">{filteredData.length}</span>
           </p>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => setCurrentPage(1)}
-              disabled={currentPage === 1}
-            >
-              <ChevronsLeft className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span>
-              Página {currentPage} de {totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => setCurrentPage(totalPages)}
-              disabled={currentPage === totalPages}
-            >
-              <ChevronsRight className="h-4 w-4" />
-            </Button>
-          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage === 1}
+              >
+                <ChevronsLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() =>
+                  setCurrentPage((p) => Math.max(1, p - 1))
+                }
+                disabled={currentPage === 1}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span>
+                Página{" "}
+                <span className="font-medium">{currentPage}</span> de{" "}
+                <span className="font-medium">{totalPages}</span>
+              </span>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() =>
+                  setCurrentPage((p) => Math.min(totalPages, p + 1))
+                }
+                disabled={currentPage === totalPages}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={currentPage === totalPages}
+              >
+                <ChevronsRight className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!loading && filteredData.length === 0 && (
+        <div className="text-center text-muted-foreground py-4">
+          {emptyMessage}
         </div>
       )}
     </div>

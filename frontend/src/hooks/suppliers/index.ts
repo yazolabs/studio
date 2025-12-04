@@ -1,15 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { queryKeys } from '../../services/api';
-import {
-  createSupplier,
-  getSupplier,
-  listSuppliers,
-  removeSupplier,
-  updateSupplier,
-} from '../../services/suppliersService';
-import type { CreateSupplierDto, Supplier, UpdateSupplierDto } from '../../types/supplier';
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../../services/api";
+import { createSupplier, getSupplier, listSuppliers, removeSupplier, updateSupplier, SupplierQueryParams } from "../../services/suppliersService";
+import type { CreateSupplierDto, Supplier, UpdateSupplierDto } from "../../types/supplier";
 
-export function useSuppliersQuery(params?: Parameters<typeof listSuppliers>[0]) {
+export function useSuppliersQuery(params?: SupplierQueryParams) {
   return useQuery({
     queryKey: [queryKeys.suppliers[0], params],
     queryFn: () => listSuppliers(params),
