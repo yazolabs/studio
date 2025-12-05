@@ -16,14 +16,18 @@ type AppointmentQueryParams = {
 };
 
 export type CheckoutAppointmentDto = {
-  discount_type?: "percentage" | "fixed";
-  discount_amount?: number;
+  services_total: number;      // total dos serviços realizados
+  products_total: number;      // total dos produtos vendidos
+  discount_type?: "percentage" | "fixed" | null;
+  discount_amount?: number | null;
+  final_price: number;         // total final (já com desconto)
   payment_method: string;
   card_brand?: string | null;
   installments?: number | null;
   installment_fee?: number | null;
   promotion_id?: number | null;
 };
+
 
 function mapPayload(payload: CreateAppointmentDto | UpdateAppointmentDto) {
   const body = {

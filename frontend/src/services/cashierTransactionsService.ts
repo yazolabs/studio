@@ -1,18 +1,19 @@
-import { api } from './api';
-import type { Paginated } from '../types/pagination';
+// src/services/cashierTransactionsService.ts
+import { api } from "./api";
+import type { Paginated } from "../types/pagination";
 import type {
   CashierTransaction,
   CreateCashierTransactionDto,
   UpdateCashierTransactionDto,
-} from '../types/cashier-transaction';
+} from "../types/cashier-transaction";
 
-const basePath = '/cashier';
+const basePath = "/cashier";
 
-type CashierQueryParams = {
+export type CashierQueryParams = {
   page?: number;
   perPage?: number;
   search?: string;
-  type?: 'entrada' | 'saida';
+  type?: "entrada" | "saida";
   startDate?: string;
   endDate?: string;
 };

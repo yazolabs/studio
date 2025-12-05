@@ -23,7 +23,7 @@ class CashierTransaction extends Model
     ];
 
     protected $casts = [
-        'date' => 'date',
+        'date' => 'datetime',
         'type' => TransactionType::class,
         'amount' => 'decimal:2',
     ];

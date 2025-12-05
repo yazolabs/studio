@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\Api\{ AccountPayableController, ActionController, AppointmentController, AuthController, CashierTransactionController, CommissionController, CustomerController, ItemController, ItemPriceController, ItemPriceHistoryController, PermissionController, ProfessionalController, ProfessionalOpenWindowController, PromotionController, RoleController, ScreenController, ServiceController, StateController, SupplierController, UserController};
+use App\Http\Controllers\Api\{ AccountPayableController, ActionController, AppointmentController, AuthController, CashierTransactionController, CommissionController, CustomerController, ItemController, ItemPriceController, ItemPriceHistoryController, PermissionController, ProfessionalController, ProfessionalOpenWindowController, PromotionController, RoleController, ScreenController, ServiceController, StateController, SupplierController, UserController, DashboardController};
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', function () {
@@ -113,12 +113,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('appointments')->controller(AppointmentController::class)->group(function () {
         Route::get('/', 'index')->middleware('permission:appointments,read');
         Route::post('/', 'store')->middleware('permission:appointments,create');
+        Route::get('/calendar', 'calendar')->middleware('permission:appointments,read');
         Route::get('/{appointment}', 'show')->middleware('permission:appointments,read');
         Route::put('/{appointment}', 'update')->middleware('permission:appointments,update');
         Route::delete('/{appointment}', 'destroy')->middleware('permission:appointments,delete');
-        Route::get('/calendar', [AppointmentController::class, 'calendar'])->middleware('permission:appointments,read');
-        Route::patch('/{appointment}/checkout', [AppointmentController::class, 'checkout'])->middleware('permission:appointments,update');
+        Route::patch('/{appointment}/checkout', 'checkout')->middleware('permission:appointments,update');
     });
+
 
     Route::prefix('commissions')->controller(CommissionController::class)->group(function () {
         Route::get('/', 'index')->middleware('permission:commissions,read');
@@ -164,5 +165,13 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::prefix('states')->controller(StateController::class)->group(function () {
         Route::get('/', 'index');
+    });
+
+     Route::prefix('dashboard')->controller(DashboardController::class)->group(function () {
+        Route::get('/summary', 'summary')->middleware('permission:dashboard,read');
+        Route::get('/professionals-schedule', 'professionalsSchedule')->middleware('permission:dashboard,read');
+        Route::get('/recent-appointments', 'recentAppointments')->middleware('permission:dashboard,read');
+        Route::get('/popular-services', 'popularServices')->middleware('permission:dashboard,read');
+        Route::get('/promotions', 'promotions')->middleware('permission:dashboard,read');
     });
 });
