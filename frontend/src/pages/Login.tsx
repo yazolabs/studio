@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useAuthUser } from '@/hooks/useAuthUser';
 import { useToast } from '@/hooks/use-toast';
 import logo from '@/assets/logo.jpeg';
+import { Eye, EyeOff } from 'lucide-react';
 
 const loginSchema = z.object({
   login: z.string().min(3, 'Informe usuário ou e-mail válido'),
@@ -23,6 +24,7 @@ export default function Login() {
   const { login, isAuthenticated, isLoading: isAuthLoading } = useAuthUser();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const {
     register,
@@ -100,14 +102,31 @@ export default function Login() {
 
             <div className="space-y-2">
               <Label htmlFor="password">Senha</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="Digite sua senha"
-                autoComplete="current-password"
-                {...register('password')}
-                className={errors.password ? 'border-destructive' : ''}
-              />
+
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Digite sua senha"
+                  autoComplete="current-password"
+                  {...register('password')}
+                  className={`pr-10 ${errors.password ? 'border-destructive' : ''}`}
+                />
+
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground hover:text-foreground"
+                  aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
+
               {errors.password && (
                 <p className="text-sm text-destructive">{errors.password.message}</p>
               )}
@@ -120,22 +139,6 @@ export default function Login() {
             >
               {isSubmitting ? 'Entrando...' : 'Entrar'}
             </Button>
-
-            {/* <div className="rounded-lg bg-muted p-4 text-sm">
-              <p className="font-semibold mb-2">Credenciais de teste:</p>
-              <p>
-                Admin:{' '}
-                <code className="bg-background px-2 py-1 rounded">admin / admin123</code>
-              </p>
-              <p>
-                Manager:{' '}
-                <code className="bg-background px-2 py-1 rounded">manager / manager123</code>
-              </p>
-              <p>
-                Professional:{' '}
-                <code className="bg-background px-2 py-1 rounded">professional / professional123</code>
-              </p>
-            </div> */}
           </form>
         </CardContent>
       </Card>

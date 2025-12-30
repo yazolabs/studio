@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -70,6 +70,7 @@ export function AppointmentCheckoutDialog({
   const [loadingAppointment, setLoadingAppointment] = useState(false);
   const [discountDisplay, setDiscountDisplay] = useState("");
   const [installmentFeeDisplay, setInstallmentFeeDisplay] = useState("");
+  const [didAutoApplyPromotion, setDidAutoApplyPromotion] = useState(false);
 
   const isMobile = useIsMobile();
 
@@ -182,39 +183,70 @@ export function AppointmentCheckoutDialog({
     });
   }, [promotions]);
 
-  const handlePromotionChange = (promotionId: string) => {
-    setSelectedPromotion(promotionId);
+  const handlePromotionChange = useCallback(
+    (promotionId: string) => {
+      setSelectedPromotion(promotionId);
 
-    if (!promotionId || promotionId === "none") {
-      form.setValue("discount_type", "percentage");
-      form.setValue("discount", 0);
-      setDiscountDisplay("");
+      if (!promotionId || promotionId === "none") {
+        form.setValue("discount_type", "percentage");
+        form.setValue("discount", 0);
+        setDiscountDisplay("");
+        return;
+      }
+
+      const promotion = activePromotions.find(
+        (p) => p.id.toString() === promotionId
+      );
+
+      if (!promotion) {
+        form.setValue("discount_type", "percentage");
+        form.setValue("discount", 0);
+        setDiscountDisplay("");
+        return;
+      }
+
+      const raw = Number(promotion.discount_value ?? 0) || 0;
+
+      if (promotion.discount_type === "percentage") {
+        form.setValue("discount_type", "percentage");
+        form.setValue("discount", raw);
+        setDiscountDisplay(displayPercentage(raw));
+      } else if (promotion.discount_type === "fixed") {
+        form.setValue("discount_type", "fixed");
+        form.setValue("discount", raw);
+        setDiscountDisplay(displayCurrency(raw));
+      }
+    },
+    [activePromotions, form]
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    if (!appointmentData?.promotion_id) return;
+    if (!activePromotions.length) return;
+    if (didAutoApplyPromotion) return;
+
+    const currentDiscount = form.getValues("discount");
+    if (currentDiscount && currentDiscount > 0) {
+      setDidAutoApplyPromotion(true);
       return;
     }
 
-    const promotion = activePromotions.find(
-      (p) => p.id.toString() === promotionId
-    );
+    const promoId = String(appointmentData.promotion_id);
 
-    if (!promotion) {
-      form.setValue("discount_type", "percentage");
-      form.setValue("discount", 0);
-      setDiscountDisplay("");
-      return;
-    }
+    const exists = activePromotions.some((p) => p.id.toString() === promoId);
+    if (!exists) return;
 
-    const raw = Number(promotion.discount_value ?? 0) || 0;
-
-    if (promotion.discount_type === "percentage") {
-      form.setValue("discount_type", "percentage");
-      form.setValue("discount", raw);
-      setDiscountDisplay(displayPercentage(raw));
-    } else if (promotion.discount_type === "fixed") {
-      form.setValue("discount_type", "fixed");
-      form.setValue("discount", raw);
-      setDiscountDisplay(displayCurrency(raw));
-    }
-  };
+    handlePromotionChange(promoId);
+    setDidAutoApplyPromotion(true);
+  }, [
+    open,
+    appointmentData,
+    activePromotions,
+    didAutoApplyPromotion,
+    form,
+    handlePromotionChange,
+  ]);
 
   const addService = () => {
     if (!selectedService || selectedProfessionals.length === 0) {

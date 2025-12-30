@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Enums\AppointmentStatus;
+use App\Enums\{AppointmentPaymentStatus, AppointmentStatus};
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\{Model, SoftDeletes};
 
@@ -17,6 +17,7 @@ class Appointment extends Model
         'end_time',
         'duration',
         'status',
+        'payment_status',
         'total_price',
         'discount_amount',
         'discount_type',
@@ -34,6 +35,7 @@ class Appointment extends Model
         'start_time' => 'datetime:H:i:s',
         'end_time' => 'datetime:H:i:s',
         'status' => AppointmentStatus::class,
+        'payment_status' => AppointmentPaymentStatus::class,
         'duration' => 'integer',
         'total_price' => 'decimal:2',
         'discount_amount' => 'decimal:2',

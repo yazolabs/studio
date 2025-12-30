@@ -37,6 +37,7 @@ class AppointmentController extends Controller
                 'end_time',
                 'duration',
                 'status',
+                'payment_status',
                 'total_price',
                 'discount_amount',
                 'discount_type',
@@ -88,6 +89,7 @@ class AppointmentController extends Controller
                 'end_time',
                 'duration',
                 'status',
+                'payment_status',
                 'total_price',
                 'discount_amount',
                 'discount_type',
@@ -541,152 +543,157 @@ class AppointmentController extends Controller
     }
 
     public function checkout(Request $request, Appointment $appointment)
-{
-    $data = $request->validate([
-        'discount_type'   => ['nullable', 'in:percentage,fixed'],
-        'discount_amount' => ['nullable', 'numeric', 'min:0'],
-        'payment_method'  => ['required', 'string', 'max:50'],
-        'card_brand'      => ['nullable', 'string', 'max:50'],
-        'installments'    => ['nullable', 'integer', 'min:1'],
-        'installment_fee' => ['nullable', 'numeric', 'min:0'],
-        'promotion_id'    => ['nullable', 'exists:promotions,id'],
-    ]);
+    {
+        $data = $request->validate([
+            'discount_type'   => ['nullable', 'in:percentage,fixed'],
+            'discount_amount' => ['nullable', 'numeric', 'min:0'],
+            'payment_method'  => ['required', 'string', 'max:50'],
+            'card_brand'      => ['nullable', 'string', 'max:50'],
+            'installments'    => ['nullable', 'integer', 'min:1'],
+            'installment_fee' => ['nullable', 'numeric', 'min:0'],
+            'promotion_id'    => ['nullable', 'exists:promotions,id'],
+        ]);
 
-    try {
-        DB::transaction(function () use ($data, $appointment) {
-            // Garante que services/items estão carregados
-            $appointment->loadMissing(['customer', 'services', 'items']);
+        try {
+            DB::transaction(function () use ($data, $appointment) {
+                // Garante que services/items estão carregados
+                $appointment->loadMissing(['customer', 'services', 'items']);
 
-            Log::info('CHECKOUT STARTED', [
-                'appointment_id' => $appointment->id,
-                'payload'        => $data,
-            ]);
+                Log::info('CHECKOUT STARTED', [
+                    'appointment_id' => $appointment->id,
+                    'payload'        => $data,
+                ]);
 
-            $appointment->fill($data);
+                $appointment->fill($data);
 
-            if (!$appointment->end_time) {
-                $appointment->end_time = now();
-            }
+                if (!$appointment->end_time) {
+                    $appointment->end_time = now();
+                }
 
-            if ($appointment->status !== 'completed') {
-                $appointment->status = 'completed';
-            }
+                if ($appointment->status !== 'completed') {
+                    $appointment->status = 'completed';
+                }
 
-            $servicesTotal = $appointment->services->sum(
-                fn($s) => (float) $s->pivot->service_price
-            );
+                $servicesTotal = $appointment->services->sum(
+                    fn($s) => (float) $s->pivot->service_price
+                );
 
-            $productsTotal = $appointment->items->sum(
-                fn($i) => (float) $i->pivot->price * (int) $i->pivot->quantity
-            );
+                $productsTotal = $appointment->items->sum(
+                    fn($i) => (float) $i->pivot->price * (int) $i->pivot->quantity
+                );
 
-            $subtotal = $servicesTotal + $productsTotal;
+                $subtotal = $servicesTotal + $productsTotal;
 
-            $discountType = $appointment->discount_type ?: 'percentage';
-            $discountRaw  = $appointment->discount_amount ?? 0;
+                $discountType = $appointment->discount_type ?: 'percentage';
+                $discountRaw  = $appointment->discount_amount ?? 0;
 
-            if ($discountType === 'percentage') {
-                $discountValue = $subtotal * ($discountRaw / 100);
-            } else {
-                $discountValue = min($discountRaw, $subtotal);
-            }
+                if ($discountType === 'percentage') {
+                    $discountValue = $subtotal * ($discountRaw / 100);
+                } else {
+                    $discountValue = min($discountRaw, $subtotal);
+                }
 
-            $totalAfterDiscount = $subtotal - $discountValue;
+                $totalAfterDiscount = $subtotal - $discountValue;
 
-            $installmentFeePercent = $appointment->installment_fee ?? 0;
+                $installmentFeePercent = $appointment->installment_fee ?? 0;
 
-            $installmentFeeValue =
-                $appointment->payment_method === 'credit'
+                $installmentFeeValue =
+                    $appointment->payment_method === 'credit'
                     ? ($totalAfterDiscount * $installmentFeePercent) / 100
                     : 0;
 
-            $finalPrice = $totalAfterDiscount + $installmentFeeValue;
+                $finalPrice = $totalAfterDiscount + $installmentFeeValue;
 
-            $appointment->total_price     = $subtotal;
-            $appointment->discount_type   = $discountType;
-            $appointment->discount_amount = $discountRaw;
-            $appointment->installment_fee = $installmentFeePercent;
-            $appointment->final_price     = round($finalPrice, 2);
+                $appointment->total_price     = $subtotal;
+                $appointment->discount_type   = $discountType;
+                $appointment->discount_amount = $discountRaw;
+                $appointment->installment_fee = $installmentFeePercent;
+                $appointment->final_price     = round($finalPrice, 2);
 
-            $appointment->save();
-
-            $appointment->load(['services', 'items', 'customer']);
-
-            $createdCommissions = 0;
-            $createdAccounts    = 0;
-
-            foreach ($appointment->services as $service) {
-                $professionalId  = $service->pivot->professional_id;
-                $commissionType  = $service->pivot->commission_type;
-                $commissionValue = $service->pivot->commission_value;
-                $servicePrice    = $service->pivot->service_price;
-
-                if (!$professionalId) {
-                    Log::warning('SERVICE WITHOUT PROFESSIONAL ON CHECKOUT', [
-                        'appointment_id' => $appointment->id,
-                        'service_id'     => $service->id,
-                    ]);
-                    continue;
+                if ($appointment->payment_status !== 'prepaid') {
+                    $appointment->payment_status = 'paid';
                 }
 
-                $commissionAmount = $commissionType === 'percentage'
-                    ? $servicePrice * ($commissionValue / 100)
-                    : $commissionValue;
+                $appointment->save();
 
-                $commission = Commission::create([
-                    'professional_id'   => $professionalId,
-                    'appointment_id'    => $appointment->id,
-                    'service_id'        => $service->id,
-                    'customer_id'       => $appointment->customer_id,
-                    'date'              => now()->toDateString(),
-                    'service_price'     => $servicePrice,
-                    'commission_type'   => $commissionType,
-                    'commission_value'  => $commissionValue,
-                    'commission_amount' => $commissionAmount,
-                    'status'            => CommissionStatus::Pending,
+                $appointment->load(['services', 'items', 'customer']);
+
+                $createdCommissions = 0;
+                $createdAccounts    = 0;
+
+                foreach ($appointment->services as $service) {
+                    $professionalId  = $service->pivot->professional_id;
+                    $commissionType  = $service->pivot->commission_type;
+                    $commissionValue = $service->pivot->commission_value;
+                    $servicePrice    = $service->pivot->service_price;
+
+                    if (!$professionalId) {
+                        Log::warning('SERVICE WITHOUT PROFESSIONAL ON CHECKOUT', [
+                            'appointment_id' => $appointment->id,
+                            'service_id'     => $service->id,
+                        ]);
+                        continue;
+                    }
+
+                    $commissionAmount = $commissionType === 'percentage'
+                        ? $servicePrice * ($commissionValue / 100)
+                        : $commissionValue;
+
+                    $commission = Commission::create([
+                        'professional_id'   => $professionalId,
+                        'appointment_id'    => $appointment->id,
+                        'service_id'        => $service->id,
+                        'customer_id'       => $appointment->customer_id,
+                        'date'              => now()->toDateString(),
+                        'service_price'     => $servicePrice,
+                        'commission_type'   => $commissionType,
+                        'commission_value'  => $commissionValue,
+                        'commission_amount' => $commissionAmount,
+                        'status'            => CommissionStatus::Pending,
+                    ]);
+
+                    $createdCommissions++;
+
+                    $account = AccountPayable::create([
+                        'description'     => "Comissão: {$service->name}",
+                        'amount'          => $commissionAmount,
+                        'due_date'        => now()->addDays(7)->toDateString(),
+                        'status'          => AccountPayableStatus::Pending,
+                        'category'        => 'Comissões',
+                        'professional_id' => $professionalId,
+                        'appointment_id'  => $appointment->id,
+                        'reference'       => "APP-{$appointment->id}-SRV-{$service->id}",
+                    ]);
+
+                    $createdAccounts++;
+                }
+
+                Log::info('CHECKOUT COMPLETED', [
+                    'appointment_id'      => $appointment->id,
+                    'commissions_created' => $createdCommissions,
+                    'accounts_created'    => $createdAccounts,
+                    'total_price'         => $appointment->total_price,
+                    'final_price'         => $appointment->final_price,
                 ]);
-
-                $createdCommissions++;
-
-                $account = AccountPayable::create([
-                    'description'     => "Comissão: {$service->name}",
-                    'amount'          => $commissionAmount,
-                    'due_date'        => now()->addDays(7)->toDateString(),
-                    'status'          => AccountPayableStatus::Pending,
-                    'category'        => 'Comissões',
-                    'professional_id' => $professionalId,
-                    'appointment_id'  => $appointment->id,
-                    'reference'       => "APP-{$appointment->id}-SRV-{$service->id}",
-                ]);
-
-                $createdAccounts++;
-            }
-
-            Log::info('CHECKOUT COMPLETED', [
-                'appointment_id'      => $appointment->id,
-                'commissions_created' => $createdCommissions,
-                'accounts_created'    => $createdAccounts,
-                'total_price'         => $appointment->total_price,
-                'final_price'         => $appointment->final_price,
+            });
+        } catch (\Throwable $e) {
+            Log::error('CHECKOUT FAILED', [
+                'appointment_id' => $appointment->id ?? null,
+                'message'        => $e->getMessage(),
+                'file'           => $e->getFile(),
+                'line'           => $e->getLine(),
             ]);
-        });
-    } catch (\Throwable $e) {
-        Log::error('CHECKOUT FAILED', [
-            'appointment_id' => $appointment->id ?? null,
-            'message'        => $e->getMessage(),
-            'file'           => $e->getFile(),
-            'line'           => $e->getLine(),
-        ]);
 
-        throw $e;
+            throw $e;
+        }
+
+        return (new AppointmentResource(
+            $appointment->load(['customer', 'services', 'items', 'promotion'])
+        ))
+            ->response()
+            ->setStatusCode(Response::HTTP_OK);
     }
 
-    return (new AppointmentResource(
-        $appointment->load(['customer', 'services', 'items', 'promotion'])
-    ))
-        ->response()
-        ->setStatusCode(Response::HTTP_OK);
-}
     private function parseServiceDateTime(string $date, string $value): Carbon
     {
         $trimmed = trim($value);

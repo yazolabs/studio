@@ -23,6 +23,8 @@ export type AppointmentItem = {
   quantity: number;
 };
 
+export type AppointmentPaymentStatus = "unpaid" | "prepaid" | "paid";
+
 export type Appointment = {
   id: number;
   customer: { id: number; name: string } | null;
@@ -42,6 +44,9 @@ export type Appointment = {
     | "cancelled"
     | "no_show"
     | "rescheduled";
+
+  payment_status: AppointmentPaymentStatus;
+
   total_price: string;
   discount_type: "percentage" | "fixed" | null;
   discount_amount: string;
@@ -62,6 +67,9 @@ export type CreateAppointmentDto = {
   end_time?: string | null;
   duration?: number | null;
   status: Appointment["status"];
+
+  payment_status?: AppointmentPaymentStatus;
+
   total_price: string;
   discount_type?: "percentage" | "fixed" | null;
   discount_amount: string;

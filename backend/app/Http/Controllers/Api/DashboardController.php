@@ -106,7 +106,18 @@ class DashboardController extends Controller
             ->groupBy('professional_id');
 
         $data = $professionals->map(function ($professional) use ($appointments) {
-            $workSchedule = $professional->work_schedule ?? [];
+            $rawWorkSchedule = $professional->work_schedule ?? [];
+
+            if (is_string($rawWorkSchedule)) {
+                $decoded = json_decode($rawWorkSchedule, true);
+                $rawWorkSchedule = is_array($decoded) ? $decoded : [];
+            }
+
+            if (is_array($rawWorkSchedule)) {
+                $workSchedule = array_values(array_filter($rawWorkSchedule));
+            } else {
+                $workSchedule = [];
+            }
 
             $todayAppointments = collect($appointments->get($professional->id, []))
                 ->map(function ($as) {

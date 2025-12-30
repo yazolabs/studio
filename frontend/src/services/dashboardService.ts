@@ -1,4 +1,3 @@
-// src/services/dashboard.ts
 import api from "@/services/api";
 
 export interface DashboardSummary {
@@ -13,11 +12,11 @@ export interface DashboardSummary {
 }
 
 export interface ApiProfessionalScheduleDay {
-  day: string;          // "Segunda-feira"
-  startTime: string;    // "08:00"
-  endTime: string;      // "18:00"
-  lunchStart: string;   // "12:00"
-  lunchEnd: string;     // "13:00"
+  day: string;
+  startTime: string;
+  endTime: string;
+  lunchStart: string;
+  lunchEnd: string;
   isWorkingDay: boolean;
   isDayOff: boolean;
 }

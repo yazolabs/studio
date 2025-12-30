@@ -1,6 +1,6 @@
 import { format, isToday, parseISO, differenceInMinutes, isPast, parse, startOfWeek, endOfWeek, addWeeks, isSameMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Clock, User, Scissors, Phone, DollarSign, Edit, Trash2, Printer, CalendarCheck, Timer, TrendingUp, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, CalendarDays } from "lucide-react";
+import { Clock, User, Scissors, Phone, DollarSign, Pencil, Trash2, Printer, CalendarCheck, Timer, TrendingUp, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, CalendarDays } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,7 @@ interface Appointment {
     | "cancelled"
     | "no_show"
     | "rescheduled";
+  payment_status: "unpaid" | "prepaid" | "paid";
   notes?: string;
   price?: number;
 }
@@ -79,6 +80,32 @@ const getStatusLabel = (status: string) => {
       return "Não Compareceu";
     case "rescheduled":
       return "Reagendado";
+    default:
+      return status;
+  }
+};
+
+const getPaymentStatusColor = (status: Appointment["payment_status"]) => {
+  switch (status) {
+    case "unpaid":
+      return "bg-rose-50 text-rose-700 border-rose-200";
+    case "prepaid":
+      return "bg-amber-50 text-amber-800 border-amber-200";
+    case "paid":
+      return "bg-emerald-50 text-emerald-800 border-emerald-200";
+    default:
+      return "bg-muted text-muted-foreground border-border";
+  }
+};
+
+const getPaymentStatusLabel = (status: Appointment["payment_status"]) => {
+  switch (status) {
+    case "unpaid":
+      return "Não pago";
+    case "prepaid":
+      return "Pago antecipado";
+    case "paid":
+      return "Pago";
     default:
       return status;
   }
@@ -329,12 +356,28 @@ export function CompactAppointmentList({
               </span>
             )}
           </div>
-          <Badge
-            variant="outline"
-            className={cn("text-xs", getStatusColor(appointment.status))}
-          >
-            {getStatusLabel(appointment.status)}
-          </Badge>
+
+          <div className="flex flex-col items-end gap-1">
+            <Badge
+              variant="outline"
+              className={cn(
+                "text-[11px] px-2 py-0.5 rounded-full",
+                getStatusColor(appointment.status)
+              )}
+            >
+              {getStatusLabel(appointment.status)}
+            </Badge>
+
+            <Badge
+              variant="outline"
+              className={cn(
+                "text-[11px] px-2 py-0.5 rounded-full",
+                getPaymentStatusColor(appointment.payment_status)
+              )}
+            >
+              {getPaymentStatusLabel(appointment.payment_status)}
+            </Badge>
+          </div>
         </div>
 
         <div className="flex items-start gap-2">
@@ -414,7 +457,7 @@ export function CompactAppointmentList({
               onClick={() => onEdit(appointment)}
               className="flex-1"
             >
-              <Edit className="h-4 w-4" />
+              <Pencil className="h-4 w-4" />
             </Button>
           )}
           {canDelete && onDelete && (

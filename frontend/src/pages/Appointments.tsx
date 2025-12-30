@@ -18,11 +18,13 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useAppointmentsQuery, useCreateAppointment, useUpdateAppointment, useDeleteAppointment, useAppointmentQuery } from "@/hooks/appointments";
 import { useCustomersQuery } from "@/hooks/customers";
 import { useProfessionalsQuery } from "@/hooks/professionals";
+import { usePromotionsQuery } from "@/hooks/promotions";
 import { useServicesQuery } from "@/hooks/services";
 import { usePermission } from "@/hooks/usePermission";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { ProfessionalOpenWindow } from "@/types/professional-open-window";
+import { Promotion } from "@/types/promotion";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Plus, Pencil, Trash2, DollarSign, Calendar as CalendarIcon, Printer, Table, List, Check, X, Filter, ChevronDown, ChevronUp } from "lucide-react";
@@ -44,6 +46,7 @@ type LegacyAppointment = {
   time: string;
   duration?: number;
   status: "scheduled" | "confirmed" | "completed" | "cancelled" | "no_show" | "rescheduled";
+  payment_status: "unpaid" | "prepaid" | "paid";
   notes?: string;
   price?: number;
 };
@@ -115,6 +118,7 @@ interface AppointmentBackend {
   end_time?: string | null;
   duration?: number | null;
   status: "scheduled" | "confirmed" | "completed" | "cancelled" | "no_show" | "rescheduled";
+  payment_status: "unpaid" | "prepaid" | "paid";
   total_price?: number | null;
   discount_amount?: number | null;
   final_price?: number | null;
@@ -131,11 +135,13 @@ interface AppointmentLegacy {
   time: string;
   duration?: number;
   status: AppointmentBackend["status"];
+  payment_status: AppointmentBackend["payment_status"];
   notes?: string;
   price?: number;
 }
 
 const SLOT_STEP_MINUTES = 10;
+const END_OF_DAY_TOLERANCE_MINUTES = 480;
 const WEEKDAY_LABELS = [
   "Domingo",
   "Segunda-feira",
@@ -145,6 +151,12 @@ const WEEKDAY_LABELS = [
   "Sexta-feira",
   "Sábado",
 ];
+
+type TimeSlotWithStatus = {
+  time: string;
+  isFree: boolean;
+  reason?: "busy" | "lunch" | "outside-working-hours";
+};
 
 const getWeekdayLabel = (date: Date) => WEEKDAY_LABELS[date.getDay()];
 
@@ -221,6 +233,12 @@ const appointmentSchema = z.object({
     "no_show",
     "rescheduled",
   ]),
+  payment_status: z.enum(["unpaid", "prepaid", "paid"]).default("unpaid"),
+  promotion_id: z
+    .union([z.number(), z.string()])
+    .optional()
+    .nullable()
+    .transform((val) => (val == null || val === "" ? null : Number(val))),
   notes: z.string().trim().max(500, "Observações muito longas").optional(),
 });
 
@@ -431,6 +449,7 @@ export default function Appointments() {
   const { data: customersResp } = useCustomersQuery();
   const { data: professionalsResp } = useProfessionalsQuery();
   const { data: servicesResp } = useServicesQuery();
+  const { data: promotionsResp } = usePromotionsQuery();
 
   const createAppointment = useCreateAppointment();
   const updateAppointment = useUpdateAppointment(0 as any);
@@ -438,7 +457,12 @@ export default function Appointments() {
 
   const appointments: AppointmentBackend[] = useMemo(() => {
     const maybe = (appointmentsResp as any)?.data ?? appointmentsResp ?? [];
-    return Array.isArray(maybe) ? maybe : [];
+    if (!Array.isArray(maybe)) return [];
+
+    return maybe.map((apt: any) => ({
+      ...apt,
+      payment_status: apt.payment_status ?? "unpaid",
+    }));
   }, [appointmentsResp]);
 
   const customers: Customer[] = useMemo(() => {
@@ -455,6 +479,27 @@ export default function Appointments() {
     const maybe = (servicesResp as any)?.data ?? servicesResp ?? [];
     return Array.isArray(maybe) ? maybe : [];
   }, [servicesResp]);
+
+  const promotions: Promotion[] = useMemo(() => {
+    const maybe = (promotionsResp as any)?.data ?? promotionsResp ?? [];
+    return Array.isArray(maybe) ? maybe : [];
+  }, [promotionsResp]);
+
+  const activePromotions = useMemo(() => {
+    const today = new Date();
+
+    return promotions.filter((promo) => {
+      if (!promo.active) return false;
+
+      const startDate = promo.start_date ? new Date(promo.start_date) : null;
+      const endDate = promo.end_date ? new Date(promo.end_date) : null;
+
+      if (startDate && today < startDate) return false;
+      if (endDate && today > endDate) return false;
+
+      return true;
+    });
+  }, [promotions]);
 
   const [checkoutAppointment, setCheckoutAppointment] = useState<AppointmentLegacy | null>(null);
   const [checkoutAppointmentId, setCheckoutAppointmentId] = useState<number | null>(null);
@@ -477,6 +522,7 @@ export default function Appointments() {
     return "table";
   });
   const [statusFilter, setStatusFilter] = useState<"all" | AppointmentBackend["status"]>("all");
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<"all" | AppointmentBackend["payment_status"]>("all");
   const [customerFilter, setCustomerFilter] = useState<ID | "all">("all");
   const [professionalFilter, setProfessionalFilter] = useState<ID | "all">("all");
   const [serviceFilter, setServiceFilter] = useState<ID | "all">("all");
@@ -504,11 +550,14 @@ export default function Appointments() {
       customer_id: undefined as unknown as number,
       services: [],
       status: "scheduled",
+      payment_status: "unpaid",
+      promotion_id: null,
       notes: "",
     },
   });
 
   const watchedServices = form.watch("services") || [];
+  const watchedPaymentStatus = form.watch("payment_status");
 
   const selectedProfessionalIds = useMemo<number[]>(() => {
     const ids = (watchedServices as Array<{ professional_id?: number | string | null }>)
@@ -578,14 +627,14 @@ export default function Appointments() {
     [selectedServiceObjects]
   );
 
-  const getAvailableTimeSlotsForRow = (
+  const getTimeSlotsForRow = (
     selectedDate: Date | undefined,
     professionalId: ID | undefined,
     serviceDuration: number | undefined,
     rowIndex: number,
     servicesFieldValue: any[],
     currentAppointmentId?: ID
-  ): string[] => {
+  ): TimeSlotWithStatus[] => {
     if (!selectedDate || !professionalId || !serviceDuration || serviceDuration <= 0) {
       return [];
     }
@@ -602,45 +651,36 @@ export default function Appointments() {
 
     const scheduleForProf = professionalWorkScheduleById.get(profIdNum);
 
-    if (scheduleForProf && scheduleForProf.length > 0) {
-      const weekdayLabel = getWeekdayLabel(selectedDate);
-      const daySchedule = scheduleForProf.find((d) => d.day === weekdayLabel);
-
-      if (!daySchedule || daySchedule.isDayOff || daySchedule.isWorkingDay === false) {
-        return [];
-      }
-
-      const startMinutes = timeStringToMinutes(daySchedule.startTime);
-      const endMinutes = timeStringToMinutes(daySchedule.endTime);
-
-      if (startMinutes != null) {
-        dayStart = startMinutes;
-      }
-      if (endMinutes != null) {
-        dayEnd = endMinutes;
-      }
-
-      if (dayStart == null || dayEnd == null || dayEnd <= dayStart) {
-        return [];
-      }
-
-      if (daySchedule.lunchStart) {
-        lunchStart = timeStringToMinutes(daySchedule.lunchStart) ?? null;
-      }
-      if (daySchedule.lunchEnd) {
-        lunchEnd = timeStringToMinutes(daySchedule.lunchEnd) ?? null;
-      }
-
-      if (
-        lunchStart != null &&
-        lunchEnd != null &&
-        lunchEnd <= lunchStart
-      ) {
-        lunchStart = null;
-        lunchEnd = null;
-      }
-    } else {
+    if (!scheduleForProf || scheduleForProf.length === 0) {
       return [];
+    }
+
+    const weekdayLabel = getWeekdayLabel(selectedDate);
+    const daySchedule = scheduleForProf.find((d) => d.day === weekdayLabel);
+
+    if (!daySchedule || daySchedule.isDayOff || daySchedule.isWorkingDay === false) {
+      return [];
+    }
+
+    const startMinutes = timeStringToMinutes(daySchedule.startTime);
+    const endMinutes = timeStringToMinutes(daySchedule.endTime);
+
+    if (startMinutes == null || endMinutes == null || endMinutes <= startMinutes) {
+      return [];
+    }
+
+    dayStart = startMinutes;
+    dayEnd = endMinutes;
+
+    if (daySchedule.lunchStart) {
+      lunchStart = timeStringToMinutes(daySchedule.lunchStart) ?? null;
+    }
+    if (daySchedule.lunchEnd) {
+      lunchEnd = timeStringToMinutes(daySchedule.lunchEnd) ?? null;
+    }
+    if (lunchStart != null && lunchEnd != null && lunchEnd <= lunchStart) {
+      lunchStart = null;
+      lunchEnd = null;
     }
 
     appointments.forEach((apt) => {
@@ -706,28 +746,40 @@ export default function Appointments() {
     });
 
     const allSlots = generateTimeSlots(dayStart!, dayEnd!);
+    const maxAllowedEnd = dayEnd + END_OF_DAY_TOLERANCE_MINUTES;
 
-    return allSlots.filter((slot) => {
-      const slotStart = timeStringToMinutes(slot);
-      if (slotStart == null) return false;
-
+    return allSlots.map((slot): TimeSlotWithStatus => {
+      const slotStart = timeStringToMinutes(slot)!;
       const slotEnd = slotStart + serviceDuration;
 
-      if (slotStart < dayStart! || slotEnd > dayEnd!) {
-        return false;
-      }
+      let isFree = true;
+      let reason: TimeSlotWithStatus["reason"] | undefined;
 
       if (
         lunchStart != null &&
         lunchEnd != null &&
-        !(slotEnd <= lunchStart || slotStart >= lunchEnd)
+        slotStart >= lunchStart &&
+        slotStart < lunchEnd
       ) {
-        return false;
+        isFree = false;
+        reason = "lunch";
+      }
+      else if (slotEnd > maxAllowedEnd) {
+        isFree = false;
+        reason = "outside-working-hours";
+      }
+      else {
+        const overlapsBusy = busy.some(
+          (interval) => slotStart < interval.end && slotEnd > interval.start
+        );
+
+        if (overlapsBusy) {
+          isFree = false;
+          reason = "busy";
+        }
       }
 
-      return busy.every(
-        (interval) => slotEnd <= interval.start || slotStart >= interval.end
-      );
+      return { time: slot, isFree, reason };
     });
   };
 
@@ -753,6 +805,8 @@ export default function Appointments() {
         services: defaultServices,
         date: d as Date,
         status: apt.status,
+        payment_status: apt.payment_status,
+        promotion_id: (apt as any).promotion_id ?? null,
         notes: apt.notes ?? "",
       });
     } else {
@@ -762,6 +816,7 @@ export default function Appointments() {
         services: [],
         date: prefilledDate as Date | undefined,
         status: "scheduled",
+        payment_status: "unpaid",
         notes: "",
       });
     }
@@ -843,6 +898,8 @@ export default function Appointments() {
       start_time,
       duration: appointmentDuration,
       status: values.status,
+      payment_status: values.payment_status,
+      promotion_id: values.promotion_id ?? null,
       notes: values.notes || null,
       total_price: totalPriceNumber.toFixed(2),
       discount_amount: "0.00",
@@ -969,6 +1026,7 @@ export default function Appointments() {
       time,
       duration: apt.duration ?? undefined,
       status: apt.status,
+      payment_status: apt.payment_status,
       notes: apt.notes ?? undefined,
       price: apt.total_price ?? undefined,
     };
@@ -984,6 +1042,7 @@ export default function Appointments() {
     time: (apt.start_time || "").slice(0, 5),
     duration: apt.duration ?? undefined,
     status: apt.status,
+    payment_status: apt.payment_status,
     notes: apt.notes ?? undefined,
     price: apt.total_price ?? undefined,
   });
@@ -1314,6 +1373,36 @@ export default function Appointments() {
     }
   };
 
+  const getPaymentStatusLabel = (
+    status: AppointmentBackend["payment_status"]
+  ) => {
+    switch (status) {
+      case "unpaid":
+        return "Não pago";
+      case "prepaid":
+        return "Pago antecipado";
+      case "paid":
+        return "Pago";
+      default:
+        return status;
+    }
+  };
+
+  const getPaymentStatusBadgeClasses = (
+    status: AppointmentBackend["payment_status"]
+  ) => {
+    switch (status) {
+      case "unpaid":
+        return "bg-rose-50 text-rose-700 border border-rose-200";
+      case "prepaid":
+        return "bg-amber-50 text-amber-800 border border-amber-200";
+      case "paid":
+        return "bg-emerald-50 text-emerald-800 border border-emerald-200";
+      default:
+        return "bg-muted text-muted-foreground border border-border";
+    }
+  };
+
   const columns = [
     {
       key: "customer",
@@ -1367,6 +1456,21 @@ export default function Appointments() {
           )}
         >
           {getStatusLabel(apt.status)}
+        </Badge>
+      ),
+    },
+    {
+      key: "payment_status",
+      header: "Pagamento",
+      render: (apt: AppointmentBackend) => (
+        <Badge
+          variant="outline"
+          className={cn(
+            "px-2 py-0.5 text-xs font-medium rounded-full",
+            getPaymentStatusBadgeClasses(apt.payment_status)
+          )}
+        >
+          {getPaymentStatusLabel(apt.payment_status)}
         </Badge>
       ),
     },
@@ -1453,6 +1557,10 @@ export default function Appointments() {
       list = list.filter((apt) => apt.status === statusFilter);
     }
 
+    if (paymentStatusFilter !== "all") {
+      list = list.filter((apt) => apt.payment_status === paymentStatusFilter);
+    }
+
     if (customerFilter !== "all") {
       list = list.filter(
         (apt) => String(apt.customer?.id ?? "") === String(customerFilter)
@@ -1487,6 +1595,7 @@ export default function Appointments() {
     dateFromFilter,
     dateToFilter,
     statusFilter,
+    paymentStatusFilter,
     customerFilter,
     professionalFilter,
     serviceFilter,
@@ -1494,6 +1603,7 @@ export default function Appointments() {
 
   const hasActiveFilters =
     statusFilter !== "all" ||
+    paymentStatusFilter !== "all" ||
     customerFilter !== "all" ||
     professionalFilter !== "all" ||
     serviceFilter !== "all" ||
@@ -1508,6 +1618,7 @@ export default function Appointments() {
 
   const clearFilters = () => {
     setStatusFilter("all");
+    setPaymentStatusFilter("all");
     setCustomerFilter("all");
     setProfessionalFilter("all");
     setServiceFilter("all");
@@ -1633,7 +1744,7 @@ export default function Appointments() {
               </div>
 
               {filtersOpen && (
-                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-2 mt-2">
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-2 mt-2">
                   <div className="flex flex-col gap-1">
                     <span className="text-[11px] font-medium text-muted-foreground">
                       Data de
@@ -1717,6 +1828,30 @@ export default function Appointments() {
                         <SelectItem value="cancelled">Cancelado</SelectItem>
                         <SelectItem value="no_show">Não Compareceu</SelectItem>
                         <SelectItem value="rescheduled">Reagendado</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[11px] font-medium text-muted-foreground">
+                      Pagamento
+                    </span>
+                    <Select
+                      value={paymentStatusFilter}
+                      onValueChange={(v) =>
+                        setPaymentStatusFilter(
+                          v as "all" | AppointmentBackend["payment_status"]
+                        )
+                      }
+                    >
+                      <SelectTrigger className="h-9 text-xs">
+                        <SelectValue placeholder="Todos" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todos</SelectItem>
+                        <SelectItem value="unpaid">Não pago</SelectItem>
+                        <SelectItem value="prepaid">Pago antecipado</SelectItem>
+                        <SelectItem value="paid">Pago</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -1899,15 +2034,11 @@ export default function Appointments() {
                               : undefined;
                             const serviceDuration = Number(serviceEntity?.duration || 0);
 
-                            const canSelectTime =
-                              selectedDate &&
-                              professionalId &&
-                              serviceId &&
-                              serviceDuration > 0;
+                            const canSelectTime = selectedDate && professionalId && serviceId && serviceDuration > 0;
 
-                            const slots =
+                            const slots: TimeSlotWithStatus[] =
                               canSelectTime && selectedDate
-                                ? getAvailableTimeSlotsForRow(
+                                ? getTimeSlotsForRow(
                                     selectedDate,
                                     professionalId,
                                     serviceDuration,
@@ -1917,20 +2048,51 @@ export default function Appointments() {
                                   )
                                 : [];
 
-                            const hasSlots = slots.length > 0;
+                            const hasAnySlots = slots.length > 0;
+                            const hasFreeSlots = slots.some((s) => s.isFree);
 
-                            const timeOptions = hasSlots
-                              ? slots.map((slot) => ({
-                                  value: slot,
-                                  label: slot,
-                                }))
-                              : [];
+                            const timeOptions = slots.map((slot) => {
+                              let suffix = "";
+                              let variant:
+                                | "default"
+                                | "success"
+                                | "danger"
+                                | "warning"
+                                | "muted" = "default";
+                              let optDisabled = false;
+
+                              if (slot.isFree) {
+                                variant = "success";
+                              } else {
+                                optDisabled = true;
+
+                                if (slot.reason === "busy") {
+                                  suffix = " • ocupado";
+                                  variant = "danger";
+                                } else if (slot.reason === "lunch") {
+                                  suffix = " • intervalo";
+                                  variant = "warning";
+                                } else if (slot.reason === "outside-working-hours") {
+                                  suffix = " • fora da escala";
+                                  variant = "muted";
+                                }
+                              }
+
+                              return {
+                                value: slot.time,
+                                label: slot.time + suffix,
+                                disabled: optDisabled,
+                                variant,
+                              };
+                            });
 
                             const timePlaceholder = !canSelectTime
                               ? "Selecione data, serviço e profissional"
-                              : !hasSlots
+                              : !hasAnySlots
                               ? "Nenhum horário disponível"
-                              : "Selecione o horário";
+                              : hasFreeSlots
+                              ? "Selecione o horário"
+                              : "Nenhum horário livre";
 
                             return (
                               <div
@@ -1987,6 +2149,17 @@ export default function Appointments() {
                                     <Combobox
                                       value={svc.start_time || null}
                                       onChange={(val) => {
+                                        const chosen = slots.find((s) => s.time === val);
+
+                                        if (!chosen || !chosen.isFree) {
+                                          toast({
+                                            title: "Horário indisponível",
+                                            description: "Selecione um horário livre para este serviço.",
+                                            variant: "destructive",
+                                          });
+                                          return;
+                                        }
+
                                         updateServiceAtIndex(idx, {
                                           start_time: (val as string) || "",
                                         });
@@ -1995,7 +2168,7 @@ export default function Appointments() {
                                       placeholder={timePlaceholder}
                                       searchPlaceholder="Buscar horário..."
                                       emptyMessage="Nenhum horário disponível."
-                                      disabled={!hasSlots}
+                                      disabled={!hasAnySlots}
                                     />
                                   </FormControl>
                                 </FormItem>
@@ -2039,7 +2212,7 @@ export default function Appointments() {
                   }}
                 />
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <FormField
                     control={form.control}
                     name="date"
@@ -2057,7 +2230,7 @@ export default function Appointments() {
                                 )}
                               >
                                 {field.value ? (
-                                  format(field.value, "PPP", { locale: ptBR })
+                                  format(field.value, "P", { locale: ptBR })
                                 ) : (
                                   <span>Selecione a data</span>
                                 )}
@@ -2145,7 +2318,67 @@ export default function Appointments() {
                       </FormItem>
                     )}
                   />
+
+                  <FormField
+                    control={form.control}
+                    name="payment_status"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-col">
+                        <FormLabel>Status de pagamento <span className="text-red-500">*</span></FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="unpaid">Não pago</SelectItem>
+                            <SelectItem value="prepaid">Pago antecipado</SelectItem>
+                            <SelectItem value="paid">Pago</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 </div>
+
+                {watchedPaymentStatus === "prepaid" && (
+                  <FormField
+                    control={form.control}
+                    name="promotion_id"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-col">
+                        <FormLabel>Promoção/Campanha</FormLabel>
+                        <Select
+                          value={field.value ? String(field.value) : "none"}
+                          onValueChange={(v) => {
+                            if (v === "none") {
+                              field.onChange(null);
+                            } else {
+                              field.onChange(Number(v));
+                            }
+                          }}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione (opcional)" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="none">Nenhuma promoção</SelectItem>
+                            {activePromotions.map((promo) => (
+                              <SelectItem key={promo.id} value={String(promo.id)}>
+                                {promo.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>

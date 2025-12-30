@@ -1,34 +1,10 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Users,
-  Calendar,
-  Scissors,
-  TrendingUp,
-  Clock,
-  Tag,
-  Megaphone,
-  TrendingDown,
-  Target,
-} from "lucide-react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Users, Calendar, Scissors, TrendingUp, Clock, Tag, Megaphone, TrendingDown, Target } from "lucide-react";
 import { useAuthUser } from "@/hooks/useAuthUser";
 import { Badge } from "@/components/ui/badge";
-import {
-  getDashboardSummary,
-  getProfessionalsSchedule,
-  getRecentAppointments,
-  getPopularServices,
-  getDashboardPromotions,
-  ApiProfessional,
-  ApiPromotion,
-} from "@/services/dashboard";
+import { getDashboardSummary, getProfessionalsSchedule, getRecentAppointments, getPopularServices, getDashboardPromotions, ApiProfessional, ApiPromotion } from "@/services/dashboardService";
 
 interface WorkSchedule {
   dayOfWeek: string;
@@ -73,10 +49,6 @@ export default function Dashboard() {
 
   const currentDateStr = selectedDate.toISOString().slice(0, 10);
 
-  // =========================
-  // 1) CHAMADAS À API
-  // =========================
-
   const {
     data: summary,
     isLoading: isSummaryLoading,
@@ -120,18 +92,13 @@ export default function Dashboard() {
   } = useQuery({
     queryKey: ["dashboard-promotions"],
     queryFn: getDashboardPromotions,
-    retry: false, // se der erro, não ficar batendo infinitamente
+    retry: false,
   });
 
   const isLoading =
     isSummaryLoading || isProfLoading || isRecentLoading || isPopularLoading;
-  // IMPORTANTE: não considero erro de promoções como "fatal" do dashboard
   const hasError =
     isSummaryError || isProfError || isRecentError || isPopularError;
-
-  // =========================
-  // 2) HELPERS
-  // =========================
 
   const getCurrentDayOfWeek = () => {
     const days = [
@@ -146,45 +113,53 @@ export default function Dashboard() {
     return days[selectedDate.getDay()];
   };
 
-  // mapeia API -> formato usado na tela
   const professionals: Professional[] = useMemo(() => {
     if (!professionalsSchedule) return [];
 
-    return professionalsSchedule.data.map((prof: ApiProfessional) => ({
-      id: String(prof.id),
-      name: prof.name ?? "Sem nome",
-      services: prof.specialties ?? [],
-      schedule: (prof.work_schedule ?? []).map((d) => ({
-        dayOfWeek: d.day,
-        isWorkingDay: d.isWorkingDay && !d.isDayOff,
-        morningStart: d.startTime,
-        morningEnd: d.lunchStart,
-        afternoonStart: d.lunchEnd,
-        afternoonEnd: d.endTime,
-      })),
-    }));
-  }, [professionalsSchedule]);
+    return professionalsSchedule.data.map((prof: ApiProfessional) => {
+      const rawSchedule = prof.work_schedule;
 
-  const appointmentsByProfessional: Record<string, Appointment[]> = useMemo(() => {
-    if (!professionalsSchedule) return {};
+      const safeSchedule = Array.isArray(rawSchedule)
+        ? rawSchedule.filter((d): d is NonNullable<typeof rawSchedule[number]> => !!d)
+        : [];
 
-    const map: Record<string, Appointment[]> = {};
-
-    professionalsSchedule.data.forEach((prof) => {
-      const profId = String(prof.id);
-      map[profId] =
-        prof.todays_appointments?.map((apt) => ({
-          id: apt.id,
-          professionalId: profId,
-          clientName: apt.customer_name ?? "Cliente",
-          service: apt.service_name ?? "Serviço",
-          time: apt.time,
-          status: apt.status,
-        })) ?? [];
+      return {
+        id: String(prof.id),
+        name: prof.name ?? "Sem nome",
+        services: prof.specialties ?? [],
+        schedule: safeSchedule.map((d) => ({
+          dayOfWeek: d.day ?? "",
+          isWorkingDay: !!d.isWorkingDay && !d.isDayOff,
+          morningStart: d.startTime ?? "",
+          morningEnd: d.lunchStart ?? "",
+          afternoonStart: d.lunchEnd ?? "",
+          afternoonEnd: d.endTime ?? "",
+        })),
+      };
     });
-
-    return map;
   }, [professionalsSchedule]);
+
+  const appointmentsByProfessional: Record<string, Appointment[]> =
+    useMemo(() => {
+      if (!professionalsSchedule) return {};
+
+      const map: Record<string, Appointment[]> = {};
+
+      professionalsSchedule.data.forEach((prof) => {
+        const profId = String(prof.id);
+        map[profId] =
+          prof.todays_appointments?.map((apt) => ({
+            id: apt.id,
+            professionalId: profId,
+            clientName: apt.customer_name ?? "Cliente",
+            service: apt.service_name ?? "Serviço",
+            time: apt.time,
+            status: apt.status,
+          })) ?? [];
+      });
+
+      return map;
+    }, [professionalsSchedule]);
 
   const getWorkingHours = (professional: Professional) => {
     const today = getCurrentDayOfWeek();
@@ -238,56 +213,46 @@ export default function Dashboard() {
     }
   };
 
-  // =========================
-  // 3) STATS PRINCIPAIS
-  // =========================
-
-  const stats =
-    summary &&
-    [
-      {
-        title: "Total de Clientes",
-        value: summary.total_customers.toLocaleString("pt-BR"),
-        description:
-          summary.customers_change_percent != null
-            ? `${summary.customers_change_percent > 0 ? "+" : ""}${
-                summary.customers_change_percent
-              }% em relação ao mês passado`
-            : "Sem comparação com o mês anterior",
-        icon: Users,
-        color: "text-primary",
-      },
-      {
-        title: "Agendamentos Hoje",
-        value: summary.appointments_today.toString(),
-        description: `${summary.pending_appointments} agendamentos pendentes`,
-        icon: Calendar,
-        color: "text-secondary",
-      },
-      {
-        title: "Serviços Ativos",
-        value: summary.active_services.toString(),
-        description: `${summary.service_categories} categorias disponíveis`,
-        icon: Scissors,
-        color: "text-green-600",
-      },
-      {
-        title: "Receita do Mês",
-        value: `R$ ${(summary.month_revenue / 1000).toFixed(1)}k`,
-        description:
-          summary.revenue_change_percent != null
-            ? `${summary.revenue_change_percent > 0 ? "+" : ""}${
-                summary.revenue_change_percent
-              }% em relação ao mês passado`
-            : "Sem comparação com o mês anterior",
-        icon: TrendingUp,
-        color: "text-yellow-500",
-      },
-    ];
-
-  // =========================
-  // 4) PROMOÇÕES (VINDO DA API, SE TIVER)
-  // =========================
+  const stats = summary && [
+    {
+      title: "Total de Clientes",
+      value: summary.total_customers.toLocaleString("pt-BR"),
+      description:
+        summary.customers_change_percent != null
+          ? `${summary.customers_change_percent > 0 ? "+" : ""}${
+              summary.customers_change_percent
+            }% em relação ao mês passado`
+          : "Sem comparação com o mês anterior",
+      icon: Users,
+      color: "text-primary",
+    },
+    {
+      title: "Agendamentos Hoje",
+      value: summary.appointments_today.toString(),
+      description: `${summary.pending_appointments} agendamentos pendentes`,
+      icon: Calendar,
+      color: "text-secondary",
+    },
+    {
+      title: "Serviços Ativos",
+      value: summary.active_services.toString(),
+      description: `${summary.service_categories} categorias disponíveis`,
+      icon: Scissors,
+      color: "text-green-600",
+    },
+    {
+      title: "Receita do Mês",
+      value: `R$ ${(summary.month_revenue / 1000).toFixed(1)}k`,
+      description:
+        summary.revenue_change_percent != null
+          ? `${summary.revenue_change_percent > 0 ? "+" : ""}${
+              summary.revenue_change_percent
+            }% em relação ao mês passado`
+          : "Sem comparação com o mês anterior",
+      icon: TrendingUp,
+      color: "text-yellow-500",
+    },
+  ];
 
   const promotions: Promotion[] = useMemo(() => {
     if (!promotionsApi) return [];
@@ -327,7 +292,9 @@ export default function Dashboard() {
     {
       title: "Promoções Ativas",
       value: activePromotions.length.toString(),
-      description: `${promotions.filter((p) => p.status === "scheduled").length} agendadas`,
+      description: `${
+        promotions.filter((p) => p.status === "scheduled").length
+      } agendadas`,
       icon: Tag,
       color: "text-green-600",
     },
@@ -380,10 +347,6 @@ export default function Dashboard() {
     }
   };
 
-  // =========================
-  // 5) LOADING / ERRO
-  // =========================
-
   if (isLoading && !summary && !professionalsSchedule) {
     return (
       <div className="space-y-6">
@@ -403,9 +366,7 @@ export default function Dashboard() {
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground">
-            Bem-vindo, {user?.name}!
-          </p>
+          <p className="text-muted-foreground">Bem-vindo, {user?.name}!</p>
         </div>
         <p className="text-sm text-red-500">
           Ocorreu um erro ao carregar os dados do dashboard. Verifique suas
@@ -414,10 +375,6 @@ export default function Dashboard() {
       </div>
     );
   }
-
-  // =========================
-  // 6) RENDER PRINCIPAL
-  // =========================
 
   return (
     <div className="space-y-6">
@@ -492,7 +449,11 @@ export default function Dashboard() {
                       </h3>
                       <div className="flex flex-wrap gap-1">
                         {professional.services.map((service, idx) => (
-                          <Badge key={idx} variant="outline" className="text-xs">
+                          <Badge
+                            key={idx}
+                            variant="outline"
+                            className="text-xs"
+                          >
                             {service}
                           </Badge>
                         ))}
@@ -502,7 +463,9 @@ export default function Dashboard() {
                       <Clock className="h-4 w-4 text-muted-foreground" />
                       <span
                         className={
-                          isWorking ? "text-foreground" : "text-muted-foreground"
+                          isWorking
+                            ? "text-foreground"
+                            : "text-muted-foreground"
                         }
                       >
                         {workingHours}
@@ -668,7 +631,10 @@ export default function Dashboard() {
                         style={{
                           width: `${
                             promo.target
-                              ? Math.min((promo.usage / promo.target) * 100, 100)
+                              ? Math.min(
+                                  (promo.usage / promo.target) * 100,
+                                  100
+                                )
                               : 0
                           }%`,
                         }}
@@ -694,9 +660,7 @@ export default function Dashboard() {
               <Megaphone className="h-5 w-5" />
               Performance das Campanhas
             </CardTitle>
-            <CardDescription>
-              Análise de resultados e conversão
-            </CardDescription>
+            <CardDescription>Análise de resultados e conversão</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
@@ -719,7 +683,9 @@ export default function Dashboard() {
                           <div className="flex items-center gap-2 mt-1">
                             <Badge
                               variant={
-                                promo.status === "active" ? "default" : "outline"
+                                promo.status === "active"
+                                  ? "default"
+                                  : "outline"
                               }
                               className="text-xs"
                             >

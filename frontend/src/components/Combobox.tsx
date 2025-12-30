@@ -10,6 +10,8 @@ export type ID = string | number;
 export type ComboboxOption = {
   value: ID;
   label: string;
+  disabled?: boolean;
+  variant?: "default" | "success" | "danger" | "warning" | "muted";
 };
 
 interface ComboboxProps {
@@ -36,11 +38,15 @@ export function Combobox({
   const [open, setOpen] = useState(false);
 
   const selectedOption = options.find(
-    (opt) => String(opt.value) === String(value),
+    (opt) => String(opt.value) === String(value)
   );
 
   const handleSelect = (val: ID) => {
     if (disabled) return;
+
+    const option = options.find((opt) => String(opt.value) === String(val));
+    if (option?.disabled) return;
+
     onChange(val);
     setOpen(false);
   };
@@ -58,7 +64,7 @@ export function Combobox({
             "w-full justify-between h-9 text-sm",
             !selectedOption && "text-muted-foreground",
             disabled && "cursor-not-allowed opacity-70",
-            buttonClassName,
+            buttonClassName
           )}
         >
           <span className="truncate">
@@ -80,13 +86,29 @@ export function Combobox({
               {options.map((opt) => {
                 const isSelected =
                   value != null && String(value) === String(opt.value);
+                const isDisabled = !!opt.disabled;
 
                 return (
                   <CommandItem
                     key={String(opt.value)}
                     value={String(opt.label)}
-                    onSelect={() => handleSelect(opt.value)}
-                    className="flex items-center justify-between"
+                    onSelect={() => {
+                      if (isDisabled) return;
+                      handleSelect(opt.value);
+                    }}
+                    aria-disabled={isDisabled}
+                    className={cn(
+                      "flex items-center justify-between text-sm",
+                      isDisabled && "opacity-50 cursor-not-allowed",
+                      opt.variant === "success" &&
+                        "bg-emerald-50 text-emerald-700",
+                      opt.variant === "danger" &&
+                        "bg-destructive/10 text-destructive",
+                      opt.variant === "warning" &&
+                        "bg-amber-50 text-amber-700",
+                      opt.variant === "muted" &&
+                        "bg-slate-50 text-slate-500"
+                    )}
                   >
                     <span className="truncate">{opt.label}</span>
                     {isSelected && <Check className="h-4 w-4 opacity-100" />}

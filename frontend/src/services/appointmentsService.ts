@@ -16,18 +16,17 @@ type AppointmentQueryParams = {
 };
 
 export type CheckoutAppointmentDto = {
-  services_total: number;      // total dos serviços realizados
-  products_total: number;      // total dos produtos vendidos
+  services_total: number;
+  products_total: number;
   discount_type?: "percentage" | "fixed" | null;
   discount_amount?: number | null;
-  final_price: number;         // total final (já com desconto)
+  final_price: number;
   payment_method: string;
   card_brand?: string | null;
   installments?: number | null;
   installment_fee?: number | null;
   promotion_id?: number | null;
 };
-
 
 function mapPayload(payload: CreateAppointmentDto | UpdateAppointmentDto) {
   const body = {
@@ -37,6 +36,7 @@ function mapPayload(payload: CreateAppointmentDto | UpdateAppointmentDto) {
     end_time: payload.end_time,
     duration: payload.duration,
     status: payload.status,
+    payment_status: payload.payment_status,
     total_price: payload.total_price,
     discount_type: payload.discount_type,
     discount_amount: payload.discount_amount,
@@ -103,10 +103,9 @@ export async function listAppointmentsCalendar(params?: {
   end_date?: string;
   professional_id?: number;
 }) {
-  const { data } = await api.get<Appointment[]>(
-    `${basePath}/calendar`,
-    { params }
-  );
+  const { data } = await api.get<Appointment[]>(`${basePath}/calendar`, {
+    params,
+  });
   return data;
 }
 
