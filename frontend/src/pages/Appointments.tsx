@@ -3,6 +3,7 @@ import { Combobox } from "@/components/Combobox";
 import { CompactAppointmentList } from "@/components/CompactAppointmentList";
 import { DataTable } from "@/components/DataTable";
 import { MonthlyAvailabilityCalendar } from "@/components/MonthlyAvailabilityCalendar";
+import { ProfessionalDailyView } from "@/components/ProfessionalDailyView";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,7 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select,  SelectContent,  SelectItem,  SelectTrigger,  SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useAppointmentsQuery, useCreateAppointment, useUpdateAppointment, useDeleteAppointment, useAppointmentQuery } from "@/hooks/appointments";
+import { useAppointmentsQuery, useCreateAppointment, useDeleteAppointment, useAppointmentQuery } from "@/hooks/appointments";
 import { useCustomersQuery } from "@/hooks/customers";
 import { useProfessionalsQuery } from "@/hooks/professionals";
 import { usePromotionsQuery } from "@/hooks/promotions";
@@ -27,12 +28,14 @@ import { ProfessionalOpenWindow } from "@/types/professional-open-window";
 import { Promotion } from "@/types/promotion";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Plus, Pencil, Trash2, DollarSign, Calendar as CalendarIcon, Printer, Table, List, Check, X, Filter, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, Pencil, Trash2, DollarSign, Calendar as CalendarIcon, Printer, Table, List, Check, X, Filter, ChevronDown, ChevronUp, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useIsMobile } from "@/hooks/use-mobile";
+import type { Appointment as AppointmentBackend } from "@/types/appointment";
+import { PAPER_STEP_MIN, isLongFlexibleService, buildSlotsBetween, overlaps, minutesToHHmm, normalizeDurationForPaper, buildPaperSlotsForDay } from "@/lib/scheduling/paperSlots";
 
 type ID = number | string;
 
@@ -88,43 +91,6 @@ interface Service {
   commission_value: number;
 }
 
-interface AppointmentServicePivot {
-  id: ID;
-  name: string;
-  service_price: number;
-  commission_type?: string | null;
-  commission_value?: number | null;
-  professional_id?: ID | null;
-  duration?: number | null;
-  starts_at?: string | null;
-  ends_at?: string | null;
-}
-
-interface AppointmentItemPivot {
-  id: ID;
-  name: string;
-  price: number;
-  quantity: number;
-}
-
-interface AppointmentBackend {
-  id: ID;
-  customer?: Customer;
-  professionals?: Professional[];
-  services?: AppointmentServicePivot[];
-  items?: AppointmentItemPivot[];
-  date: string;
-  start_time: string;
-  end_time?: string | null;
-  duration?: number | null;
-  status: "scheduled" | "confirmed" | "completed" | "cancelled" | "no_show" | "rescheduled";
-  payment_status: "unpaid" | "prepaid" | "paid";
-  total_price?: number | null;
-  discount_amount?: number | null;
-  final_price?: number | null;
-  notes?: string | null;
-}
-
 interface AppointmentLegacy {
   id: string;
   client: string;
@@ -140,8 +106,6 @@ interface AppointmentLegacy {
   price?: number;
 }
 
-const SLOT_STEP_MINUTES = 10;
-const END_OF_DAY_TOLERANCE_MINUTES = 480;
 const WEEKDAY_LABELS = [
   "Domingo",
   "Segunda-feira",
@@ -159,31 +123,6 @@ type TimeSlotWithStatus = {
 };
 
 const getWeekdayLabel = (date: Date) => WEEKDAY_LABELS[date.getDay()];
-
-const generateTimeSlots = (
-  dayStartMinutes: number,
-  dayEndMinutes: number,
-  stepMinutes: number = SLOT_STEP_MINUTES
-): string[] => {
-  const slots: string[] = [];
-
-  for (
-    let minutes = dayStartMinutes;
-    minutes + stepMinutes <= dayEndMinutes;
-    minutes += stepMinutes
-  ) {
-    const hour = Math.floor(minutes / 60);
-    const minute = minutes % 60;
-
-    const timeStr = `${hour.toString().padStart(2, "0")}:${minute
-      .toString()
-      .padStart(2, "0")}`;
-
-    slots.push(timeStr);
-  }
-
-  return slots;
-};
 
 const extractTimePart = (value?: string | null): string | null => {
   if (!value) return null;
@@ -306,7 +245,7 @@ function MultiSelect({
           <span className="ml-2 text-muted-foreground">▼</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="p-0 w-[320px]">
+      <PopoverContent className="p-0 w-[--radix-popover-trigger-width] max-w-[calc(100vw-2rem)]">
         <Command>
           <CommandInput placeholder={searchPlaceholder} />
           <CommandList>
@@ -366,24 +305,15 @@ function FilterCombobox({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
-          type="button"
           variant="outline"
           role="combobox"
-          aria-expanded={open}
-          className="h-9 w-full justify-between text-xs"
+          className="w-full min-w-0 justify-between"
         >
-          <span
-            className={cn(
-              "truncate",
-              !selectedLabel && "text-muted-foreground"
-            )}
-          >
-            {selectedLabel || placeholder}
-          </span>
-          <ChevronDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+          <span className="truncate">{selectedLabel ?? placeholder}</span>
+          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="p-0 w-[260px]">
+      <PopoverContent className="p-0 w-[--radix-popover-trigger-width] max-w-[calc(100vw-2rem)]">
         <Command>
           <CommandInput
             placeholder={`Buscar ${placeholder.toLowerCase()}...`}
@@ -452,70 +382,22 @@ export default function Appointments() {
   const { data: promotionsResp } = usePromotionsQuery();
 
   const createAppointment = useCreateAppointment();
-  const updateAppointment = useUpdateAppointment(0 as any);
   const deleteAppointment = useDeleteAppointment();
 
-  const appointments: AppointmentBackend[] = useMemo(() => {
-    const maybe = (appointmentsResp as any)?.data ?? appointmentsResp ?? [];
-    if (!Array.isArray(maybe)) return [];
-
-    return maybe.map((apt: any) => ({
-      ...apt,
-      payment_status: apt.payment_status ?? "unpaid",
-    }));
-  }, [appointmentsResp]);
-
-  const customers: Customer[] = useMemo(() => {
-    const maybe = (customersResp as any)?.data ?? customersResp ?? [];
-    return Array.isArray(maybe) ? maybe : [];
-  }, [customersResp]);
-
-  const professionals: Professional[] = useMemo(() => {
-    const maybe = (professionalsResp as any)?.data ?? professionalsResp ?? [];
-    return Array.isArray(maybe) ? maybe : [];
-  }, [professionalsResp]);
-
-  const services: Service[] = useMemo(() => {
-    const maybe = (servicesResp as any)?.data ?? servicesResp ?? [];
-    return Array.isArray(maybe) ? maybe : [];
-  }, [servicesResp]);
-
-  const promotions: Promotion[] = useMemo(() => {
-    const maybe = (promotionsResp as any)?.data ?? promotionsResp ?? [];
-    return Array.isArray(maybe) ? maybe : [];
-  }, [promotionsResp]);
-
-  const activePromotions = useMemo(() => {
-    const today = new Date();
-
-    return promotions.filter((promo) => {
-      if (!promo.active) return false;
-
-      const startDate = promo.start_date ? new Date(promo.start_date) : null;
-      const endDate = promo.end_date ? new Date(promo.end_date) : null;
-
-      if (startDate && today < startDate) return false;
-      if (endDate && today > endDate) return false;
-
-      return true;
-    });
-  }, [promotions]);
-
-  const [checkoutAppointment, setCheckoutAppointment] = useState<AppointmentLegacy | null>(null);
   const [checkoutAppointmentId, setCheckoutAppointmentId] = useState<number | null>(null);
   const [checkoutDialogOpen, setCheckoutDialogOpen] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<AppointmentBackend | null>(null);
   const [deletingAppointmentId, setDeletingAppointmentId] = useState<ID | null>(null);
-  const [viewMode, setViewMode] = useState<"table" | "calendar" | "list">(() => {
+  const [viewMode, setViewMode] = useState<"table" | "calendar" | "list" | "professional">(() => {
     if (typeof window === "undefined") {
       return "table";
     }
 
     const stored = window.localStorage.getItem("appointments_view_mode");
 
-    if (stored === "table" || stored === "calendar" || stored === "list") {
+    if (stored === "table" || stored === "calendar" || stored === "list" || stored === "professional") {
       return stored;
     }
 
@@ -530,19 +412,11 @@ export default function Appointments() {
   const [dateToFilter, setDateToFilter] = useState<Date | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [customerPopoverOpen, setCustomerPopoverOpen] = useState(false);
-
-  const effectiveViewMode = isMobile && viewMode === "table" ? "list" : viewMode;
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem("appointments_view_mode", viewMode);
-    } catch {
-    }
-  }, [viewMode]);
-
-  const { data: fullAppointmentData, isLoading: loadingFullAppointment } =
-    useAppointmentQuery(checkoutAppointmentId ?? 0, !!checkoutAppointmentId);
+  const [professionalViewDate, setProfessionalViewDate] = useState<Date>(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
 
   const form = useForm<FormValues>({
     resolver: zodResolver(appointmentSchema),
@@ -559,6 +433,106 @@ export default function Appointments() {
   const watchedServices = form.watch("services") || [];
   const watchedPaymentStatus = form.watch("payment_status");
 
+  const appointments: AppointmentBackend[] = useMemo(() => {
+    const maybe = (appointmentsResp as any)?.data ?? appointmentsResp ?? [];
+    if (!Array.isArray(maybe)) return [];
+
+    return maybe.map((apt: any) => ({
+      ...apt,
+      payment_status: apt.payment_status ?? "unpaid",
+    }));
+  }, [appointmentsResp]);
+  const customers: Customer[] = useMemo(() => {
+    const maybe = (customersResp as any)?.data ?? customersResp ?? [];
+    return Array.isArray(maybe) ? maybe : [];
+  }, [customersResp]);
+  const professionals: Professional[] = useMemo(() => {
+    const maybe = (professionalsResp as any)?.data ?? professionalsResp ?? [];
+    return Array.isArray(maybe) ? maybe : [];
+  }, [professionalsResp]);
+  const services: Service[] = useMemo(() => {
+    const maybe = (servicesResp as any)?.data ?? servicesResp ?? [];
+    return Array.isArray(maybe) ? maybe : [];
+  }, [servicesResp]);
+  const promotions: Promotion[] = useMemo(() => {
+    const maybe = (promotionsResp as any)?.data ?? promotionsResp ?? [];
+    return Array.isArray(maybe) ? maybe : [];
+  }, [promotionsResp]);
+  const activePromotions = useMemo(() => {
+    const today = new Date();
+
+    return promotions.filter((promo) => {
+      if (!promo.active) return false;
+
+      const startDate = promo.start_date ? new Date(promo.start_date) : null;
+      const endDate = promo.end_date ? new Date(promo.end_date) : null;
+
+      if (startDate && today < startDate) return false;
+      if (endDate && today > endDate) return false;
+
+      return true;
+    });
+  }, [promotions]);
+  const filteredAppointments = useMemo(() => {
+    let list = [...appointments];
+
+    if (dateFromFilter) {
+      const fromStr = format(dateFromFilter, "yyyy-MM-dd");
+      list = list.filter((apt) => apt.date >= fromStr);
+    }
+
+    if (dateToFilter) {
+      const toStr = format(dateToFilter, "yyyy-MM-dd");
+      list = list.filter((apt) => apt.date <= toStr);
+    }
+
+    if (statusFilter !== "all") {
+      list = list.filter((apt) => apt.status === statusFilter);
+    }
+
+    if (paymentStatusFilter !== "all") {
+      list = list.filter((apt) => apt.payment_status === paymentStatusFilter);
+    }
+
+    if (customerFilter !== "all") {
+      list = list.filter(
+        (apt) => String(apt.customer?.id ?? "") === String(customerFilter)
+      );
+    }
+
+    if (professionalFilter !== "all") {
+      list = list.filter((apt) => {
+        const byProfArray = (apt.professionals || []).some(
+          (p) => String(p.id) === String(professionalFilter)
+        );
+        const byPivot = (apt.services || []).some(
+          (s) =>
+            s.professional_id &&
+            String(s.professional_id) === String(professionalFilter)
+        );
+        return byProfArray || byPivot;
+      });
+    }
+
+    if (serviceFilter !== "all") {
+      list = list.filter((apt) =>
+        (apt.services || []).some(
+          (s) => String(s.id) === String(serviceFilter)
+        )
+      );
+    }
+
+    return list;
+  }, [
+    appointments,
+    dateFromFilter,
+    dateToFilter,
+    statusFilter,
+    paymentStatusFilter,
+    customerFilter,
+    professionalFilter,
+    serviceFilter,
+  ]);
   const selectedProfessionalIds = useMemo<number[]>(() => {
     const ids = (watchedServices as Array<{ professional_id?: number | string | null }>)
       .map((s) =>
@@ -568,7 +542,6 @@ export default function Appointments() {
 
     return Array.from(new Set(ids));
   }, [watchedServices]);
-
   const professionalOpenWindowsById = useMemo(
     () =>
       new Map<number, ProfessionalOpenWindow[]>(
@@ -579,7 +552,6 @@ export default function Appointments() {
       ),
     [professionals]
   );
-
   const professionalWorkScheduleById = useMemo(
     () =>
       new Map<number, WorkScheduleEntry[]>(
@@ -591,7 +563,6 @@ export default function Appointments() {
       ),
     [professionals]
   );
-
   const customerById = useMemo(
     () => new Map(customers.map((c) => [Number(c.id), c])),
     [customers]
@@ -604,14 +575,12 @@ export default function Appointments() {
     () => new Map(services.map((s) => [Number(s.id), s])),
     [services]
   );
-
   const selectedServiceObjects = useMemo(() => {
     const servicesField = form.watch("services") || [];
     return servicesField
       .map((s) => serviceById.get(Number(s.service_id)))
       .filter(Boolean) as Service[];
   }, [services, serviceById, form.watch("services")]);
-
   const totalDuration = useMemo(
     () =>
       selectedServiceObjects.reduce(
@@ -620,12 +589,399 @@ export default function Appointments() {
       ),
     [selectedServiceObjects]
   );
-
   const totalPrice = useMemo(
     () =>
       selectedServiceObjects.reduce((sum, s) => sum + Number(s.price || 0), 0),
     [selectedServiceObjects]
   );
+  const professionalDayAppointments = useMemo(() => {
+    const dateStr = format(professionalViewDate, "yyyy-MM-dd");
+    return filteredAppointments.filter((a) => a.date === dateStr);
+  }, [filteredAppointments, professionalViewDate]);
+
+  const hasWindowsConfiguredForProfessional = (profIdNum: number) => {
+    const all = professionalOpenWindowsById.get(profIdNum) ?? [];
+    return all.length > 0;
+  };
+
+  const hasOpenWindowForDate = (profIdNum: number, dateStr: string) => {
+    const all = professionalOpenWindowsById.get(profIdNum) ?? [];
+    const open = all.filter((w) => w.status === "open");
+    return open.some((w) => w.start_date <= dateStr && dateStr <= w.end_date);
+  };
+
+  const effectiveViewMode = isMobile && viewMode === "table" ? "list" : viewMode;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem("appointments_view_mode", viewMode);
+    } catch {
+    }
+  }, [viewMode]);
+
+
+  const hhmmToMinutes = (hhmm: string): number | null => {
+    if (!hhmm) return null;
+    const [hStr, mStr] = hhmm.split(":");
+    const h = Number(hStr);
+    const m = Number(mStr);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+    return h * 60 + m;
+  };
+
+  const applyLunchBreakIfCrosses = (
+    startMin: number,
+    endMin: number,
+    lunchStartMin: number | null,
+    lunchEndMin: number | null
+  ) => {
+    if (lunchStartMin == null || lunchEndMin == null) return endMin;
+    if (lunchEndMin <= lunchStartMin) return endMin;
+
+    const crosses = startMin < lunchStartMin && endMin > lunchStartMin;
+
+    return crosses ? endMin + (lunchEndMin - lunchStartMin) : endMin;
+  };
+
+  const minutesToHHmmss = (minutes: number) => `${minutesToHHmm(minutes)}:00`;
+
+  const shiftToDateTime = (dateStr: string, value: string | null | undefined, deltaMin: number) => {
+    const baseMin = timeStringToMinutes(value);
+    if (baseMin == null) return null;
+
+    const next = baseMin + deltaMin;
+    if (next < 0) return null;
+
+    const hhmmss = minutesToHHmmss(next);
+    return `${dateStr} ${hhmmss}`;
+  };
+
+  const computeAppointmentDurationMinutes = (apt: AppointmentBackend): number => {
+    const dur = Number(apt.duration ?? 0);
+    if (dur > 0) return dur;
+
+    const services = Array.isArray(apt.services) ? apt.services : [];
+    const intervals: Array<{ start: number; end: number }> = [];
+
+    services.forEach((s) => {
+      const sStart = timeStringToMinutes(s.starts_at) ?? timeStringToMinutes(apt.start_time);
+      let sEnd = timeStringToMinutes(s.ends_at);
+
+      if (sStart != null && (sEnd == null || sEnd <= sStart)) {
+        const sd = Number((s as any).duration ?? 0);
+        const d = sd > 0 ? sd : 30;
+        sEnd = sStart + d;
+      }
+
+      if (sStart != null && sEnd != null && sEnd > sStart) intervals.push({ start: sStart, end: sEnd });
+    });
+
+    if (intervals.length === 0) return 30;
+
+    const minStart = Math.min(...intervals.map((i) => i.start));
+    const maxEnd = Math.max(...intervals.map((i) => i.end));
+    return Math.max(30, maxEnd - minStart);
+  };
+
+  const getAppointmentIntervalsForProfessional = (
+    apt: AppointmentBackend,
+    professionalId: ID
+  ): Array<{ start: number; end: number }> => {
+    const pid = String(professionalId);
+    const intervals: Array<{ start: number; end: number }> = [];
+
+    const services = Array.isArray(apt.services) ? apt.services : [];
+    const svcForProf = services.filter((s) => s.professional_id != null && String(s.professional_id) === pid);
+
+    if (svcForProf.length > 0) {
+      svcForProf.forEach((s) => {
+        const start = timeStringToMinutes(s.starts_at) ?? timeStringToMinutes(apt.start_time);
+        let end = timeStringToMinutes(s.ends_at);
+
+        if (start != null && (end == null || end <= start)) {
+          const sd = Number((s as any).duration ?? 0);
+          const d = sd > 0 ? sd : Number(apt.duration ?? 0) || 30;
+          end = start + d;
+        }
+
+        if (start != null && end != null && end > start) intervals.push({ start, end });
+      });
+
+      return intervals;
+    }
+
+    const hasProf = (apt.professionals || []).some((p) => String(p.id) === pid);
+    if (!hasProf) return [];
+
+    const start = timeStringToMinutes(apt.start_time);
+    const dur = computeAppointmentDurationMinutes(apt);
+    if (start != null) intervals.push({ start, end: start + dur });
+    return intervals;
+  };
+
+  const hasConflictForProfessional = (
+    professionalId: ID,
+    dateStr: string,
+    candidate: { start: number; end: number },
+    excludeAppointmentId?: ID
+  ) => {
+    const pid = String(professionalId);
+
+    const sameDay = appointments.filter((a) => a.date === dateStr);
+    for (const other of sameDay) {
+      if (excludeAppointmentId && String(other.id) === String(excludeAppointmentId)) continue;
+      if (other.status === "cancelled" || other.status === "no_show") continue;
+
+      const intervals = getAppointmentIntervalsForProfessional(other, pid);
+      if (intervals.some((i) => candidate.start < i.end && candidate.end > i.start)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const buildAvailableSlotsForProfessional = (
+    professionalId: ID,
+    date: Date,
+    appointmentDuration: number,
+    excludeAppointmentId?: ID
+  ): string[] => {
+    const dateStr = format(date, "yyyy-MM-dd");
+    const profIdNum = Number(professionalId);
+
+    const windowsConfigured = hasWindowsConfiguredForProfessional(profIdNum);
+    if (windowsConfigured && !hasOpenWindowForDate(profIdNum, dateStr)) {
+      return [];
+    }
+
+    const scheduleForProf = professionalWorkScheduleById.get(profIdNum);
+    if (!scheduleForProf || scheduleForProf.length === 0) {
+      return [];
+    }
+
+    const weekdayLabel = getWeekdayLabel(date);
+    const daySchedule = scheduleForProf.find((d) => d.day === weekdayLabel);
+
+    if (!daySchedule || daySchedule.isDayOff || daySchedule.isWorkingDay === false) {
+      return [];
+    }
+
+    const dayStartMin = timeStringToMinutes(daySchedule.startTime);
+    const dayEndMin = timeStringToMinutes(daySchedule.endTime);
+
+    if (dayStartMin == null || dayEndMin == null || dayEndMin <= dayStartMin) {
+      return [];
+    }
+
+    let lunchStartMin: number | null = null;
+    let lunchEndMin: number | null = null;
+
+    if (daySchedule.lunchStart) lunchStartMin = timeStringToMinutes(daySchedule.lunchStart) ?? null;
+    if (daySchedule.lunchEnd) lunchEndMin = timeStringToMinutes(daySchedule.lunchEnd) ?? null;
+
+    if (lunchStartMin != null && lunchEndMin != null && lunchEndMin <= lunchStartMin) {
+      lunchStartMin = null;
+      lunchEndMin = null;
+    }
+
+    const baseSlots = buildSlotsBetween(dayStartMin, dayEndMin, PAPER_STEP_MIN)
+    .filter((hhmm) => {
+      const t = timeStringToMinutes(hhmm);
+      if (t == null) return false;
+
+      if (lunchStartMin != null && lunchEndMin != null && t >= lunchStartMin && t < lunchEndMin) {
+        return false;
+      }
+
+      if (t >= dayEndMin) return false;
+      return true;
+    });
+
+    const slots: string[] = [];
+    const paperDur = normalizeDurationForPaper(appointmentDuration || 30);
+
+    for (const hhmm of baseSlots) {
+      const start = timeStringToMinutes(hhmm);
+      if (start == null) continue;
+
+      const rawEnd = start + paperDur;
+      const end = applyLunchBreakIfCrosses(start, rawEnd, lunchStartMin, lunchEndMin);
+
+      const conflict = hasConflictForProfessional(
+        professionalId,
+        dateStr,
+        { start, end },
+        excludeAppointmentId
+      );
+
+      if (!conflict) slots.push(hhmm);
+    }
+
+    return slots;
+  };
+
+  const buildServicesPayloadFromApt = (apt: AppointmentBackend) => {
+    const services = Array.isArray(apt.services) ? apt.services : [];
+    return services.map((s) => ({
+      id: Number(s.id),
+      service_price: String((s as any).service_price ?? "0"),
+      commission_type: ((s as any).commission_type ?? null) as "percentage" | "fixed" | null,
+      commission_value: String((s as any).commission_value ?? "0"),
+      professional_id: s.professional_id != null ? Number(s.professional_id) : null,
+      starts_at: s.starts_at ?? null,
+      ends_at: s.ends_at ?? null,
+    }));
+  };
+
+  const handleQuickStatusChange = (
+    appointmentId: number,
+    newStatus: AppointmentBackend["status"]
+  ): void => {
+    (async () => {
+      const apt = appointments.find((a) => Number(a.id) === Number(appointmentId));
+      if (!apt) return;
+
+      try {
+        const { updateAppointment: updateFn } = await import("@/services/appointmentsService");
+        await updateFn(Number(apt.id), { status: newStatus });
+
+        await refetchAppointments();
+        toast({ title: "Status atualizado." });
+      } catch (e: any) {
+        console.error(e);
+        toast({
+          title: "Erro ao atualizar status",
+          description: e?.message ?? "Tente novamente.",
+          variant: "destructive",
+        });
+      }
+    })();
+  };
+
+  const handleQuickTimeChange = (
+    appointmentId: number,
+    newTime: string,
+    onConflict: (availableSlots: string[]) => void
+  ): void => {
+    (async () => {
+      const apt = appointments.find((a) => Number(a.id) === Number(appointmentId));
+      if (!apt) return;
+
+      const dateStr = apt.date ?? format(professionalViewDate, "yyyy-MM-dd");
+      if (!dateStr) return;
+
+      const oldStartMin = timeStringToMinutes(apt.start_time);
+      const newStartMin = hhmmToMinutes(newTime);
+      if (oldStartMin == null || newStartMin == null) return;
+
+      const duration = computeAppointmentDurationMinutes(apt);
+      const candidate = { start: newStartMin, end: newStartMin + duration };
+
+      const profIdsFromServices = (apt.services || [])
+        .map((s) => s.professional_id)
+        .filter((x) => x != null)
+        .map((x) => String(x));
+
+      const profIdsFromApt = (apt.professionals || []).map((p) => String(p.id));
+      const involvedProfessionals = Array.from(new Set([...profIdsFromServices, ...profIdsFromApt]));
+
+      const primaryProfId =
+        involvedProfessionals[0] ??
+        (professionalFilter !== "all" ? String(professionalFilter) : null);
+
+      for (const pid of involvedProfessionals) {
+        const conflict = hasConflictForProfessional(pid, dateStr, candidate, apt.id);
+        if (conflict) {
+          const slots =
+            primaryProfId != null
+              ? buildAvailableSlotsForProfessional(primaryProfId, professionalViewDate, duration, apt.id)
+              : [];
+          onConflict(slots);
+          return;
+        }
+      }
+
+      const delta = newStartMin - oldStartMin;
+
+      const servicesPayload = (Array.isArray(apt.services) ? apt.services : []).map((s) => ({
+        id: Number(s.id),
+        service_price: String((s as any).service_price ?? "0"),
+        commission_type: ((s as any).commission_type ?? null) as "percentage" | "fixed" | null,
+        commission_value: String((s as any).commission_value ?? "0"),
+        professional_id: s.professional_id != null ? Number(s.professional_id) : null,
+        starts_at: shiftToDateTime(dateStr, s.starts_at ?? apt.start_time, delta),
+        ends_at: shiftToDateTime(dateStr, s.ends_at ?? null, delta),
+      }));
+
+      try {
+        const { updateAppointment: updateFn } = await import("@/services/appointmentsService");
+        await updateFn(Number(apt.id), {
+          start_time: `${newTime}:00`,
+          duration: apt.duration ?? duration,
+          services: servicesPayload,
+        });
+
+        await refetchAppointments();
+        toast({ title: "Horário atualizado." });
+      } catch (e: any) {
+        console.error(e);
+        toast({
+          title: "Erro ao atualizar horário",
+          description: e?.message ?? "Tente novamente.",
+          variant: "destructive",
+        });
+      }
+    })();
+  };
+
+  const handleReassignProfessional = (
+    appointmentId: number,
+    newProfessionalId: number,
+    onConflict: () => void
+  ): void => {
+    (async () => {
+      const apt = appointments.find((a) => Number(a.id) === Number(appointmentId));
+      if (!apt) return;
+
+      const dateStr = apt.date ?? format(professionalViewDate, "yyyy-MM-dd");
+      if (!dateStr) return;
+
+      const startMin = timeStringToMinutes(apt.start_time);
+      if (startMin == null) return;
+
+      const duration = computeAppointmentDurationMinutes(apt);
+      const candidate = { start: startMin, end: startMin + duration };
+
+      const conflict = hasConflictForProfessional(String(newProfessionalId), dateStr, candidate, apt.id);
+      if (conflict) {
+        onConflict();
+        return;
+      }
+
+      const servicesPayload = buildServicesPayloadFromApt(apt).map((s) => ({
+        ...s,
+        professional_id: Number(newProfessionalId),
+      }));
+
+      try {
+        const { updateAppointment: updateFn } = await import("@/services/appointmentsService");
+        await updateFn(Number(apt.id), { services: servicesPayload });
+
+        await refetchAppointments();
+        toast({ title: "Profissional realocado." });
+      } catch (e: any) {
+        console.error(e);
+        toast({
+          title: "Erro ao realocar profissional",
+          description: e?.message ?? "Tente novamente.",
+          variant: "destructive",
+        });
+      }
+    })();
+  };
+
+  const { data: fullAppointmentData, isLoading: loadingFullAppointment } = useAppointmentQuery(checkoutAppointmentId ?? 0, !!checkoutAppointmentId);
 
   const getTimeSlotsForRow = (
     selectedDate: Date | undefined,
@@ -643,6 +999,10 @@ export default function Appointments() {
     const busy: { start: number; end: number }[] = [];
     const professionalIdStr = String(professionalId);
     const profIdNum = Number(professionalId);
+    const windowsConfigured = hasWindowsConfiguredForProfessional(profIdNum);
+    if (windowsConfigured && !hasOpenWindowForDate(profIdNum, dateStr)) {
+      return [];
+    }
 
     let dayStart: number | null = null;
     let dayEnd: number | null = null;
@@ -683,6 +1043,15 @@ export default function Appointments() {
       lunchEnd = null;
     }
 
+    const reqIsLong = isLongFlexibleService(serviceDuration);
+    const paperDur = normalizeDurationForPaper(serviceDuration);
+
+    const toBusyEnd = (start: number, durReal: number) => {
+      const durPaper = normalizeDurationForPaper(durReal || 30);
+      const rawEnd = start + durPaper;
+      return applyLunchBreakIfCrosses(start, rawEnd, lunchStart, lunchEnd);
+    };
+
     appointments.forEach((apt) => {
       if (apt.status === "cancelled" || apt.status === "no_show") return;
       if (apt.date !== dateStr) return;
@@ -708,9 +1077,8 @@ export default function Appointments() {
           }
 
           if (end == null && start != null) {
-            const dur =
-              pivotDuration || Number(apt.duration || 0) || serviceDuration;
-            end = start + dur;
+            const durReal = pivotDuration || Number(apt.duration || 0) || serviceDuration;
+            end = toBusyEnd(start, durReal);
           }
 
           if (start != null && end != null && end > start) {
@@ -724,9 +1092,9 @@ export default function Appointments() {
         if (!hasProfInApt) return;
 
         const start = timeStringToMinutes(apt.start_time);
-        const dur = Number(apt.duration || 0);
-        if (start != null && dur > 0) {
-          busy.push({ start, end: start + dur });
+        const durReal = Number(apt.duration || 0);
+        if (start != null && durReal > 0) {
+          busy.push({ start, end: toBusyEnd(start, durReal) });
         }
       }
     });
@@ -738,48 +1106,39 @@ export default function Appointments() {
       if (!svc.start_time) return;
 
       const svcEntity = serviceById.get(Number(svc.service_id));
-      const dur = Number(svcEntity?.duration || 0);
+      const durReal = Number(svcEntity?.duration || 0);
       const start = timeStringToMinutes(svc.start_time);
-      if (start != null && dur > 0) {
-        busy.push({ start, end: start + dur });
+      if (start != null && durReal > 0) {
+        busy.push({ start, end: toBusyEnd(start, durReal) });
       }
     });
 
-    const allSlots = generateTimeSlots(dayStart!, dayEnd!);
-    const maxAllowedEnd = dayEnd + END_OF_DAY_TOLERANCE_MINUTES;
+    const baseSlots = buildSlotsBetween(dayStart as number, dayEnd as number, PAPER_STEP_MIN)
+    .filter((hhmm) => {
+      const t = timeStringToMinutes(hhmm);
+      if (t == null) return false;
 
-    return allSlots.map((slot): TimeSlotWithStatus => {
-      const slotStart = timeStringToMinutes(slot)!;
-      const slotEnd = slotStart + serviceDuration;
-
-      let isFree = true;
-      let reason: TimeSlotWithStatus["reason"] | undefined;
-
-      if (
-        lunchStart != null &&
-        lunchEnd != null &&
-        slotStart >= lunchStart &&
-        slotStart < lunchEnd
-      ) {
-        isFree = false;
-        reason = "lunch";
-      }
-      else if (slotEnd > maxAllowedEnd) {
-        isFree = false;
-        reason = "outside-working-hours";
-      }
-      else {
-        const overlapsBusy = busy.some(
-          (interval) => slotStart < interval.end && slotEnd > interval.start
-        );
-
-        if (overlapsBusy) {
-          isFree = false;
-          reason = "busy";
-        }
+      if (lunchStart != null && lunchEnd != null && t >= lunchStart && t < lunchEnd) {
+        return false;
       }
 
-      return { time: slot, isFree, reason };
+      if (t >= (dayEnd as number)) return false;
+
+      return true;
+    });
+
+    return baseSlots.map((slot): TimeSlotWithStatus => {
+      const slotStart = timeStringToMinutes(slot);
+      if (slotStart == null) return { time: slot, isFree: false, reason: "outside-working-hours" };
+
+      const rawEnd = slotStart + paperDur;
+      const slotEnd = applyLunchBreakIfCrosses(slotStart, rawEnd, lunchStart, lunchEnd);
+
+      const interval = { start: slotStart, end: slotEnd };
+      const overlapsBusy = busy.some((b) => overlaps(interval, b));
+
+      if (overlapsBusy) return { time: slot, isFree: false, reason: "busy" };
+      return { time: slot, isFree: true };
     });
   };
 
@@ -855,13 +1214,40 @@ export default function Appointments() {
 
     const servicesPayload = values.services.map((s) => {
       const svc = serviceById.get(Number(s.service_id));
-      const svcDuration = Number(svc?.duration || 0);
+      const svcDurationReal = Number(svc?.duration || 0);
+
+      const svcDurationPaper = normalizeDurationForPaper(svcDurationReal);
 
       const [startHour, startMinute] = String(s.start_time)
         .split(":")
         .map((n) => Number(n));
       const serviceStartMinutes = startHour * 60 + startMinute;
-      const serviceEndMinutes = serviceStartMinutes + svcDuration;
+
+      let lunchStartMin: number | null = null;
+      let lunchEndMin: number | null = null;
+
+      const profSchedule =
+        professionalWorkScheduleById.get(Number(s.professional_id)) ?? [];
+      const weekdayLabel = getWeekdayLabel(values.date);
+      const daySchedule = profSchedule.find((d) => d.day === weekdayLabel);
+
+      if (daySchedule?.lunchStart)
+        lunchStartMin = timeStringToMinutes(daySchedule.lunchStart);
+      if (daySchedule?.lunchEnd)
+        lunchEndMin = timeStringToMinutes(daySchedule.lunchEnd);
+
+      if (lunchStartMin != null && lunchEndMin != null && lunchEndMin <= lunchStartMin) {
+        lunchStartMin = null;
+        lunchEndMin = null;
+      }
+
+      const rawEnd = serviceStartMinutes + svcDurationPaper;
+      const serviceEndMinutes = applyLunchBreakIfCrosses(
+        serviceStartMinutes,
+        rawEnd,
+        lunchStartMin,
+        lunchEndMin
+      );
 
       serviceTimes.push({
         start: serviceStartMinutes,
@@ -999,6 +1385,23 @@ export default function Appointments() {
     }
   };
 
+  const moneyToNumber = (value: unknown): number | undefined => {
+    if (value == null) return undefined;
+
+    if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) return undefined;
+
+      const normalized = trimmed.replace(",", ".");
+      const n = Number(normalized);
+      return Number.isFinite(n) ? n : undefined;
+    }
+
+    return undefined;
+  };
+
   const toLegacy = (apt: AppointmentBackend): AppointmentLegacy => {
     const customerName = apt.customer?.name ?? "Cliente";
     const customerPhone = (apt.customer as any)?.phone ?? undefined;
@@ -1028,7 +1431,7 @@ export default function Appointments() {
       status: apt.status,
       payment_status: apt.payment_status,
       notes: apt.notes ?? undefined,
-      price: apt.total_price ?? undefined,
+      price: moneyToNumber(apt.total_price),
     };
   };
 
@@ -1044,7 +1447,7 @@ export default function Appointments() {
     status: apt.status,
     payment_status: apt.payment_status,
     notes: apt.notes ?? undefined,
-    price: apt.total_price ?? undefined,
+    price: moneyToNumber(apt.total_price),
   });
 
   const handleCheckout = (apt: AppointmentBackend) => {
@@ -1537,69 +1940,8 @@ export default function Appointments() {
 
   const serviceOptions: { value: ID; label: string }[] = services.map((s) => ({
     value: s.id,
-    label: `${s.name} (${s.duration}min)`,
+    label: s.name,
   }));
-
-  const filteredAppointments = useMemo(() => {
-    let list = [...appointments];
-
-    if (dateFromFilter) {
-      const fromStr = format(dateFromFilter, "yyyy-MM-dd");
-      list = list.filter((apt) => apt.date >= fromStr);
-    }
-
-    if (dateToFilter) {
-      const toStr = format(dateToFilter, "yyyy-MM-dd");
-      list = list.filter((apt) => apt.date <= toStr);
-    }
-
-    if (statusFilter !== "all") {
-      list = list.filter((apt) => apt.status === statusFilter);
-    }
-
-    if (paymentStatusFilter !== "all") {
-      list = list.filter((apt) => apt.payment_status === paymentStatusFilter);
-    }
-
-    if (customerFilter !== "all") {
-      list = list.filter(
-        (apt) => String(apt.customer?.id ?? "") === String(customerFilter)
-      );
-    }
-
-    if (professionalFilter !== "all") {
-      list = list.filter((apt) => {
-        const byProfArray = (apt.professionals || []).some(
-          (p) => String(p.id) === String(professionalFilter)
-        );
-        const byPivot = (apt.services || []).some(
-          (s) =>
-            s.professional_id &&
-            String(s.professional_id) === String(professionalFilter)
-        );
-        return byProfArray || byPivot;
-      });
-    }
-
-    if (serviceFilter !== "all") {
-      list = list.filter((apt) =>
-        (apt.services || []).some(
-          (s) => String(s.id) === String(serviceFilter)
-        )
-      );
-    }
-
-    return list;
-  }, [
-    appointments,
-    dateFromFilter,
-    dateToFilter,
-    statusFilter,
-    paymentStatusFilter,
-    customerFilter,
-    professionalFilter,
-    serviceFilter,
-  ]);
 
   const hasActiveFilters =
     statusFilter !== "all" ||
@@ -1640,6 +1982,15 @@ export default function Appointments() {
           </div>
           <div className="flex flex-col md:flex-row gap-2">
             <div className="flex gap-1 border rounded-lg p-1">
+              <Button
+                variant={effectiveViewMode === "professional" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setViewMode("professional")}
+                className="text-xs md:text-sm flex-1 md:flex-none"
+              >
+                <Users className="h-3 w-3 md:h-4 md:w-4 md:mr-2" />
+                <span className="md:inline">Profissionais</span>
+              </Button>
               <Button
                 variant={effectiveViewMode === "table" ? "secondary" : "ghost"}
                 size="sm"
@@ -1898,7 +2249,27 @@ export default function Appointments() {
               )}
             </div>
 
-            {effectiveViewMode === "list" ? (
+            {effectiveViewMode === "professional" ? (
+              <ProfessionalDailyView
+                selectedDate={professionalViewDate}
+                onDateChange={setProfessionalViewDate}
+                professionals={professionals.map((p) => ({
+                  id: p.id,
+                  name: p.name,
+                  work_schedule: p.work_schedule ?? null,
+                }))}
+                appointments={professionalDayAppointments}
+                onEdit={can("appointments", "update") ? (apt) => handleOpenDialog(apt) : undefined}
+                onDelete={can("appointments", "delete") ? (id) => handleDelete(id) : undefined}
+                onCheckout={can("appointments", "update") ? (apt) => handleCheckout(apt) : undefined}
+                onPrint={(apt) => printAppointmentReceipt(apt)}
+                onQuickStatusChange={can("appointments", "update") ? handleQuickStatusChange : undefined}
+                onQuickTimeChange={can("appointments", "update") ? handleQuickTimeChange : undefined}
+                onReassignProfessional={can("appointments", "update") ? handleReassignProfessional : undefined}
+                canEdit={can("appointments", "update")}
+                canDelete={can("appointments", "delete")}
+              />
+            ) : effectiveViewMode === "list" ? (
               <CompactAppointmentList
                 appointments={filteredAppointments.map(toLegacyAppointment)}
                 professionals={professionals.map((p) => ({
@@ -1952,24 +2323,18 @@ export default function Appointments() {
         )}
 
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent
-            className={cn(
-              "max-h-[90vh]",
-              isMobile ? "max-w-[95vw]" : "max-w-2xl"
-            )}
-          >
+          <DialogContent className={cn("max-h-[90vh] overflow-x-hidden", isMobile ? "max-w-[95vw]" : "max-w-5xl")}>
             <DialogHeader>
               <DialogTitle>
                 {editingAppointment ? "Editar Agendamento" : "Novo Agendamento"}
               </DialogTitle>
               <DialogDescription>
-                Preencha os dados do agendamento. Campos marcados são
-                obrigatórios.
+                Preencha os dados do agendamento. Campos marcados são obrigatórios.
               </DialogDescription>
             </DialogHeader>
 
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 min-w-0">
                 <FormField
                   control={form.control}
                   name="customer_id"
@@ -1995,221 +2360,6 @@ export default function Appointments() {
                       <FormMessage />
                     </FormItem>
                   )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="services"
-                  render={({ field }) => {
-                    const servicesValue = (field.value || []) as any[];
-                    const selectedDate = form.watch("date");
-
-                    const updateServiceAtIndex = (index: number, patch: Record<string, any>) => {
-                      const updated = [...servicesValue];
-                      updated[index] = {
-                        ...updated[index],
-                        ...patch,
-                      };
-                      field.onChange(updated);
-                    };
-
-                    const removeServiceAtIndex = (index: number) => {
-                      const updated = servicesValue.filter((_: any, i: number) => i !== index);
-                      field.onChange(updated);
-                    };
-
-                    return (
-                      <FormItem>
-                        <FormLabel>
-                          Serviços, Profissionais e Horários{" "}
-                          <span className="text-red-500">*</span>
-                        </FormLabel>
-                        <div className="space-y-3">
-                          {servicesValue.map((svc, idx) => {
-                            const serviceId = svc.service_id ?? null;
-                            const professionalId = svc.professional_id ?? null;
-
-                            const serviceEntity = serviceId
-                              ? serviceById.get(Number(serviceId))
-                              : undefined;
-                            const serviceDuration = Number(serviceEntity?.duration || 0);
-
-                            const canSelectTime = selectedDate && professionalId && serviceId && serviceDuration > 0;
-
-                            const slots: TimeSlotWithStatus[] =
-                              canSelectTime && selectedDate
-                                ? getTimeSlotsForRow(
-                                    selectedDate,
-                                    professionalId,
-                                    serviceDuration,
-                                    idx,
-                                    servicesValue,
-                                    editingAppointment?.id
-                                  )
-                                : [];
-
-                            const hasAnySlots = slots.length > 0;
-                            const hasFreeSlots = slots.some((s) => s.isFree);
-
-                            const timeOptions = slots.map((slot) => {
-                              let suffix = "";
-                              let variant:
-                                | "default"
-                                | "success"
-                                | "danger"
-                                | "warning"
-                                | "muted" = "default";
-                              let optDisabled = false;
-
-                              if (slot.isFree) {
-                                variant = "success";
-                              } else {
-                                optDisabled = true;
-
-                                if (slot.reason === "busy") {
-                                  suffix = " • ocupado";
-                                  variant = "danger";
-                                } else if (slot.reason === "lunch") {
-                                  suffix = " • intervalo";
-                                  variant = "warning";
-                                } else if (slot.reason === "outside-working-hours") {
-                                  suffix = " • fora da escala";
-                                  variant = "muted";
-                                }
-                              }
-
-                              return {
-                                value: slot.time,
-                                label: slot.time + suffix,
-                                disabled: optDisabled,
-                                variant,
-                              };
-                            });
-
-                            const timePlaceholder = !canSelectTime
-                              ? "Selecione data, serviço e profissional"
-                              : !hasAnySlots
-                              ? "Nenhum horário disponível"
-                              : hasFreeSlots
-                              ? "Selecione o horário"
-                              : "Nenhum horário livre";
-
-                            return (
-                              <div
-                                key={idx}
-                                className="grid grid-cols-1 md:grid-cols-[2fr_2fr_2fr_auto] gap-2 items-end"
-                              >
-                                <FormItem>
-                                  <FormLabel className="text-xs text-muted-foreground">
-                                    Serviço
-                                  </FormLabel>
-                                  <FormControl>
-                                    <Combobox
-                                      value={serviceId}
-                                      onChange={(val) => {
-                                        updateServiceAtIndex(idx, {
-                                          service_id: val != null ? Number(val) : "",
-                                          start_time: "",
-                                        });
-                                      }}
-                                      options={serviceOptions}
-                                      placeholder="Selecione um serviço"
-                                      searchPlaceholder="Buscar serviço..."
-                                      emptyMessage="Nenhum serviço encontrado."
-                                    />
-                                  </FormControl>
-                                </FormItem>
-
-                                <FormItem>
-                                  <FormLabel className="text-xs text-muted-foreground">
-                                    Profissional
-                                  </FormLabel>
-                                  <FormControl>
-                                    <Combobox
-                                      value={professionalId}
-                                      onChange={(val) => {
-                                        updateServiceAtIndex(idx, {
-                                          professional_id: val != null ? Number(val) : "",
-                                          start_time: "",
-                                        });
-                                      }}
-                                      options={professionalOptions}
-                                      placeholder="Selecione um profissional"
-                                      searchPlaceholder="Buscar profissional..."
-                                      emptyMessage="Nenhum profissional encontrado."
-                                    />
-                                  </FormControl>
-                                </FormItem>
-
-                                <FormItem>
-                                  <FormLabel className="text-xs text-muted-foreground">
-                                    Horário
-                                  </FormLabel>
-                                  <FormControl>
-                                    <Combobox
-                                      value={svc.start_time || null}
-                                      onChange={(val) => {
-                                        const chosen = slots.find((s) => s.time === val);
-
-                                        if (!chosen || !chosen.isFree) {
-                                          toast({
-                                            title: "Horário indisponível",
-                                            description: "Selecione um horário livre para este serviço.",
-                                            variant: "destructive",
-                                          });
-                                          return;
-                                        }
-
-                                        updateServiceAtIndex(idx, {
-                                          start_time: (val as string) || "",
-                                        });
-                                      }}
-                                      options={timeOptions}
-                                      placeholder={timePlaceholder}
-                                      searchPlaceholder="Buscar horário..."
-                                      emptyMessage="Nenhum horário disponível."
-                                      disabled={!hasAnySlots}
-                                    />
-                                  </FormControl>
-                                </FormItem>
-
-                                <div className="flex md:justify-end">
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="text-destructive"
-                                    onClick={() => removeServiceAtIndex(idx)}
-                                    title="Remover serviço"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              </div>
-                            );
-                          })}
-
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() =>
-                              field.onChange([
-                                ...servicesValue,
-                                {
-                                  service_id: "",
-                                  professional_id: "",
-                                  start_time: "",
-                                },
-                              ])
-                            }
-                          >
-                            + Adicionar serviço
-                          </Button>
-                        </div>
-                        <FormMessage />
-                      </FormItem>
-                    );
-                  }}
                 />
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -2258,10 +2408,11 @@ export default function Appointments() {
                                   const numId = Number(profId);
 
                                   const windows = professionalOpenWindowsById.get(numId) ?? [];
-                                  const openWindows = windows.filter((w) => w.status === "open");
+                                  const windowsConfigured = windows.length > 0;
 
-                                  let temJanelaNaData = false;
-                                  if (openWindows.length > 0) {
+                                  let temJanelaNaData = true;
+                                  if (windowsConfigured) {
+                                    const openWindows = windows.filter((w) => w.status === "open");
                                     temJanelaNaData = openWindows.some(
                                       (w) => w.start_date <= dateStr && dateStr <= w.end_date
                                     );
@@ -2379,6 +2530,221 @@ export default function Appointments() {
                     )}
                   />
                 )}
+
+                <FormField
+                  control={form.control}
+                  name="services"
+                  render={({ field }) => {
+                    const servicesValue = (field.value || []) as any[];
+                    const selectedDate = form.watch("date");
+
+                    const updateServiceAtIndex = (index: number, patch: Record<string, any>) => {
+                      const updated = [...servicesValue];
+                      updated[index] = {
+                        ...updated[index],
+                        ...patch,
+                      };
+                      field.onChange(updated);
+                    };
+
+                    const removeServiceAtIndex = (index: number) => {
+                      const updated = servicesValue.filter((_: any, i: number) => i !== index);
+                      field.onChange(updated);
+                    };
+
+                    return (
+                      <FormItem>
+                        <FormLabel>
+                          Serviços, Profissionais e Horários{" "}
+                          <span className="text-red-500">*</span>
+                        </FormLabel>
+                        <div className="space-y-3">
+                          {servicesValue.map((svc, idx) => {
+                            const serviceId = svc.service_id ?? null;
+                            const professionalId = svc.professional_id ?? null;
+
+                            const serviceEntity = serviceId
+                              ? serviceById.get(Number(serviceId))
+                              : undefined;
+                            const serviceDuration = Number(serviceEntity?.duration || 0);
+
+                            const canSelectTime = selectedDate && professionalId && serviceId && serviceDuration > 0;
+
+                            const slots: TimeSlotWithStatus[] =
+                              canSelectTime && selectedDate
+                                ? getTimeSlotsForRow(
+                                    selectedDate,
+                                    professionalId,
+                                    serviceDuration,
+                                    idx,
+                                    servicesValue,
+                                    editingAppointment?.id
+                                  )
+                                : [];
+
+                            const hasAnySlots = slots.length > 0;
+                            const hasFreeSlots = slots.some((s) => s.isFree);
+
+                            const timeOptions = slots.map((slot) => {
+                              let suffix = "";
+                              let variant:
+                                | "default"
+                                | "success"
+                                | "danger"
+                                | "warning"
+                                | "muted" = "default";
+                              let optDisabled = false;
+
+                              if (slot.isFree) {
+                                variant = "success";
+                              } else {
+                                optDisabled = true;
+
+                                if (slot.reason === "busy") {
+                                  suffix = " • ocupado";
+                                  variant = "danger";
+                                } else if (slot.reason === "lunch") {
+                                  suffix = " • intervalo";
+                                  variant = "warning";
+                                } else if (slot.reason === "outside-working-hours") {
+                                  suffix = " • fora da escala";
+                                  variant = "muted";
+                                }
+                              }
+
+                              return {
+                                value: slot.time,
+                                label: slot.time + suffix,
+                                disabled: optDisabled,
+                                variant,
+                              };
+                            });
+
+                            const timePlaceholder = !canSelectTime
+                              ? "Selecione data, serviço e profissional"
+                              : !hasAnySlots
+                              ? "Nenhum horário disponível"
+                              : hasFreeSlots
+                              ? "Selecione o horário"
+                              : "Nenhum horário livre";
+
+                            return (
+                              <div
+                                key={idx}
+                                className="grid grid-cols-1 md:grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,2fr)_auto] gap-2 items-end"
+                              >
+                                <FormItem>
+                                  <FormLabel className="text-xs text-muted-foreground">
+                                    Serviço
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Combobox
+                                      value={serviceId}
+                                      onChange={(val) => {
+                                        updateServiceAtIndex(idx, {
+                                          service_id: val != null ? Number(val) : "",
+                                          start_time: "",
+                                        });
+                                      }}
+                                      options={serviceOptions}
+                                      placeholder="Selecione um serviço"
+                                      searchPlaceholder="Buscar serviço..."
+                                      emptyMessage="Nenhum serviço encontrado."
+                                    />
+                                  </FormControl>
+                                </FormItem>
+
+                                <FormItem>
+                                  <FormLabel className="text-xs text-muted-foreground">
+                                    Profissional
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Combobox
+                                      value={professionalId}
+                                      onChange={(val) => {
+                                        updateServiceAtIndex(idx, {
+                                          professional_id: val != null ? Number(val) : "",
+                                          start_time: "",
+                                        });
+                                      }}
+                                      options={professionalOptions}
+                                      placeholder="Selecione um profissional"
+                                      searchPlaceholder="Buscar profissional..."
+                                      emptyMessage="Nenhum profissional encontrado."
+                                    />
+                                  </FormControl>
+                                </FormItem>
+
+                                <FormItem>
+                                  <FormLabel className="text-xs text-muted-foreground">
+                                    Horário
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Combobox
+                                      value={svc.start_time || null}
+                                      onChange={(val) => {
+                                        const chosen = slots.find((s) => s.time === val);
+
+                                        if (!chosen || !chosen.isFree) {
+                                          toast({
+                                            title: "Horário indisponível",
+                                            description: "Selecione um horário livre para este serviço.",
+                                            variant: "destructive",
+                                          });
+                                          return;
+                                        }
+
+                                        updateServiceAtIndex(idx, {
+                                          start_time: (val as string) || "",
+                                        });
+                                      }}
+                                      options={timeOptions}
+                                      placeholder={timePlaceholder}
+                                      searchPlaceholder="Buscar horário..."
+                                      emptyMessage="Nenhum horário disponível."
+                                      disabled={!hasAnySlots}
+                                    />
+                                  </FormControl>
+                                </FormItem>
+
+                                <div className="flex md:justify-end">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="text-destructive"
+                                    onClick={() => removeServiceAtIndex(idx)}
+                                    title="Remover serviço"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() =>
+                              field.onChange([
+                                ...servicesValue,
+                                {
+                                  service_id: "",
+                                  professional_id: "",
+                                  start_time: "",
+                                },
+                              ])
+                            }
+                          >
+                            + Adicionar serviço
+                          </Button>
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
+                />
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
