@@ -121,6 +121,7 @@ type TimeSlotWithStatus = {
   time: string;
   isFree: boolean;
   reason?: "busy" | "lunch" | "outside-working-hours";
+  overtime?: boolean;
 };
 
 const getWeekdayLabel = (date: Date) => WEEKDAY_LABELS[date.getDay()];
@@ -711,10 +712,9 @@ export default function Appointments() {
       return scheduleFail("lunch");
     }
 
-    if (endMin > win.dayEndMin) return scheduleFail("outside-working-hours");
-
     return scheduleOk();
   };
+
 
   const minutesToHHmmss = (minutes: number) => `${minutesToHHmm(minutes)}:00`;
 
@@ -1481,16 +1481,19 @@ export default function Appointments() {
 
     return baseSlots.map((slot): TimeSlotWithStatus => {
       const slotStart = timeStringToMinutes(slot);
-      if (slotStart == null) return { time: slot, isFree: false, reason: "outside-working-hours" };
+      if (slotStart == null) {
+        return { time: slot, isFree: false, reason: "outside-working-hours" };
+      }
 
       const rawEnd = slotStart + paperDur;
       const slotEnd = applyLunchBreakIfCrosses(slotStart, rawEnd, lunchStart, lunchEnd);
 
       const interval = { start: slotStart, end: slotEnd };
       const overlapsBusy = busy.some((b) => overlaps(interval, b));
+      const overtime = slotEnd > (dayEnd as number);
 
       if (overlapsBusy) return { time: slot, isFree: false, reason: "busy" };
-      return { time: slot, isFree: true };
+      return { time: slot, isFree: true, overtime };
     });
   };
 
