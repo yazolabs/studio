@@ -8,6 +8,7 @@ import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
+import { getStatusBadgeClass, getStatusLabel, type AptStatus, getStatusCardClass } from "@/lib/appointments/statusUI";
 
 interface Professional {
   id: string;
@@ -23,13 +24,7 @@ interface Appointment {
   date: string;
   time: string;
   duration?: number;
-  status:
-    | "scheduled"
-    | "confirmed"
-    | "completed"
-    | "cancelled"
-    | "no_show"
-    | "rescheduled";
+  status: AptStatus;
   payment_status: "unpaid" | "prepaid" | "paid";
   notes?: string;
   price?: number;
@@ -46,44 +41,6 @@ interface CompactAppointmentListProps {
   canDelete?: boolean;
   itemsPerPage?: number;
 }
-
-const getStatusColor = (status: Appointment["status"]) => {
-  switch (status) {
-    case "scheduled":
-      return "bg-amber-50 text-amber-800 border-amber-200";
-    case "confirmed":
-      return "bg-sky-50 text-sky-800 border-sky-200";
-    case "completed":
-      return "bg-emerald-50 text-emerald-800 border-emerald-200";
-    case "cancelled":
-      return "bg-rose-50 text-rose-700 border-rose-200";
-    case "no_show":
-      return "bg-slate-100 text-slate-600 border-slate-200 line-through";
-    case "rescheduled":
-      return "bg-violet-50 text-violet-800 border-violet-200";
-    default:
-      return "bg-muted text-muted-foreground border-border";
-  }
-};
-
-const getStatusLabel = (status: string) => {
-  switch (status) {
-    case "scheduled":
-      return "Agendado";
-    case "confirmed":
-      return "Confirmado";
-    case "completed":
-      return "Concluído";
-    case "cancelled":
-      return "Cancelado";
-    case "no_show":
-      return "Não Compareceu";
-    case "rescheduled":
-      return "Reagendado";
-    default:
-      return status;
-  }
-};
 
 const getPaymentStatusColor = (status: Appointment["payment_status"]) => {
   switch (status) {
@@ -330,7 +287,8 @@ export function CompactAppointmentList({
       key={appointment.id}
       className={cn(
         "p-3 transition-all",
-        isToday && "border-primary bg-primary/5 shadow-md"
+        getStatusCardClass(appointment.status as any),
+        isToday && "shadow-md"
       )}
     >
       <div className="space-y-2">
@@ -360,12 +318,12 @@ export function CompactAppointmentList({
           <div className="flex flex-col items-end gap-1">
             <Badge
               variant="outline"
-              className={cn(
-                "text-[11px] px-2 py-0.5 rounded-full",
-                getStatusColor(appointment.status)
+              className={getStatusBadgeClass(
+                appointment.status as any,
+                "text-[11px] px-2 py-0.5 rounded-full"
               )}
             >
-              {getStatusLabel(appointment.status)}
+              {getStatusLabel(appointment.status as any)}
             </Badge>
 
             <Badge

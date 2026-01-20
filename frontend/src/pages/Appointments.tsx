@@ -36,6 +36,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { Appointment as AppointmentBackend } from "@/types/appointment";
 import { PAPER_STEP_MIN, isLongFlexibleService, buildSlotsBetween, overlaps, minutesToHHmm, normalizeDurationForPaper, buildPaperSlotsForDay } from "@/lib/scheduling/paperSlots";
+import { getStatusBadgeClass, getStatusLabel } from "@/lib/appointments/statusUI";
 
 type ID = number | string;
 
@@ -1652,44 +1653,6 @@ export default function Appointments() {
     };
   };
 
-  const getStatusVariant = (status: string) => {
-    switch (status) {
-      case "scheduled":
-        return "secondary";
-      case "confirmed":
-        return "default";
-      case "completed":
-        return "outline";
-      case "cancelled":
-        return "destructive";
-      case "no_show":
-        return "destructive";
-      case "rescheduled":
-        return "secondary";
-      default:
-        return "secondary";
-    }
-  };
-
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case "scheduled":
-        return "Agendado";
-      case "confirmed":
-        return "Confirmado";
-      case "completed":
-        return "Concluído";
-      case "cancelled":
-        return "Cancelado";
-      case "no_show":
-        return "Não Compareceu";
-      case "rescheduled":
-        return "Reagendado";
-      default:
-        return status;
-    }
-  };
-
   const renderBadgesWithOverflow = (
     items: string[],
     kind: "service" | "professional"
@@ -1755,25 +1718,6 @@ export default function Appointments() {
         )}
       </div>
     );
-  };
-
-  const getStatusBadgeClasses = (status: AppointmentBackend["status"]) => {
-    switch (status) {
-      case "scheduled":
-        return "bg-amber-50 text-amber-800 border border-amber-200";
-      case "confirmed":
-        return "bg-sky-50 text-sky-800 border border-sky-200";
-      case "completed":
-        return "bg-emerald-50 text-emerald-800 border border-emerald-200";
-      case "cancelled":
-        return "bg-rose-50 text-rose-700 border border-rose-200";
-      case "no_show":
-        return "bg-slate-100 text-slate-600 border border-slate-200 line-through";
-      case "rescheduled":
-        return "bg-violet-50 text-violet-800 border border-violet-200";
-      default:
-        return "bg-muted text-muted-foreground border border-border";
-    }
   };
 
   const getPaymentStatusLabel = (
@@ -1853,9 +1797,9 @@ export default function Appointments() {
       render: (apt: AppointmentBackend) => (
         <Badge
           variant="outline"
-          className={cn(
-            "px-2 py-0.5 text-xs font-medium rounded-full",
-            getStatusBadgeClasses(apt.status)
+          className={getStatusBadgeClass(
+            apt.status,
+            "px-2 py-0.5 text-xs font-medium rounded-full"
           )}
         >
           {getStatusLabel(apt.status)}

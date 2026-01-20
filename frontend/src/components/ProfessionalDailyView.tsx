@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { hhmmToMinutes, type Interval } from "@/lib/scheduling/hourAvailability";
 import { PAPER_STEP_MIN, buildSlotsBetween, overlaps, normalizeDurationForPaper } from "@/lib/scheduling/paperSlots";
 import type { Appointment } from "@/types/appointment";
+import { STATUS_OPTIONS, getStatusLabel, getStatusBadgeClass, getStatusCardClass } from "@/lib/appointments/statusUI";
 
 type ID = number | string;
 
@@ -50,53 +51,6 @@ type Props = {
   onReassignProfessional?: (appointmentId: number, newProfessionalId: number, onConflict: () => void) => void;
   canEdit?: boolean;
   canDelete?: boolean;
-};
-
-const statusOptions: Appointment["status"][] = [
-  "scheduled",
-  "confirmed",
-  "completed",
-  "cancelled",
-  "no_show",
-  "rescheduled",
-];
-
-const getStatusVariant = (status: Appointment["status"]) => {
-  switch (status) {
-    case "scheduled":
-      return "secondary";
-    case "confirmed":
-      return "default";
-    case "completed":
-      return "outline";
-    case "cancelled":
-      return "destructive";
-    case "no_show":
-      return "outline";
-    case "rescheduled":
-      return "secondary";
-    default:
-      return "secondary";
-  }
-};
-
-const getStatusLabel = (status: Appointment["status"]) => {
-  switch (status) {
-    case "scheduled":
-      return "Agendado";
-    case "confirmed":
-      return "Confirmado";
-    case "completed":
-      return "Concluído";
-    case "cancelled":
-      return "Cancelado";
-    case "no_show":
-      return "No-show";
-    case "rescheduled":
-      return "Reagendado";
-    default:
-      return status;
-  }
 };
 
 const WEEKDAY_LABELS = [
@@ -204,6 +158,17 @@ const formatDuration = (minutes: number) => {
 const timeToMinutes = (hhmm: string) => {
   const [h, m] = hhmm.split(":").map(Number);
   return h * 60 + m;
+};
+
+const pluralize = (n: number, singular: string, plural: string) => (n === 1 ? singular : plural);
+
+const SUMMARY_STATUS_LABEL: Partial<Record<Appointment["status"], { singular: string; plural: string }>> = {
+  scheduled: { singular: "agendado", plural: "agendados" },
+  confirmed: { singular: "confirmado", plural: "confirmados" },
+  completed: { singular: "concluído", plural: "concluídos" },
+  cancelled: { singular: "cancelado", plural: "cancelados" },
+  no_show: { singular: "não compareceu", plural: "não compareceram" },
+  rescheduled: { singular: "reagendado", plural: "reagendados" },
 };
 
 export function ProfessionalDailyView({
@@ -364,23 +329,47 @@ export function ProfessionalDailyView({
   const getProfessionalStats = (professionalId: number) => {
     const profAppointments = getProfessionalAppointments(professionalId);
 
-    const totalAppointments = profAppointments.length;
-    const completed = profAppointments.filter((a) => a.status === "completed").length;
-    const pending = profAppointments.filter((a) => a.status === "scheduled" || a.status === "confirmed").length;
-    const cancelled = profAppointments.filter((a) => a.status === "cancelled").length;
+    const counts = profAppointments.reduce(
+      (acc, a) => {
+        acc[a.status] = (acc[a.status] ?? 0) + 1;
+        return acc;
+      },
+      {} as Partial<Record<Appointment["status"], number>>
+    );
 
+    const totalAppointments = profAppointments.length;
+    const scheduledCount = counts.scheduled ?? 0;
+    const confirmedCount = counts.confirmed ?? 0;
+    const pending = scheduledCount + confirmedCount;
+    const completed = counts.completed ?? 0;
+    const cancelled = counts.cancelled ?? 0;
+    const noShowCount = counts.no_show ?? 0;
+    const rescheduledCount = counts.rescheduled ?? 0;
     const totalRevenue = profAppointments
       .filter((a) => a.status !== "cancelled")
       .reduce((sum, a) => sum + appointmentPrice(a), 0);
-
     const occupiedMinutes = profAppointments
       .filter((a) => a.status !== "cancelled")
       .reduce((sum, a) => sum + appointmentDuration(a), 0);
-
     const workDayMinutes = 600;
-    const occupationPercentage = Math.min(Math.round((occupiedMinutes / workDayMinutes) * 100), 100);
+    const occupationPercentage = Math.min(
+      Math.round((occupiedMinutes / workDayMinutes) * 100),
+      100
+    );
 
-    return { totalAppointments, completed, pending, cancelled, totalRevenue, occupiedMinutes, occupationPercentage };
+    return {
+      totalAppointments,
+      scheduledCount,
+      confirmedCount,
+      pending,
+      completed,
+      cancelled,
+      noShowCount,
+      rescheduledCount,
+      totalRevenue,
+      occupiedMinutes,
+      occupationPercentage,
+    };
   };
 
   const toggleProfessional = (id: string) => {
@@ -682,6 +671,45 @@ export function ProfessionalDailyView({
     setTimeConflictDialog({ open: false, appointmentId: 0, availableSlots: [] });
   };
 
+  function HeaderProgress({ value }: { value: number }) {
+  const v = Math.max(0, Math.min(100, value || 0));
+
+  const tone = v > 85 ? "danger" : v >= 60 ? "warn" : "ok";
+
+  const fillClass =
+    tone === "danger"
+      ? "bg-rose-600 dark:bg-rose-500"
+      : tone === "warn"
+        ? "bg-amber-500 dark:bg-amber-400"
+        : "bg-emerald-600 dark:bg-emerald-500";
+
+  const tintClass =
+    tone === "danger"
+      ? "bg-rose-500/10 dark:bg-rose-400/10"
+      : tone === "warn"
+        ? "bg-amber-400/10 dark:bg-amber-300/10"
+        : "bg-emerald-500/10 dark:bg-emerald-400/10";
+
+  const glowClass =
+    tone === "danger"
+      ? "shadow-[0_0_12px_rgba(244,63,94,0.25)]"
+      : tone === "warn"
+        ? "shadow-[0_0_12px_rgba(245,158,11,0.25)]"
+        : "shadow-[0_0_12px_rgba(16,185,129,0.25)]";
+
+  return (
+    <div className="relative h-2 w-full overflow-hidden rounded-full ring-1 ring-border/60">
+      <div className="absolute inset-0 bg-muted/70 dark:bg-muted/30" />
+      <div className={cn("absolute inset-0", tintClass)} />
+      <div
+        className={cn("relative h-full transition-all", fillClass, glowClass)}
+        style={{ width: `${v}%` }}
+        aria-label={`Ocupação ${v}%`}
+      />
+    </div>
+  );
+}
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 bg-primary/10 rounded-lg border border-primary/20">
@@ -778,7 +806,6 @@ export function ProfessionalDailyView({
                       <div className="flex items-center gap-3">
                         <div className="text-right hidden sm:block">
                           <p className="text-sm font-medium text-primary">{formatCurrency(stats.totalRevenue)}</p>
-                          <p className="text-xs text-muted-foreground">{stats.occupationPercentage}% ocupado</p>
                         </div>
 
                         {isExpanded ? (
@@ -790,27 +817,45 @@ export function ProfessionalDailyView({
                     </div>
 
                     <div className="mt-3 space-y-2">
-                      <Progress value={stats.occupationPercentage} className="h-2" />
-                      <div className="flex gap-2 flex-wrap">
-                        {stats.pending > 0 && (
-                          <Badge variant="secondary" className="text-xs">
-                            {stats.pending} pendente{stats.pending !== 1 ? "s" : ""}
-                          </Badge>
-                        )}
-                        {stats.completed > 0 && (
-                          <Badge variant="outline" className="text-xs text-green-600 border-green-600">
-                            {stats.completed} concluído{stats.completed !== 1 ? "s" : ""}
-                          </Badge>
-                        )}
-                        {stats.cancelled > 0 && (
-                          <Badge variant="destructive" className="text-xs">
-                            {stats.cancelled} cancelado{stats.cancelled !== 1 ? "s" : ""}
-                          </Badge>
-                        )}
-                        {stats.totalAppointments === 0 && (
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1">
+                          <HeaderProgress value={stats.occupationPercentage} />
+                        </div>
+
+                        <span className="text-xs font-medium text-muted-foreground tabular-nums">
+                          {stats.occupationPercentage}%
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {stats.totalAppointments === 0 ? (
                           <Badge variant="outline" className="text-xs text-muted-foreground">
                             Sem agendamentos
                           </Badge>
+                        ) : (
+                          [
+                            { status: "scheduled" as const, count: stats.scheduledCount },
+                            { status: "confirmed" as const, count: stats.confirmedCount },
+                            { status: "completed" as const, count: stats.completed },
+                            { status: "rescheduled" as const, count: stats.rescheduledCount },
+                            { status: "no_show" as const, count: stats.noShowCount },
+                            { status: "cancelled" as const, count: stats.cancelled },
+                          ]
+                            .filter((i) => i.count > 0)
+                            .map(({ status, count }) => {
+                              const label = SUMMARY_STATUS_LABEL[status];
+                              const text = label ? pluralize(count, label.singular, label.plural) : getStatusLabel(status);
+
+                              return (
+                                <Badge
+                                  key={status}
+                                  variant="outline"
+                                  className={getStatusBadgeClass(status, "text-xs")}
+                                  title={getStatusLabel(status)}
+                                >
+                                  {count} {text}
+                                </Badge>
+                              );
+                            })
                         )}
                       </div>
                     </div>
@@ -819,14 +864,14 @@ export function ProfessionalDailyView({
 
                 <CollapsibleContent>
                   <Separator />
-                  <div className="p-4">
+                  <div className="p-4 min-h-0">
                     {profAppointments.length === 0 ? (
                       <div className="text-center py-8 text-muted-foreground">
                         <Users className="h-10 w-10 mx-auto mb-2 opacity-50" />
                         <p>Nenhum agendamento para hoje</p>
                       </div>
                     ) : (
-                      <ScrollArea className="max-h-[400px]">
+                      <ScrollArea className="h-[60vh] md:h-[65vh] lg:h-[70vh] pr-5">
                         <div className="space-y-3">
                           {profAppointments.map((appointment) => {
                             const time = toHHmm(appointment.start_time);
@@ -838,16 +883,14 @@ export function ProfessionalDailyView({
                             return (
                               <Card
                                 key={appointment.id}
-                                draggable={canEdit && !!onReassignProfessional}
+                                draggable={!!(canEdit && onReassignProfessional)}
                                 onDragStart={(e) => handleDragStart(e, appointment)}
                                 onDragEnd={handleDragEnd}
                                 className={cn(
-                                  "p-4 border-l-4 transition-all hover:shadow-md",
+                                  "p-4 transition-all hover:shadow-md",
                                   canEdit && onReassignProfessional && "cursor-grab active:cursor-grabbing",
-                                  appointment.status === "completed" && "border-l-green-500 bg-green-50/50 dark:bg-green-900/10",
-                                  appointment.status === "confirmed" && "border-l-primary bg-primary/5",
-                                  appointment.status === "scheduled" && "border-l-yellow-500 bg-yellow-50/50 dark:bg-yellow-900/10",
-                                  appointment.status === "cancelled" && "border-l-destructive bg-destructive/5 opacity-60"
+                                  draggedAppointment?.id === appointment.id && "opacity-70",
+                                  getStatusCardClass(appointment.status)
                                 )}
                               >
                                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -959,20 +1002,25 @@ export function ProfessionalDailyView({
                                             className="w-auto h-auto border-0 p-0 focus:ring-0"
                                             onClick={(e) => e.stopPropagation()}
                                           >
-                                            <Badge variant={getStatusVariant(appointment.status)} className="cursor-pointer">
+                                            <Badge
+                                              variant="outline"
+                                              className={getStatusBadgeClass(appointment.status, "cursor-pointer")}
+                                            >
                                               {getStatusLabel(appointment.status)}
                                             </Badge>
                                           </SelectTrigger>
                                           <SelectContent>
-                                            {statusOptions.map((status) => (
+                                             {STATUS_OPTIONS.map((status) => (
                                               <SelectItem key={status} value={status}>
-                                                <Badge variant={getStatusVariant(status)}>{getStatusLabel(status)}</Badge>
+                                                <Badge variant="outline" className={getStatusBadgeClass(status)}>
+                                                  {getStatusLabel(status)}
+                                                </Badge>
                                               </SelectItem>
                                             ))}
                                           </SelectContent>
                                         </Select>
                                       ) : (
-                                        <Badge variant={getStatusVariant(appointment.status)}>
+                                        <Badge variant="outline" className={getStatusBadgeClass(appointment.status, "cursor-pointer")}>
                                           {getStatusLabel(appointment.status)}
                                         </Badge>
                                       )}
