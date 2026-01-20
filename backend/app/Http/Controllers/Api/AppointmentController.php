@@ -335,114 +335,10 @@ class AppointmentController extends Controller
         }
     }
 
-    // private function isWithinWorkSchedule(?Professional $professional, Carbon $start, Carbon $end): bool
-    // {
-    //     if (!$professional || empty($professional->work_schedule)) {
-    //         return true;
-    //     }
-
-    //     $schedule = $professional->work_schedule;
-
-    //     if (!is_array($schedule)) {
-    //         $decoded = json_decode($schedule, true);
-    //         $schedule = is_array($decoded) ? $decoded : [];
-    //     }
-
-    //     if (empty($schedule)) {
-    //         return false;
-    //     }
-
-    //     $weekdayIndex = (int) $start->format('N');
-
-    //     $dayMap = [
-    //         1 => 'Segunda-feira',
-    //         2 => 'Terça-feira',
-    //         3 => 'Quarta-feira',
-    //         4 => 'Quinta-feira',
-    //         5 => 'Sexta-feira',
-    //         6 => 'Sábado',
-    //         7 => 'Domingo',
-    //     ];
-
-    //     $dayNamePt = $dayMap[$weekdayIndex] ?? null;
-
-    //     if (!$dayNamePt) {
-    //         return false;
-    //     }
-
-    //     $dayConfig = null;
-    //     foreach ($schedule as $entry) {
-    //         if (!is_array($entry)) {
-    //             continue;
-    //         }
-
-    //         $entryDay = $entry['day'] ?? null;
-
-    //         if ($entryDay && mb_strtolower($entryDay) === mb_strtolower($dayNamePt)) {
-    //             $dayConfig = $entry;
-    //             break;
-    //         }
-    //     }
-
-    //     if (!$dayConfig) {
-    //         return false;
-    //     }
-
-    //     $isWorkingDay = $dayConfig['isWorkingDay'] ?? true;
-    //     $isDayOff     = $dayConfig['isDayOff'] ?? false;
-
-    //     if (!$isWorkingDay || $isDayOff) {
-    //         return false;
-    //     }
-
-    //     $startTime   = $dayConfig['startTime']   ?? null;
-    //     $endTime     = $dayConfig['endTime']     ?? null;
-    //     $lunchStart  = $dayConfig['lunchStart']  ?? null;
-    //     $lunchEnd    = $dayConfig['lunchEnd']    ?? null;
-
-    //     if (!$startTime || !$endTime) {
-    //         return false;
-    //     }
-
-    //     $intervals = [];
-
-    //     if ($lunchStart && $lunchEnd) {
-    //         $intervals[] = [
-    //             'start' => $start->copy()->setTimeFromTimeString($startTime),
-    //             'end'   => $start->copy()->setTimeFromTimeString($lunchStart),
-    //         ];
-    //         $intervals[] = [
-    //             'start' => $start->copy()->setTimeFromTimeString($lunchEnd),
-    //             'end'   => $start->copy()->setTimeFromTimeString($endTime),
-    //         ];
-    //     } else {
-    //         $intervals[] = [
-    //             'start' => $start->copy()->setTimeFromTimeString($startTime),
-    //             'end'   => $start->copy()->setTimeFromTimeString($endTime),
-    //         ];
-    //     }
-
-    //     foreach ($intervals as $interval) {
-    //         /** @var Carbon $intervalStart */
-    //         $intervalStart = $interval['start'];
-    //         /** @var Carbon $intervalEnd */
-    //         $intervalEnd   = $interval['end'];
-
-    //         if (
-    //             $start->greaterThanOrEqualTo($intervalStart)
-    //             && $end->lessThanOrEqualTo($intervalEnd)
-    //         ) {
-    //             return true;
-    //         }
-    //     }
-
-    //     return false;
-    // }
-
     private function isStartAllowedByWorkSchedule(?Professional $professional, Carbon $start): bool
     {
         if (!$professional || empty($professional->work_schedule)) {
-            return true; // sem escala: não bloqueia
+            return true;
         }
 
         $schedule = $professional->work_schedule;
@@ -453,7 +349,7 @@ class AppointmentController extends Controller
         }
 
         if (empty($schedule)) {
-            return true; // ou false, depende da sua regra; eu recomendo true para não travar operação
+            return true;
         }
 
         $weekdayIndex = (int) $start->format('N');
@@ -481,7 +377,7 @@ class AppointmentController extends Controller
             }
         }
 
-        if (!$dayConfig) return true; // não achou o dia => não trava (ou false se você quiser ser rígido)
+        if (!$dayConfig) return true;
 
         $isWorkingDay = $dayConfig['isWorkingDay'] ?? true;
         $isDayOff     = $dayConfig['isDayOff'] ?? false;
@@ -497,12 +393,10 @@ class AppointmentController extends Controller
         $workStart = $start->copy()->setTimeFromTimeString($startTime);
         $workEnd   = $start->copy()->setTimeFromTimeString($endTime);
 
-        // precisa começar dentro do expediente
         if ($start->lt($workStart) || $start->gte($workEnd)) {
             return false;
         }
 
-        // não pode começar durante intervalo
         if ($lunchStart && $lunchEnd) {
             $lStart = $start->copy()->setTimeFromTimeString($lunchStart);
             $lEnd   = $start->copy()->setTimeFromTimeString($lunchEnd);
@@ -624,7 +518,6 @@ class AppointmentController extends Controller
 
         try {
             DB::transaction(function () use ($data, $appointment) {
-                // Garante que services/items estão carregados
                 $appointment->loadMissing(['customer', 'services', 'items']);
 
                 Log::info('CHECKOUT STARTED', [

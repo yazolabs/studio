@@ -6,7 +6,6 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -37,6 +36,10 @@ type Professional = {
   work_schedule?: WorkScheduleEntry[] | null;
 };
 
+type ReassignScope =
+  | { type: "all" }
+  | { type: "only_professional"; professionalId: number };
+
 type Props = {
   appointments: Appointment[];
   professionals: Professional[];
@@ -47,8 +50,29 @@ type Props = {
   onCheckout?: (appointment: Appointment) => void;
   onPrint?: (appointment: Appointment) => void;
   onQuickStatusChange?: (appointmentId: number, newStatus: Appointment["status"]) => void;
-  onQuickTimeChange?: (appointmentId: number, newTime: string, onConflict: (availableSlots: string[]) => void) => void;
-  onReassignProfessional?: (appointmentId: number, newProfessionalId: number, onConflict: () => void) => void;
+  onQuickTimeChange?: (
+    appointmentId: number,
+    newTime: string,
+    onConflict: (availableSlots: string[]) => void
+  ) => void;
+  onReassignProfessional?: (
+    appointmentId: number,
+    newProfessionalId: number,
+    onConflict: () => void
+  ) => void;
+  onReassignProfessionalScoped?: (
+    appointmentId: number,
+    newProfessionalId: number,
+    scope: ReassignScope,
+    onConflict: () => void
+  ) => void;
+  onQuickReassign?: (
+    appointmentId: number,
+    newProfessionalId: number,
+    newTime: string,
+    scope: ReassignScope,
+    onConflict: (availableSlots: string[]) => void
+  ) => void;
   canEdit?: boolean;
   canDelete?: boolean;
 };
@@ -171,6 +195,47 @@ const SUMMARY_STATUS_LABEL: Partial<Record<Appointment["status"], { singular: st
   rescheduled: { singular: "reagendado", plural: "reagendados" },
 };
 
+const LOCKED_STATUSES: Appointment["status"][] = ["completed", "cancelled", "no_show"];
+
+const isDragBlockedByStatus = (status: Appointment["status"]) =>
+  LOCKED_STATUSES.includes(status);
+
+const getStatusLockMessage = (status: Appointment["status"]) => {
+  switch (status) {
+    case "completed":
+      return "Agendamentos concluídos não podem ser movidos por arrastar.";
+    case "cancelled":
+      return "Agendamentos cancelados não podem ser movidos por arrastar.";
+    case "no_show":
+      return "Agendamentos marcados como 'não compareceu' não podem ser movidos por arrastar.";
+    default:
+      return "Este agendamento não pode ser movido por arrastar.";
+  }
+};
+
+const getUniqueProfessionalIdsFromServices = (apt: Appointment) => {
+  const services: any[] = Array.isArray(apt.services) ? (apt.services as any[]) : [];
+  const ids = services
+    .map((s) => Number(s?.professional_id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+  return Array.from(new Set(ids));
+};
+
+const isMultiProfessionalAppointment = (apt: Appointment) => {
+  const ids = getUniqueProfessionalIdsFromServices(apt);
+  return ids.length > 1;
+};
+
+type ReassignBlockReason =
+  | "status_locked"
+  | "multi_professional"
+  | "no_schedule"
+  | "lunch"
+  | "outside_hours"
+  | "does_not_fit"
+  | "busy"
+  | "invalid_time";
+
 export function ProfessionalDailyView({
   appointments,
   professionals,
@@ -182,13 +247,16 @@ export function ProfessionalDailyView({
   onPrint,
   onQuickStatusChange,
   onQuickTimeChange,
+  onQuickReassign,
   onReassignProfessional,
+  onReassignProfessionalScoped,
   canEdit = true,
   canDelete = true,
 }: Props) {
   const [expandedProfessionals, setExpandedProfessionals] = useState<Set<string>>(new Set());
   const [draggedAppointment, setDraggedAppointment] = useState<Appointment | null>(null);
   const [dragOverProfessional, setDragOverProfessional] = useState<string | null>(null);
+  const [dragSourceProfessionalId, setDragSourceProfessionalId] = useState<number | null>(null);
 
   const [timeConflictDialog, setTimeConflictDialog] = useState<{
     open: boolean;
@@ -196,13 +264,39 @@ export function ProfessionalDailyView({
     availableSlots: string[];
   }>({ open: false, appointmentId: 0, availableSlots: [] });
 
-  const [professionalConflictDialog, setProfessionalConflictDialog] = useState<{
+  const [reassignDialog, setReassignDialog] = useState<{
     open: boolean;
+    reason: ReassignBlockReason;
+    message?: string;
     appointmentId: number;
     targetProfessionalId: number;
     targetProfessionalName: string;
     availableSlots: string[];
-  }>({ open: false, appointmentId: 0, targetProfessionalId: 0, targetProfessionalName: "", availableSlots: [] });
+  }>({
+    open: false,
+    reason: "busy",
+    message: "",
+    appointmentId: 0,
+    targetProfessionalId: 0,
+    targetProfessionalName: "",
+    availableSlots: [],
+  });
+
+  const EMPTY_MULTI_PROF_DIALOG = {
+    open: false,
+    appointmentId: 0,
+    targetProfessionalId: 0,
+    targetProfessionalName: "",
+    sourceProfessionalId: null as number | null,
+  };
+
+  const [multiProfDialog, setMultiProfDialog] = useState<{
+    open: boolean;
+    appointmentId: number;
+    targetProfessionalId: number;
+    targetProfessionalName: string;
+    sourceProfessionalId: number | null;
+  }>(EMPTY_MULTI_PROF_DIALOG);
 
   const dateStr = useMemo(() => format(selectedDate, "yyyy-MM-dd"), [selectedDate]);
   const isTodaySelected = useMemo(() => isToday(selectedDate), [selectedDate]);
@@ -503,15 +597,36 @@ export function ProfessionalDailyView({
     });
   };
 
-  const handleDragStart = (e: React.DragEvent, appointment: Appointment) => {
+  const handleDragStart = (e: React.DragEvent, appointment: Appointment, sourceProfessionalId: number) => {
     if (!canEdit || !onReassignProfessional) return;
+
+    if (isDragBlockedByStatus(appointment.status)) {
+      e.preventDefault();
+      setDraggedAppointment(null);
+      setDragSourceProfessionalId(null);
+
+      setReassignDialog({
+        open: true,
+        reason: "status_locked",
+        message: getStatusLockMessage(appointment.status),
+        appointmentId: appointment.id,
+        targetProfessionalId: 0,
+        targetProfessionalName: "",
+        availableSlots: [],
+      });
+      return;
+    }
+
     setDraggedAppointment(appointment);
+    setDragSourceProfessionalId(sourceProfessionalId);
+
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", String(appointment.id));
   };
 
   const handleDragEnd = () => {
     setDraggedAppointment(null);
+    setDragSourceProfessionalId(null);
     setDragOverProfessional(null);
   };
 
@@ -520,6 +635,177 @@ export function ProfessionalDailyView({
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     setDragOverProfessional(professionalId);
+  };
+
+  const openReassignDialog = (params: {
+    reason: ReassignBlockReason;
+    message?: string;
+    appointmentId: number;
+    targetProfessionalId: number;
+    targetProfessionalName: string;
+    availableSlots?: string[];
+  }) => {
+    setReassignDialog({
+      open: true,
+      reason: params.reason,
+      message: params.message ?? "",
+      appointmentId: params.appointmentId,
+      targetProfessionalId: params.targetProfessionalId,
+      targetProfessionalName: params.targetProfessionalName,
+      availableSlots: params.availableSlots ?? [],
+    });
+  };
+
+  const performReassign = (
+    appointmentId: number,
+    targetProfessionalId: number,
+    scope: ReassignScope,
+    onConflict: () => void
+  ) => {
+    if (onReassignProfessionalScoped) {
+      onReassignProfessionalScoped(appointmentId, targetProfessionalId, scope, onConflict);
+      return;
+    }
+    onReassignProfessional?.(appointmentId, targetProfessionalId, onConflict);
+  };
+
+  const tryReassign = (opts: {
+    appointment: Appointment;
+    targetProfessionalId: number;
+    targetProfessionalName: string;
+    scope: ReassignScope;
+  }) => {
+    const { appointment, targetProfessionalId, targetProfessionalName, scope } = opts;
+
+    if (!onReassignProfessional) return;
+
+    if (isDragBlockedByStatus(appointment.status)) {
+      openReassignDialog({
+        reason: "status_locked",
+        message: getStatusLockMessage(appointment.status),
+        appointmentId: appointment.id,
+        targetProfessionalId,
+        targetProfessionalName,
+        availableSlots: [],
+      });
+      return;
+    }
+
+    const durationMin = appointmentDuration(appointment);
+
+    const workWindow = getWorkWindowForProfessionalOnDate(
+      professionals,
+      targetProfessionalId,
+      selectedDate
+    );
+
+    if (!workWindow) {
+      openReassignDialog({
+        reason: "no_schedule",
+        message: `${targetProfessionalName} não possui escala configurada para este dia.`,
+        appointmentId: appointment.id,
+        targetProfessionalId,
+        targetProfessionalName,
+        availableSlots: [],
+      });
+      return;
+    }
+
+    const startMin = timeStringToMinutes(appointment.start_time);
+    const availableSlots = getAvailableSlotsForProfessional(
+      targetProfessionalId,
+      durationMin,
+      appointment.id
+    );
+
+    if (startMin == null) {
+      openReassignDialog({
+        reason: "invalid_time",
+        message: "Não foi possível interpretar o horário deste agendamento. Ajuste o horário antes de mover.",
+        appointmentId: appointment.id,
+        targetProfessionalId,
+        targetProfessionalName,
+        availableSlots,
+      });
+      return;
+    }
+
+    if (
+      workWindow.lunchStartMin != null &&
+      workWindow.lunchEndMin != null &&
+      startMin >= workWindow.lunchStartMin &&
+      startMin < workWindow.lunchEndMin
+    ) {
+      openReassignDialog({
+        reason: "lunch",
+        message: "Este horário cai no intervalo do profissional. Escolha um horário disponível:",
+        appointmentId: appointment.id,
+        targetProfessionalId,
+        targetProfessionalName,
+        availableSlots,
+      });
+      return;
+    }
+
+    if (startMin < workWindow.dayStartMin || startMin >= workWindow.dayEndMin) {
+      openReassignDialog({
+        reason: "outside_hours",
+        message: "Este horário está fora do expediente do profissional. Escolha um horário disponível:",
+        appointmentId: appointment.id,
+        targetProfessionalId,
+        targetProfessionalName,
+        availableSlots,
+      });
+      return;
+    }
+
+    const paperDur = normalizeDurationForPaper(durationMin || 30);
+    const rawEnd = startMin + paperDur;
+    const end = applyLunchBreakIfCrosses(
+      startMin,
+      rawEnd,
+      workWindow.lunchStartMin ?? null,
+      workWindow.lunchEndMin ?? null
+    );
+
+    if (end > workWindow.dayEndMin) {
+      openReassignDialog({
+        reason: "does_not_fit",
+        message: "Este agendamento não cabe na janela de trabalho do profissional. Escolha um horário disponível:",
+        appointmentId: appointment.id,
+        targetProfessionalId,
+        targetProfessionalName,
+        availableSlots,
+      });
+      return;
+    }
+
+    const busy = getBusyIntervalsForProfessional(targetProfessionalId, appointment.id);
+    const interval = { start: startMin, end };
+    const hasOverlap = busy.some((b) => overlaps(interval, b));
+
+    if (hasOverlap) {
+      openReassignDialog({
+        reason: "busy",
+        message: `${targetProfessionalName} já possui um agendamento nesse horário. Escolha um horário disponível:`,
+        appointmentId: appointment.id,
+        targetProfessionalId,
+        targetProfessionalName,
+        availableSlots,
+      });
+      return;
+    }
+
+    performReassign(appointment.id, targetProfessionalId, scope, () => {
+      openReassignDialog({
+        reason: "busy",
+        message: `${targetProfessionalName} não ficou disponível nesse horário (conflito). Escolha um horário:`,
+        appointmentId: appointment.id,
+        targetProfessionalId,
+        targetProfessionalName,
+        availableSlots,
+      });
+    });
   };
 
   const handleDrop = (e: React.DragEvent, targetProfessionalIdStr: string) => {
@@ -532,115 +818,114 @@ export function ProfessionalDailyView({
 
     if (appointmentHasProfessional(draggedAppointment, targetProfessionalId)) {
       setDraggedAppointment(null);
+      setDragSourceProfessionalId(null);
       return;
     }
 
     const targetProfName =
       professionals.find((p) => Number(p.id) === targetProfessionalId)?.name ?? "";
 
-    const durationMin = appointmentDuration(draggedAppointment);
-    const workWindow = getWorkWindowForProfessionalOnDate(professionals, targetProfessionalId, selectedDate);
-
-    if (!workWindow) {
-      setProfessionalConflictDialog({
-        open: true,
+    if (isDragBlockedByStatus(draggedAppointment.status)) {
+      openReassignDialog({
+        reason: "status_locked",
+        message: getStatusLockMessage(draggedAppointment.status),
         appointmentId: draggedAppointment.id,
         targetProfessionalId,
         targetProfessionalName: targetProfName,
         availableSlots: [],
       });
       setDraggedAppointment(null);
+      setDragSourceProfessionalId(null);
       return;
     }
 
-    const startMin = timeStringToMinutes(draggedAppointment.start_time);
-    const busy = getBusyIntervalsForProfessional(targetProfessionalId, draggedAppointment.id);
+    if (isMultiProfessionalAppointment(draggedAppointment)) {
+      setMultiProfDialog({
+        open: true,
+        appointmentId: draggedAppointment.id,
+        targetProfessionalId,
+        targetProfessionalName: targetProfName,
+        sourceProfessionalId: dragSourceProfessionalId,
+      });
+      return;
+    }
 
-    const ok = (() => {
-      if (startMin == null) return false;
-
-      if (
-        workWindow.lunchStartMin != null &&
-        workWindow.lunchEndMin != null &&
-        startMin >= workWindow.lunchStartMin &&
-        startMin < workWindow.lunchEndMin
-      ) {
-        return false;
-      }
-
-      if (startMin < workWindow.dayStartMin) return false;
-      if (startMin >= workWindow.dayEndMin) return false;
-
-      const paperDur = normalizeDurationForPaper(durationMin || 30);
-      const rawEnd = startMin + paperDur;
-      const end = applyLunchBreakIfCrosses(
-        startMin,
-        rawEnd,
-        workWindow.lunchStartMin ?? null,
-        workWindow.lunchEndMin ?? null
-      );
-
-      const interval = { start: startMin, end };
-      return !busy.some((b) => overlaps(interval, b));
-    })();
-
-    const availableSlots = getAvailableSlotsForProfessional(
+    tryReassign({
+      appointment: draggedAppointment,
       targetProfessionalId,
-      durationMin,
-      draggedAppointment.id
-    );
-
-    if (!ok) {
-      setProfessionalConflictDialog({
-        open: true,
-        appointmentId: draggedAppointment.id,
-        targetProfessionalId,
-        targetProfessionalName: targetProfName,
-        availableSlots,
-      });
-      setDraggedAppointment(null);
-      return;
-    }
-
-    onReassignProfessional(draggedAppointment.id, targetProfessionalId, () => {
-      setProfessionalConflictDialog({
-        open: true,
-        appointmentId: draggedAppointment.id,
-        targetProfessionalId,
-        targetProfessionalName: targetProfName,
-        availableSlots,
-      });
+      targetProfessionalName: targetProfName,
+      scope: { type: "all" },
     });
 
     setDraggedAppointment(null);
+    setDragSourceProfessionalId(null);
   };
 
-  const handleProfessionalConflictTimeSelect = (newTime: string) => {
-    if (!onQuickTimeChange) return;
+  const handleReassignDialogTimeSelect = (newTime: string) => {
+    const appointmentId = reassignDialog.appointmentId;
+    const targetProfessionalId = reassignDialog.targetProfessionalId;
+    const targetProfessionalName = reassignDialog.targetProfessionalName;
 
-    onQuickTimeChange(
-      professionalConflictDialog.appointmentId,
-      newTime,
-      () => {}
-    );
+    if (onQuickReassign) {
+      onQuickReassign(
+        appointmentId,
+        targetProfessionalId,
+        newTime,
+        { type: "all" },
+        (availableSlots) => {
+          openReassignDialog({
+            reason: "busy",
+            message: `${targetProfessionalName} não ficou disponível nesse horário. Escolha outro:`,
+            appointmentId,
+            targetProfessionalId,
+            targetProfessionalName,
+            availableSlots: availableSlots?.length ? availableSlots : reassignDialog.availableSlots,
+          });
+        }
+      );
 
-    if (onReassignProfessional) {
-      setTimeout(() => {
-        onReassignProfessional(
-          professionalConflictDialog.appointmentId,
-          professionalConflictDialog.targetProfessionalId,
-          () => {}
-        );
-      }, 100);
+      setReassignDialog({
+        open: false,
+        reason: "busy",
+        message: "",
+        appointmentId: 0,
+        targetProfessionalId: 0,
+        targetProfessionalName: "",
+        availableSlots: [],
+      });
+      setDraggedAppointment(null);
+      setDragSourceProfessionalId(null);
+      return;
     }
 
-    setProfessionalConflictDialog({
+    if (!onQuickTimeChange) return;
+
+    onQuickTimeChange(appointmentId, newTime, () => {});
+
+    setTimeout(() => {
+      performReassign(appointmentId, targetProfessionalId, { type: "all" }, () => {
+        openReassignDialog({
+          reason: "busy",
+          message: `${targetProfessionalName} não ficou disponível nesse horário (conflito). Escolha um horário:`,
+          appointmentId,
+          targetProfessionalId,
+          targetProfessionalName,
+          availableSlots: reassignDialog.availableSlots,
+        });
+      });
+    }, 0);
+
+    setReassignDialog({
       open: false,
+      reason: "busy",
+      message: "",
       appointmentId: 0,
       targetProfessionalId: 0,
       targetProfessionalName: "",
       availableSlots: [],
     });
+    setDraggedAppointment(null);
+    setDragSourceProfessionalId(null);
   };
 
   const handleTimeSelect = (appointmentId: number, newTime: string) => {
@@ -879,16 +1164,18 @@ export function ProfessionalDailyView({
                             const price = appointmentPrice(appointment);
                             const service = servicesLabel(appointment);
                             const phone = customerPhone(appointment);
+                            const canDrag = !!(canEdit && onReassignProfessional && !isDragBlockedByStatus(appointment.status));
 
                             return (
                               <Card
                                 key={appointment.id}
-                                draggable={!!(canEdit && onReassignProfessional)}
-                                onDragStart={(e) => handleDragStart(e, appointment)}
+                                draggable={canDrag}
+                                onDragStart={(e) => handleDragStart(e, appointment, profId)}
                                 onDragEnd={handleDragEnd}
                                 className={cn(
                                   "p-4 transition-all hover:shadow-md",
-                                  canEdit && onReassignProfessional && "cursor-grab active:cursor-grabbing",
+                                  canDrag && "cursor-grab active:cursor-grabbing",
+                                  !canDrag && canEdit && onReassignProfessional && "cursor-not-allowed opacity-80",
                                   draggedAppointment?.id === appointment.id && "opacity-70",
                                   getStatusCardClass(appointment.status)
                                 )}
@@ -897,7 +1184,7 @@ export function ProfessionalDailyView({
                                   <div className="flex-1 space-y-2">
                                     <div className="flex items-center justify-between md:justify-start gap-3">
                                       <div className="flex items-center gap-2">
-                                        {canEdit && onReassignProfessional && (
+                                        {canDrag && (
                                           <GripVertical className="h-4 w-4 text-muted-foreground/50" />
                                         )}
 
@@ -1133,53 +1420,86 @@ export function ProfessionalDailyView({
       </div>
 
       <Dialog
-        open={timeConflictDialog.open}
-        onOpenChange={(open) => !open && setTimeConflictDialog({ open: false, appointmentId: 0, availableSlots: [] })}
+        open={multiProfDialog.open}
+        onOpenChange={(open) => !open && setMultiProfDialog(EMPTY_MULTI_PROF_DIALOG)}
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-destructive" />
-              Horário Ocupado
+              <AlertCircle className="h-5 w-5 text-amber-500" />
+              Agendamento com múltiplos profissionais
             </DialogTitle>
             <DialogDescription>
-              O horário selecionado está ocupado. Escolha um dos horários disponíveis abaixo:
+              Este agendamento possui serviços atribuídos a mais de um profissional.
+              <br />
+              Por padrão, ao mover, <b>todo o agendamento</b> será realocado para {multiProfDialog.targetProfessionalName}.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
-            {timeConflictDialog.availableSlots.length > 0 ? (
-              <ScrollArea className="h-48">
-                <div className="grid grid-cols-3 gap-2">
-                  {timeConflictDialog.availableSlots.map((slot) => (
-                    <Button key={slot} variant="outline" size="sm" onClick={() => handleConflictTimeSelect(slot)}>
-                      {slot}
-                    </Button>
-                  ))}
-                </div>
-              </ScrollArea>
-            ) : (
-              <p className="text-center text-muted-foreground py-4">
-                Nenhum horário disponível para este dia.
-              </p>
-            )}
-          </div>
-          <DialogFooter>
+
+          <DialogFooter className="gap-2 sm:gap-0">
             <Button
               variant="outline"
-              onClick={() => setTimeConflictDialog({ open: false, appointmentId: 0, availableSlots: [] })}
+              onClick={() => setMultiProfDialog(EMPTY_MULTI_PROF_DIALOG)}
             >
               Cancelar
+            </Button>
+
+            {onReassignProfessionalScoped && multiProfDialog.sourceProfessionalId != null && (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  const apt = appointments.find((a) => Number(a.id) === Number(multiProfDialog.appointmentId));
+                  if (!apt) return;
+
+                  setMultiProfDialog(EMPTY_MULTI_PROF_DIALOG);
+
+                  tryReassign({
+                    appointment: apt,
+                    targetProfessionalId: multiProfDialog.targetProfessionalId,
+                    targetProfessionalName: multiProfDialog.targetProfessionalName,
+                    scope: { type: "only_professional", professionalId: multiProfDialog.sourceProfessionalId },
+                  });
+
+                  setDragSourceProfessionalId(null);
+                  setDraggedAppointment(null);
+                }}
+              >
+                Mover só deste profissional
+              </Button>
+            )}
+
+            <Button
+              onClick={() => {
+                const apt = appointments.find((a) => Number(a.id) === Number(multiProfDialog.appointmentId));
+                if (!apt) return;
+
+                setMultiProfDialog(EMPTY_MULTI_PROF_DIALOG);
+
+                tryReassign({
+                  appointment: apt,
+                  targetProfessionalId: multiProfDialog.targetProfessionalId,
+                  targetProfessionalName: multiProfDialog.targetProfessionalName,
+                  scope: { type: "all" },
+                });
+
+                setDraggedAppointment(null);
+                setDragSourceProfessionalId(null);
+              }}
+            >
+              Mover tudo
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog
-        open={professionalConflictDialog.open}
+        open={reassignDialog.open}
         onOpenChange={(open) =>
           !open &&
-          setProfessionalConflictDialog({
+          setReassignDialog({
             open: false,
+            reason: "busy",
+            message: "",
             appointmentId: 0,
             targetProfessionalId: 0,
             targetProfessionalName: "",
@@ -1190,37 +1510,62 @@ export function ProfessionalDailyView({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-destructive" />
-              Conflito de Horário
+              <AlertCircle className={cn(
+                "h-5 w-5",
+                reassignDialog.reason === "status_locked" ? "text-slate-500" :
+                reassignDialog.reason === "no_schedule" ? "text-amber-500" :
+                "text-destructive"
+              )} />
+              {reassignDialog.reason === "status_locked"
+                ? "Movimentação bloqueada"
+                : reassignDialog.reason === "no_schedule"
+                  ? "Sem escala"
+                  : reassignDialog.reason === "lunch"
+                    ? "Intervalo"
+                    : reassignDialog.reason === "outside_hours"
+                      ? "Fora do expediente"
+                      : reassignDialog.reason === "does_not_fit"
+                        ? "Não cabe na agenda"
+                        : reassignDialog.reason === "invalid_time"
+                          ? "Horário inválido"
+                          : "Conflito de horário"}
             </DialogTitle>
+
             <DialogDescription>
-              {professionalConflictDialog.targetProfessionalName} já possui um agendamento neste horário.
-              Escolha um horário disponível para mover o agendamento:
+              {reassignDialog.message ||
+                (reassignDialog.targetProfessionalName
+                  ? `${reassignDialog.targetProfessionalName} não está disponível para esta ação.`
+                  : "Não foi possível concluir esta ação.")}
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
-            {professionalConflictDialog.availableSlots.length > 0 ? (
+
+          {reassignDialog.availableSlots.length > 0 && onQuickTimeChange ? (
+            <div className="py-4">
               <ScrollArea className="h-48">
                 <div className="grid grid-cols-3 gap-2">
-                  {professionalConflictDialog.availableSlots.map((slot) => (
-                    <Button key={slot} variant="outline" size="sm" onClick={() => handleProfessionalConflictTimeSelect(slot)}>
+                  {reassignDialog.availableSlots.map((slot) => (
+                    <Button
+                      key={slot}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleReassignDialogTimeSelect(slot)}
+                    >
                       {slot}
                     </Button>
                   ))}
                 </div>
               </ScrollArea>
-            ) : (
-              <p className="text-center text-muted-foreground py-4">
-                Nenhum horário disponível para este profissional hoje.
-              </p>
-            )}
-          </div>
+            </div>
+          ) : null}
+
           <DialogFooter>
             <Button
               variant="outline"
               onClick={() =>
-                setProfessionalConflictDialog({
+                setReassignDialog({
                   open: false,
+                  reason: "busy",
+                  message: "",
                   appointmentId: 0,
                   targetProfessionalId: 0,
                   targetProfessionalName: "",
@@ -1228,7 +1573,7 @@ export function ProfessionalDailyView({
                 })
               }
             >
-              Cancelar
+              Fechar
             </Button>
           </DialogFooter>
         </DialogContent>

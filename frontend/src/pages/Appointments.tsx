@@ -645,6 +645,77 @@ export default function Appointments() {
     return crosses ? endMin + (lunchEndMin - lunchStartMin) : endMin;
   };
 
+  type ScheduleWindow = {
+    dayStartMin: number;
+    dayEndMin: number;
+    lunchStartMin: number | null;
+    lunchEndMin: number | null;
+  };
+
+  const getScheduleWindowForProfessional = (
+    professionalId: ID,
+    date: Date
+  ): ScheduleWindow | null => {
+    const profIdNum = Number(professionalId);
+    const scheduleForProf = professionalWorkScheduleById.get(profIdNum);
+    if (!scheduleForProf || scheduleForProf.length === 0) return null;
+
+    const weekdayLabel = getWeekdayLabel(date);
+    const daySchedule = scheduleForProf.find((d) => d.day === weekdayLabel);
+
+    if (!daySchedule || daySchedule.isDayOff || daySchedule.isWorkingDay === false) {
+      return null;
+    }
+
+    const dayStartMin = timeStringToMinutes(daySchedule.startTime);
+    const dayEndMin = timeStringToMinutes(daySchedule.endTime);
+
+    if (dayStartMin == null || dayEndMin == null || dayEndMin <= dayStartMin) return null;
+
+    let lunchStartMin: number | null = null;
+    let lunchEndMin: number | null = null;
+
+    if (daySchedule.lunchStart) lunchStartMin = timeStringToMinutes(daySchedule.lunchStart) ?? null;
+    if (daySchedule.lunchEnd) lunchEndMin = timeStringToMinutes(daySchedule.lunchEnd) ?? null;
+
+    if (lunchStartMin != null && lunchEndMin != null && lunchEndMin <= lunchStartMin) {
+      lunchStartMin = null;
+      lunchEndMin = null;
+    }
+
+    return { dayStartMin, dayEndMin, lunchStartMin, lunchEndMin };
+  };
+
+  const isWithinLunch = (t: number, lunchStart: number | null, lunchEnd: number | null) => {
+    if (lunchStart == null || lunchEnd == null) return false;
+    return t >= lunchStart && t < lunchEnd;
+  };
+
+  const scheduleOk = () => ({ ok: true } as const);
+  const scheduleFail = (reason: "lunch" | "outside-working-hours") =>
+    ({ ok: false, reason } as const);
+
+  type ScheduleCheck =
+    | ReturnType<typeof scheduleOk>
+    | ReturnType<typeof scheduleFail>;
+
+  const validateIntervalInsideSchedule = (
+    startMin: number,
+    endMin: number,
+    win: ScheduleWindow
+  ): ScheduleCheck => {
+    if (startMin < win.dayStartMin) return scheduleFail("outside-working-hours");
+    if (startMin >= win.dayEndMin) return scheduleFail("outside-working-hours");
+
+    if (isWithinLunch(startMin, win.lunchStartMin, win.lunchEndMin)) {
+      return scheduleFail("lunch");
+    }
+
+    if (endMin > win.dayEndMin) return scheduleFail("outside-working-hours");
+
+    return scheduleOk();
+  };
+
   const minutesToHHmmss = (minutes: number) => `${minutesToHHmm(minutes)}:00`;
 
   const shiftToDateTime = (dateStr: string, value: string | null | undefined, deltaMin: number) => {
@@ -835,6 +906,17 @@ export default function Appointments() {
     }));
   };
 
+  type ReassignScope =
+    | { type: "all" }
+    | { type: "only_professional"; professionalId: number };
+
+  const hhmmToHHmmss = (hhmm: string) => {
+    const t = (hhmm || "").slice(0, 5);
+    return `${t}:00`;
+  };
+
+  const toDateTime = (dateStr: string, hhmm: string) => `${dateStr} ${hhmmToHHmmss(hhmm)}`;
+
   const handleQuickStatusChange = (
     appointmentId: number,
     newStatus: AppointmentBackend["status"]
@@ -905,6 +987,64 @@ export default function Appointments() {
 
       const delta = newStartMin - oldStartMin;
 
+      const servicesArr = Array.isArray(apt.services) ? apt.services : [];
+      for (const s of servicesArr) {
+        const pid = s.professional_id != null ? Number(s.professional_id) : null;
+        if (!pid) continue;
+
+        const win = getScheduleWindowForProfessional(pid, professionalViewDate);
+        if (!win) {
+          const slots =
+            primaryProfId != null
+              ? buildAvailableSlotsForProfessional(primaryProfId, professionalViewDate, duration, apt.id)
+              : [];
+          onConflict(slots);
+          toast({
+            title: "Horário indisponível",
+            description: "O profissional não possui escala válida para este dia.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        const shiftedStart = shiftToDateTime(dateStr, s.starts_at ?? apt.start_time, delta);
+        const shiftedEnd = shiftToDateTime(dateStr, s.ends_at ?? null, delta);
+
+        const startMinSvc = timeStringToMinutes(shiftedStart);
+        let endMinSvc = timeStringToMinutes(shiftedEnd);
+
+        if (startMinSvc == null) continue;
+
+        if (endMinSvc == null) {
+          const durReal = Number((s as any).duration ?? 0) || 30;
+          const paperDur = normalizeDurationForPaper(durReal);
+          const rawEnd = startMinSvc + paperDur;
+          endMinSvc = applyLunchBreakIfCrosses(startMinSvc, rawEnd, win.lunchStartMin, win.lunchEndMin);
+        }
+
+        const scheduleCheck = validateIntervalInsideSchedule(startMinSvc, endMinSvc, win);
+        if (scheduleCheck.ok === false) {
+          const reason = scheduleCheck.reason;
+
+          const slots =
+            primaryProfId != null
+              ? buildAvailableSlotsForProfessional(primaryProfId, professionalViewDate, duration, apt.id)
+              : [];
+
+          onConflict(slots);
+
+          toast({
+            title: "Horário indisponível",
+            description:
+              reason === "lunch"
+                ? "Esse horário cai no intervalo do profissional."
+                : "Esse horário fica fora do expediente do profissional.",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+
       const servicesPayload = (Array.isArray(apt.services) ? apt.services : []).map((s) => ({
         id: Number(s.id),
         service_price: String((s as any).service_price ?? "0"),
@@ -927,6 +1067,33 @@ export default function Appointments() {
         toast({ title: "Horário atualizado." });
       } catch (e: any) {
         console.error(e);
+
+        const status = e?.response?.status;
+        const data = e?.response?.data;
+
+        if (status === 422) {
+          const backendMsg =
+            (typeof data?.message === "string" && data.message) ||
+            (data?.errors && typeof data.errors === "object"
+              ? data.errors[Object.keys(data.errors)[0]]?.[0]
+              : null) ||
+            "Horário inválido para a escala do profissional.";
+
+          const slots =
+            primaryProfId != null
+              ? buildAvailableSlotsForProfessional(primaryProfId, professionalViewDate, duration, apt.id)
+              : [];
+
+          onConflict(slots);
+
+          toast({
+            title: "Horário indisponível",
+            description: backendMsg,
+            variant: "destructive",
+          });
+          return;
+        }
+
         toast({
           title: "Erro ao atualizar horário",
           description: e?.message ?? "Tente novamente.",
@@ -975,6 +1142,190 @@ export default function Appointments() {
         console.error(e);
         toast({
           title: "Erro ao realocar profissional",
+          description: e?.message ?? "Tente novamente.",
+          variant: "destructive",
+        });
+      }
+    })();
+  };
+
+  const handleQuickReassign = (
+    appointmentId: number,
+    newProfessionalId: number,
+    newTime: string,
+    scope: ReassignScope,
+    onConflict: (availableSlots: string[]) => void
+  ): void => {
+    (async () => {
+      const apt = appointments.find((a) => Number(a.id) === Number(appointmentId));
+      if (!apt) return;
+
+      const dateStr = apt.date ?? format(professionalViewDate, "yyyy-MM-dd");
+      if (!dateStr) return;
+
+      const dateObj = new Date(`${dateStr}T00:00:00`);
+      const newStartMin = hhmmToMinutes(newTime);
+      if (newStartMin == null) return;
+
+      const winTarget = getScheduleWindowForProfessional(newProfessionalId, dateObj);
+      if (!winTarget) {
+        const duration = computeAppointmentDurationMinutes(apt);
+        const slots = buildAvailableSlotsForProfessional(
+          newProfessionalId,
+          dateObj,
+          duration,
+          apt.id
+        );
+        onConflict(slots);
+
+        toast({
+          title: "Horário indisponível",
+          description: "O profissional não possui escala válida para este dia.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const servicesArr = Array.isArray(apt.services) ? apt.services : [];
+
+      const shouldMoveService = (service: any) => {
+        if (scope.type === "all") return true;
+        const pid = service.professional_id != null ? Number(service.professional_id) : null;
+        return pid != null && pid === Number(scope.professionalId);
+      };
+
+      let movedMaxEndMin: number | null = null;
+
+      const servicesPayload = servicesArr.map((s: any) => {
+        const move = shouldMoveService(s);
+
+        const serviceId = Number(s.id);
+        const durReal =
+          Number(s.duration ?? 0) ||
+          Number(serviceById.get(serviceId)?.duration ?? 0) ||
+          30;
+
+        if (move) {
+          const paperDur = normalizeDurationForPaper(durReal);
+          const rawEnd = newStartMin + paperDur;
+          const endMin = applyLunchBreakIfCrosses(
+            newStartMin,
+            rawEnd,
+            winTarget.lunchStartMin,
+            winTarget.lunchEndMin
+          );
+
+          const scheduleCheck = validateIntervalInsideSchedule(newStartMin, endMin, winTarget);
+          if (scheduleCheck.ok === false) {
+            const reason = scheduleCheck.reason;
+
+            const duration = computeAppointmentDurationMinutes(apt);
+            const slots = buildAvailableSlotsForProfessional(
+              newProfessionalId,
+              dateObj,
+              duration,
+              apt.id
+            );
+            onConflict(slots);
+
+            toast({
+              title: "Horário indisponível",
+              description:
+                reason === "lunch"
+                  ? "Esse horário cai no intervalo do profissional."
+                  : "Esse horário fica fora do expediente do profissional.",
+              variant: "destructive",
+            });
+
+            throw new Error("__SCHEDULE_INVALID__");
+          }
+
+          movedMaxEndMin = movedMaxEndMin == null ? endMin : Math.max(movedMaxEndMin, endMin);
+
+          return {
+            id: serviceId,
+            service_price: String(s.service_price ?? "0"),
+            commission_type: (s.commission_type ?? null) as "percentage" | "fixed" | null,
+            commission_value: String(s.commission_value ?? "0"),
+            professional_id: Number(newProfessionalId),
+            starts_at: toDateTime(dateStr, newTime),
+            ends_at: `${dateStr} ${minutesToHHmmss(endMin)}`,
+          };
+        }
+
+        return {
+          id: Number(s.id),
+          service_price: String(s.service_price ?? "0"),
+          commission_type: (s.commission_type ?? null) as "percentage" | "fixed" | null,
+          commission_value: String(s.commission_value ?? "0"),
+          professional_id: s.professional_id != null ? Number(s.professional_id) : null,
+          starts_at: s.starts_at ?? null,
+          ends_at: s.ends_at ?? null,
+        };
+      });
+
+      const movedAny = servicesArr.some((s: any) => shouldMoveService(s));
+      if (!movedAny) return;
+
+      if (movedMaxEndMin != null) {
+        const candidate = { start: newStartMin, end: movedMaxEndMin };
+        const conflict = hasConflictForProfessional(
+          String(newProfessionalId),
+          dateStr,
+          candidate,
+          apt.id
+        );
+
+        if (conflict) {
+          const duration = Math.max(30, movedMaxEndMin - newStartMin);
+          const slots = buildAvailableSlotsForProfessional(
+            newProfessionalId,
+            dateObj,
+            duration,
+            apt.id
+          );
+          onConflict(slots);
+          return;
+        }
+      }
+
+      try {
+        const { updateAppointment: updateFn } = await import("@/services/appointmentsService");
+
+        await updateFn(Number(apt.id), {
+          start_time: hhmmToHHmmss(newTime),
+          services: servicesPayload,
+        });
+
+        await refetchAppointments();
+        toast({ title: "Agendamento realocado." });
+      } catch (e: any) {
+        if (String(e?.message || "") === "__SCHEDULE_INVALID__") return;
+
+        const status = e?.response?.status;
+        const data = e?.response?.data;
+
+        if (status === 422) {
+          const backendMsg =
+            (typeof data?.message === "string" && data.message) ||
+            (data?.errors && typeof data.errors === "object"
+              ? data.errors[Object.keys(data.errors)[0]]?.[0]
+              : null) ||
+            "Horário inválido para a escala do profissional.";
+
+          onConflict([]);
+
+          toast({
+            title: "Não foi possível realocar",
+            description: backendMsg,
+            variant: "destructive",
+          });
+          return;
+        }
+
+        console.error(e);
+        toast({
+          title: "Erro ao realocar agendamento",
           description: e?.message ?? "Tente novamente.",
           variant: "destructive",
         });
@@ -2212,6 +2563,7 @@ export default function Appointments() {
                 onReassignProfessional={can("appointments", "update") ? handleReassignProfessional : undefined}
                 canEdit={can("appointments", "update")}
                 canDelete={can("appointments", "delete")}
+                onQuickReassign={can("appointments", "update") ? handleQuickReassign : undefined}
               />
             ) : effectiveViewMode === "list" ? (
               <CompactAppointmentList
