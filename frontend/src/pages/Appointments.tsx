@@ -37,6 +37,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import type { Appointment as AppointmentBackend } from "@/types/appointment";
 import { PAPER_STEP_MIN, isLongFlexibleService, buildSlotsBetween, overlaps, minutesToHHmm, normalizeDurationForPaper, buildPaperSlotsForDay } from "@/lib/scheduling/paperSlots";
 import { getStatusBadgeClass, getStatusLabel } from "@/lib/appointments/statusUI";
+import { isPromotionApplicableOnDate } from "@/lib/promotions/applicability";
 
 type ID = number | string;
 
@@ -146,6 +147,50 @@ const timeStringToMinutes = (value?: string | null): number | null => {
   const m = Number(mStr);
   if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
   return h * 60 + m;
+};
+
+const parseYmd = (ymd?: string | null): Date | null => {
+  if (!ymd) return null;
+  const [y, m, d] = ymd.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  const dt = new Date(y, m - 1, d);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+};
+
+const isDateWithinRange = (date: Date, start?: string | null, end?: string | null) => {
+  const s = parseYmd(start);
+  const e = parseYmd(end);
+
+  const day = new Date(date);
+  day.setHours(0, 0, 0, 0);
+
+  if (s) {
+    s.setHours(0, 0, 0, 0);
+    if (day < s) return false;
+  }
+  if (e) {
+    e.setHours(0, 0, 0, 0);
+    if (day > e) return false;
+  }
+  return true;
+};
+
+const getWeekOfMonthForWeekday = (date: Date) => {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+
+  const weekday = d.getDay();
+  const dayOfMonth = d.getDate();
+
+  const firstOfMonth = new Date(d.getFullYear(), d.getMonth(), 1);
+  const firstWeekday = firstOfMonth.getDay();
+
+  const offset = (weekday - firstWeekday + 7) % 7;
+  const firstOccurrenceDay = 1 + offset;
+
+  if (dayOfMonth < firstOccurrenceDay) return null;
+
+  return 1 + Math.floor((dayOfMonth - firstOccurrenceDay) / 7);
 };
 
 const appointmentSchema = z.object({
@@ -434,6 +479,7 @@ export default function Appointments() {
 
   const watchedServices = form.watch("services") || [];
   const watchedPaymentStatus = form.watch("payment_status");
+  const selectedDate = form.watch("date");
 
   const appointments: AppointmentBackend[] = useMemo(() => {
     const maybe = (appointmentsResp as any)?.data ?? appointmentsResp ?? [];
@@ -460,21 +506,6 @@ export default function Appointments() {
     const maybe = (promotionsResp as any)?.data ?? promotionsResp ?? [];
     return Array.isArray(maybe) ? maybe : [];
   }, [promotionsResp]);
-  const activePromotions = useMemo(() => {
-    const today = new Date();
-
-    return promotions.filter((promo) => {
-      if (!promo.active) return false;
-
-      const startDate = promo.start_date ? new Date(promo.start_date) : null;
-      const endDate = promo.end_date ? new Date(promo.end_date) : null;
-
-      if (startDate && today < startDate) return false;
-      if (endDate && today > endDate) return false;
-
-      return true;
-    });
-  }, [promotions]);
   const filteredAppointments = useMemo(() => {
     let list = [...appointments];
 
@@ -600,6 +631,26 @@ export default function Appointments() {
     const dateStr = format(professionalViewDate, "yyyy-MM-dd");
     return filteredAppointments.filter((a) => a.date === dateStr);
   }, [filteredAppointments, professionalViewDate]);
+  const applicablePromotions = useMemo(() => {
+    if (!selectedDate) return [];
+    return promotions.filter((p) => isPromotionApplicableOnDate(p, selectedDate));
+  }, [promotions, selectedDate]);
+
+  useEffect(() => {
+    const current = form.getValues("promotion_id");
+    if (!current) return;
+
+    if (!selectedDate) {
+      form.setValue("promotion_id", null);
+      return;
+    }
+
+    const stillOk = applicablePromotions.some(
+      (p) => Number(p.id) === Number(current)
+    );
+
+    if (!stillOk) form.setValue("promotion_id", null);
+  }, [applicablePromotions, selectedDate, form]);
 
   const hasWindowsConfiguredForProfessional = (profIdNum: number) => {
     const all = professionalOpenWindowsById.get(profIdNum) ?? [];
@@ -1531,6 +1582,7 @@ export default function Appointments() {
         date: prefilledDate as Date | undefined,
         status: "scheduled",
         payment_status: "unpaid",
+        promotion_id: null,
         notes: "",
       });
     }
@@ -1670,6 +1722,19 @@ export default function Appointments() {
         variant: "destructive",
       });
       return;
+    }
+
+    if (values.promotion_id) {
+      const promo = promotions.find((p) => Number(p.id) === Number(values.promotion_id));
+      if (!promo || !isPromotionApplicableOnDate(promo, values.date)) {
+        toast({
+          title: "Promoção indisponível",
+          description: "Essa promoção não é válida para a data selecionada.",
+          variant: "destructive",
+        });
+        form.setValue("promotion_id", null);
+        return;
+      }
     }
 
     const payload = buildPayload(values);
@@ -2793,42 +2858,54 @@ export default function Appointments() {
                   />
                 </div>
 
-                {watchedPaymentStatus === "prepaid" && (
-                  <FormField
-                    control={form.control}
-                    name="promotion_id"
-                    render={({ field }) => (
+                <FormField
+                  control={form.control}
+                  name="promotion_id"
+                  render={({ field }) => {
+                    const hasPromos = !!selectedDate && applicablePromotions.length > 0;
+
+                    return (
                       <FormItem className="flex flex-col">
                         <FormLabel>Promoção/Campanha</FormLabel>
+
                         <Select
                           value={field.value ? String(field.value) : "none"}
-                          onValueChange={(v) => {
-                            if (v === "none") {
-                              field.onChange(null);
-                            } else {
-                              field.onChange(Number(v));
-                            }
-                          }}
+                          onValueChange={(v) => field.onChange(v === "none" ? null : Number(v))}
+                          disabled={!selectedDate || applicablePromotions.length === 0}
                         >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder="Selecione (opcional)" />
+                              <SelectValue
+                                placeholder={
+                                  !selectedDate
+                                    ? "Selecione uma data primeiro"
+                                    : applicablePromotions.length === 0
+                                    ? "Nenhuma promoção disponível para esta data"
+                                    : "Selecione (opcional)"
+                                }
+                              />
                             </SelectTrigger>
                           </FormControl>
+
                           <SelectContent>
                             <SelectItem value="none">Nenhuma promoção</SelectItem>
-                            {activePromotions.map((promo) => (
+                            {applicablePromotions.map((promo) => (
                               <SelectItem key={promo.id} value={String(promo.id)}>
                                 {promo.name}
                               </SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
+
+                        <p className="text-xs text-muted-foreground">
+                          Você pode reservar a promoção agora e cobrar depois no checkout.
+                        </p>
+
                         <FormMessage />
                       </FormItem>
-                    )}
-                  />
-                )}
+                    );
+                  }}
+                />
 
                 <FormField
                   control={form.control}

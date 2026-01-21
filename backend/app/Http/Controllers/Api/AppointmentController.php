@@ -2,10 +2,11 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\{CommissionStatus, AccountPayableStatus};
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AppointmentResource;
-use App\Models\{AccountPayable, Appointment, Commission, Service, Professional, ProfessionalOpenWindow};
-use App\Enums\{CommissionStatus, AccountPayableStatus};
+use App\Models\{AccountPayable, Appointment, Commission, Service, Professional, ProfessionalOpenWindow, Promotion};
+use App\Services\PromotionApplicabilityService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -15,6 +16,11 @@ use Symfony\Component\HttpFoundation\Response;
 
 class AppointmentController extends Controller
 {
+    public function __construct(private readonly PromotionApplicabilityService $promotionApplicability)
+    {
+        //
+    }
+
     public function index(Request $request)
     {
         $appointments = Appointment::with(['customer', 'services', 'items', 'promotion'])
@@ -53,9 +59,16 @@ class AppointmentController extends Controller
 
             $this->validateServicesTimeSlots($date, $services, null);
 
-            $appointment = Appointment::create($payload);
-
             $items = $request->input('items', []);
+
+            $this->assertPromotionApplicableOrFail(
+                $payload['promotion_id'] ?? null,
+                $date,
+                $services,
+                $items
+            );
+
+            $appointment = Appointment::create($payload);
 
             $this->syncServices($appointment, $services);
             $this->syncItems($appointment, $items);
@@ -99,6 +112,28 @@ class AppointmentController extends Controller
                 'promotion_id',
                 'notes',
             ]);
+
+            $effectivePromotionId = array_key_exists('promotion_id', $payload)
+                ? $payload['promotion_id']
+                : $appointment->promotion_id;
+
+            $effectiveDate = $payload['date']
+                ?? optional($appointment->date)->format('Y-m-d');
+
+            $effectiveServicesPayload = $request->has('services')
+                ? (array) $request->input('services', [])
+                : $appointment->services()->get(['services.id'])->map(fn($s) => ['id' => $s->id])->toArray();
+
+            $effectiveItemsPayload = $request->has('items')
+                ? (array) $request->input('items', [])
+                : $appointment->items()->get(['items.id'])->map(fn($i) => ['id' => $i->id])->toArray();
+
+            $this->assertPromotionApplicableOrFail(
+                $effectivePromotionId ? (int) $effectivePromotionId : null,
+                $effectiveDate,
+                $effectiveServicesPayload,
+                $effectiveItemsPayload
+            );
 
             $appointment->update($payload);
 
@@ -520,12 +555,21 @@ class AppointmentController extends Controller
             DB::transaction(function () use ($data, $appointment) {
                 $appointment->loadMissing(['customer', 'services', 'items']);
 
-                Log::info('CHECKOUT STARTED', [
-                    'appointment_id' => $appointment->id,
-                    'payload'        => $data,
-                ]);
-
                 $appointment->fill($data);
+
+                $promoId = $appointment->promotion_id ? (int) $appointment->promotion_id : null;
+
+                if ($promoId) {
+                    $servicesPayload = $appointment->services->map(fn($s) => ['id' => $s->id])->toArray();
+                    $itemsPayload    = $appointment->items->map(fn($i) => ['id' => $i->id])->toArray();
+
+                    $this->assertPromotionApplicableOrFail(
+                        $promoId,
+                        optional($appointment->date)->format('Y-m-d') ?? now()->toDateString(),
+                        $servicesPayload,
+                        $itemsPayload
+                    );
+                }
 
                 if (!$appointment->end_time) {
                     $appointment->end_time = now();
@@ -545,13 +589,45 @@ class AppointmentController extends Controller
 
                 $subtotal = $servicesTotal + $productsTotal;
 
-                $discountType = $appointment->discount_type ?: 'percentage';
-                $discountRaw  = $appointment->discount_amount ?? 0;
+                $promo = null;
+                if ($appointment->promotion_id) {
+                    $promo = Promotion::query()
+                        ->with(['services:id', 'items:id'])
+                        ->find((int) $appointment->promotion_id);
+                }
 
-                if ($discountType === 'percentage') {
-                    $discountValue = $subtotal * ($discountRaw / 100);
+                if ($promo) {
+                    if ($promo->min_purchase_amount !== null && (float) $subtotal < (float) $promo->min_purchase_amount) {
+                        throw ValidationException::withMessages([
+                            'promotion_id' => 'Esta promoção exige um valor mínimo de compra.',
+                        ]);
+                    }
+
+                    $discountType = $promo->discount_type?->value ?? (string) $promo->discount_type;
+                    $discountRaw  = (float) $promo->discount_value;
+
+                    if ($discountType === 'percentage') {
+                        $discountValue = $subtotal * ($discountRaw / 100);
+                    } else {
+                        $discountValue = min($discountRaw, $subtotal);
+                    }
+
+                    if ($promo->max_discount !== null) {
+                        $discountValue = min($discountValue, (float) $promo->max_discount);
+                    }
+
+                    $appointment->discount_type   = $discountType;
+                    $appointment->discount_amount = $discountRaw;
+
                 } else {
-                    $discountValue = min($discountRaw, $subtotal);
+                    $discountType = $appointment->discount_type ?: 'percentage';
+                    $discountRaw  = $appointment->discount_amount ?? 0;
+
+                    if ($discountType === 'percentage') {
+                        $discountValue = $subtotal * ((float) $discountRaw / 100);
+                    } else {
+                        $discountValue = min((float) $discountRaw, $subtotal);
+                    }
                 }
 
                 $totalAfterDiscount = $subtotal - $discountValue;
@@ -664,5 +740,136 @@ class AppointmentController extends Controller
         }
 
         return Carbon::parse($trimmed);
+    }
+
+    private function isPromotionApplicableOnDate(Promotion $promo, Carbon $date): bool
+    {
+        if (!$promo->active) return false;
+
+        $start = $promo->start_date ? Carbon::parse($promo->start_date)->startOfDay() : null;
+        $end   = $promo->end_date ? Carbon::parse($promo->end_date)->endOfDay() : null;
+
+        if ($start && $date->lt($start)) return false;
+        if ($end && $date->gt($end)) return false;
+
+        if (!$promo->is_recurring || empty($promo->recurrence_type)) {
+            return true;
+        }
+
+        $weekday = $date->dayOfWeek;
+
+        if ($promo->recurrence_type === 'weekly') {
+            $days = is_array($promo->recurrence_weekdays) ? $promo->recurrence_weekdays : [];
+            return empty($days) ? true : in_array($weekday, $days, true);
+        }
+
+        if ($promo->recurrence_type === 'monthly_weekday') {
+            $days = is_array($promo->recurrence_weekdays) ? $promo->recurrence_weekdays : [];
+            $okDay = empty($days) ? true : in_array($weekday, $days, true);
+            if (!$okDay) return false;
+
+            $targetWeek = $promo->recurrence_week_of_month ? (int) $promo->recurrence_week_of_month : null;
+            if (!$targetWeek) return true;
+
+            $first = $date->copy()->startOfMonth();
+            $firstOccur = $first->copy()->nextOrSame($weekday);
+
+            if ($date->lt($firstOccur)) return false;
+
+            $weekIndex = intdiv($date->day - $firstOccur->day, 7) + 1;
+            return $weekIndex === $targetWeek;
+        }
+
+        if ($promo->recurrence_type === 'yearly') {
+            $md = trim((string) $promo->recurrence_day_of_year);
+            if (!$md || !str_contains($md, '-')) return false;
+
+            [$mmStr, $ddStr] = explode('-', $md);
+            $mm = (int) $mmStr;
+            $dd = (int) $ddStr;
+
+            if ($mm < 1 || $mm > 12 || $dd < 1 || $dd > 31) return false;
+
+            return ((int)$date->month === $mm) && ((int)$date->day === $dd);
+        }
+
+        return false;
+    }
+
+    private function validatePromotionForDate(?int $promotionId, ?string $dateYmd): void
+    {
+        if (!$promotionId) return;
+
+        if (!$dateYmd) {
+            throw ValidationException::withMessages([
+                'date' => 'A data do agendamento é obrigatória para validar a promoção.',
+            ]);
+        }
+
+        $promo = Promotion::find($promotionId);
+
+        if (!$promo) {
+            throw ValidationException::withMessages([
+                'promotion_id' => 'Promoção inválida.',
+            ]);
+        }
+
+        $date = Carbon::parse($dateYmd)->startOfDay();
+
+        if (!$this->isPromotionApplicableOnDate($promo, $date)) {
+            throw ValidationException::withMessages([
+                'promotion_id' => 'Esta promoção não é válida para a data selecionada.',
+            ]);
+        }
+    }
+
+    private function assertPromotionApplicableOrFail(
+        ?int $promotionId,
+        string $dateYmd,
+        array $servicesPayload = [],
+        array $itemsPayload = []
+    ): void {
+        if (!$promotionId) return;
+
+        $promo = Promotion::query()
+            ->with(['services:id', 'items:id'])
+            ->find($promotionId);
+
+        if (!$promo) {
+            throw ValidationException::withMessages([
+                'promotion_id' => 'Promoção não encontrada.',
+            ]);
+        }
+
+        $serviceIds = $this->extractServiceIds($servicesPayload);
+        $itemIds    = $this->extractItemIds($itemsPayload);
+
+        $date = Carbon::parse($dateYmd);
+
+        if (!$this->promotionApplicability->isApplicable($promo, $date, $serviceIds, $itemIds)) {
+            throw ValidationException::withMessages([
+                'promotion_id' => 'Esta promoção não é aplicável para esta data e/ou para os serviços/itens selecionados.',
+            ]);
+        }
+    }
+
+    private function extractServiceIds(array $services): array
+    {
+        $ids = [];
+        foreach ($services as $s) {
+            $id = $s['service_id'] ?? $s['id'] ?? null;
+            if ($id) $ids[] = (int) $id;
+        }
+        return array_values(array_unique($ids));
+    }
+
+    private function extractItemIds(array $items): array
+    {
+        $ids = [];
+        foreach ($items as $i) {
+            $id = $i['item_id'] ?? $i['id'] ?? null;
+            if ($id) $ids[] = (int) $id;
+        }
+        return array_values(array_unique($ids));
     }
 }

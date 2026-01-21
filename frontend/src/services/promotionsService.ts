@@ -24,7 +24,8 @@ function mapPayload(payload: CreatePromotionDto | UpdatePromotionDto) {
     recurrence_type: payload.recurrence_type,
     recurrence_weekdays: payload.recurrence_weekdays,
     recurrence_week_of_month: payload.recurrence_week_of_month,
-    recurrence_day_of_year: payload.recurrence_day_of_year,
+    recurrence_month: payload.recurrence_month,
+    recurrence_day_of_month: payload.recurrence_day_of_month,
     applicable_services: payload.applicable_services,
     applicable_items: payload.applicable_items,
   };

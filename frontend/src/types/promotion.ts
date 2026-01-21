@@ -17,7 +17,8 @@ export type Promotion = {
   recurrence_type: PromotionRecurrenceType | null;
   recurrence_weekdays: number[] | null;
   recurrence_week_of_month: number | null;
-  recurrence_day_of_year: string | null;
+  recurrence_month?: number | null;
+  recurrence_day_of_month?: number | null;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -38,7 +39,8 @@ export type CreatePromotionDto = {
   recurrence_type?: PromotionRecurrenceType | null;
   recurrence_weekdays?: number[] | null;
   recurrence_week_of_month?: number | null;
-  recurrence_day_of_year?: string | null;
+  recurrence_month?: number | null;
+  recurrence_day_of_month?: number | null;
 };
 
 export type UpdatePromotionDto = Partial<CreatePromotionDto>;
