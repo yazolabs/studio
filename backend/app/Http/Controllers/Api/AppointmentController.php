@@ -292,10 +292,17 @@ class AppointmentController extends Controller
                 continue;
             }
 
+            if (!array_key_exists($professionalId, $professionalsCache)) {
+                $professionalsCache[$professionalId] = Professional::find($professionalId);
+            }
+            $professional = $professionalsCache[$professionalId];
+
+            $busyEndDateTime = $this->applyLunchPushBusyEnd($professional, $startDateTime, $endDateTime);
+
             $slotsByProfessional[$professionalId][] = [
                 'service_id' => $serviceId,
                 'start'      => $startDateTime,
-                'end'        => $endDateTime,
+                'end'        => $busyEndDateTime,
                 'index'      => $index,
             ];
 
@@ -315,22 +322,16 @@ class AppointmentController extends Controller
                 }
             }
 
-            if (!array_key_exists($professionalId, $professionalsCache)) {
-                $professionalsCache[$professionalId] = Professional::find($professionalId);
-            }
-
-            $professional = $professionalsCache[$professionalId];
-
             if (!$this->isStartAllowedByWorkSchedule($professional, $startDateTime)) {
                 $errors["services.$index.starts_at"][] =
                     'Horário inicial fora do expediente ou dentro do intervalo do profissional.';
             }
 
-            if ($this->hasExternalProfessionalConflict(
+            if ($this->hasExternalProfessionalConflictConsideringLunch(
                 $date,
-                $professionalId,
+                (int) $professionalId,
                 $startDateTime,
-                $endDateTime,
+                $busyEndDateTime,
                 $appointmentId
             )) {
                 $errors["services.$index.starts_at"][] =
@@ -466,20 +467,13 @@ class AppointmentController extends Controller
     {
         $appointment->load('services');
 
-        $date = $appointment->date
-            ? $appointment->date->format('Y-m-d')
-            : now()->toDateString();
-
         $timeSlots = $appointment->services
-            ->filter(
-                fn($service) =>
-                ! empty($service->pivot->starts_at) &&
-                    ! empty($service->pivot->ends_at)
-            )
+            ->filter(fn($service) => !empty($service->pivot->starts_at) && !empty($service->pivot->ends_at))
             ->map(function ($service) {
                 return [
-                    'start' => Carbon::parse($service->pivot->starts_at),
-                    'end'   => Carbon::parse($service->pivot->ends_at),
+                    'start'           => Carbon::parse($service->pivot->starts_at),
+                    'end'             => Carbon::parse($service->pivot->ends_at),
+                    'professional_id' => $service->pivot->professional_id,
                 ];
             });
 
@@ -487,21 +481,112 @@ class AppointmentController extends Controller
             return;
         }
 
-        $starts = $timeSlots->pluck('start');
-        $ends   = $timeSlots->pluck('end');
-
         /** @var \Carbon\Carbon $minStart */
-        $minStart = $starts->min();
-        /** @var \Carbon\Carbon $maxEnd */
-        $maxEnd   = $ends->max();
+        $minStart = $timeSlots->pluck('start')->min();
 
-        $durationMinutes = $minStart->diffInMinutes($maxEnd);
+        $professionalIds = $timeSlots->pluck('professional_id')->filter()->unique()->values()->all();
+        $professionalsById = Professional::whereIn('id', $professionalIds)->get()->keyBy('id');
+
+        $maxBusyEnd = null;
+
+        foreach ($timeSlots as $slot) {
+            /** @var Carbon $start */
+            $start = $slot['start'];
+            /** @var Carbon $end */
+            $end   = $slot['end'];
+
+            $busyEnd = $end->copy();
+
+            $professionalId = $slot['professional_id'] ?? null;
+            $professional = $professionalId ? ($professionalsById[$professionalId] ?? null) : null;
+
+            if ($professional) {
+                $lunch = $this->getLunchIntervalForProfessionalOnDate($professional, $start);
+                if ($lunch) {
+                    [$lStart, $lEnd] = $lunch;
+
+                    if ($start->lt($lEnd) && $lStart->lt($end)) {
+                        $lunchMinutes = $lStart->diffInMinutes($lEnd);
+                        if ($lunchMinutes > 0) {
+                            $busyEnd->addMinutes($lunchMinutes);
+                        }
+                    }
+                }
+            }
+
+            if (!$maxBusyEnd || $busyEnd->gt($maxBusyEnd)) {
+                $maxBusyEnd = $busyEnd;
+            }
+        }
+
+        if (!$maxBusyEnd) return;
+
+        $durationMinutes = $minStart->diffInMinutes($maxBusyEnd);
 
         $appointment->update([
             'start_time' => $minStart->format('H:i:s'),
-            'end_time'   => $maxEnd->format('H:i:s'),
+            'end_time'   => $maxBusyEnd->format('H:i:s'),
             'duration'   => $durationMinutes,
         ]);
+    }
+
+    /**
+     * Retorna o intervalo de almoço do profissional para a data (mesmo dia do $ref),
+     * no formato [Carbon $lStart, Carbon $lEnd] ou null.
+     */
+    private function getLunchIntervalForProfessionalOnDate(Professional $professional, Carbon $ref): ?array
+    {
+        if (empty($professional->work_schedule)) return null;
+
+        $schedule = $professional->work_schedule;
+        if (!is_array($schedule)) {
+            $decoded = json_decode($schedule, true);
+            $schedule = is_array($decoded) ? $decoded : [];
+        }
+        if (empty($schedule)) return null;
+
+        $weekdayIndex = (int) $ref->format('N');
+
+        $dayMap = [
+            1 => 'Segunda-feira',
+            2 => 'Terça-feira',
+            3 => 'Quarta-feira',
+            4 => 'Quinta-feira',
+            5 => 'Sexta-feira',
+            6 => 'Sábado',
+            7 => 'Domingo',
+        ];
+
+        $dayNamePt = $dayMap[$weekdayIndex] ?? null;
+        if (!$dayNamePt) return null;
+
+        $dayConfig = null;
+        foreach ($schedule as $entry) {
+            if (!is_array($entry)) continue;
+            $entryDay = $entry['day'] ?? null;
+            if ($entryDay && mb_strtolower($entryDay) === mb_strtolower($dayNamePt)) {
+                $dayConfig = $entry;
+                break;
+            }
+        }
+
+        if (!$dayConfig) return null;
+
+        $isWorkingDay = $dayConfig['isWorkingDay'] ?? true;
+        $isDayOff     = $dayConfig['isDayOff'] ?? false;
+        if (!$isWorkingDay || $isDayOff) return null;
+
+        $lunchStart = $dayConfig['lunchStart'] ?? null;
+        $lunchEnd   = $dayConfig['lunchEnd'] ?? null;
+
+        if (!$lunchStart || !$lunchEnd) return null;
+
+        $lStart = $ref->copy()->setTimeFromTimeString($lunchStart);
+        $lEnd   = $ref->copy()->setTimeFromTimeString($lunchEnd);
+
+        if ($lEnd->lte($lStart)) return null;
+
+        return [$lStart, $lEnd];
     }
 
     public function calendar(Request $request)
@@ -766,6 +851,103 @@ class AppointmentController extends Controller
         }
 
         return Carbon::parse($trimmed);
+    }
+
+    private function getDayConfig(?Professional $professional, Carbon $date): ?array
+    {
+        if (!$professional || empty($professional->work_schedule)) return null;
+
+        $schedule = $professional->work_schedule;
+
+        if (!is_array($schedule)) {
+            $decoded = json_decode($schedule, true);
+            $schedule = is_array($decoded) ? $decoded : [];
+        }
+
+        if (empty($schedule)) return null;
+
+        $weekdayIndex = (int) $date->format('N');
+
+        $dayMap = [
+            1 => 'Segunda-feira',
+            2 => 'Terça-feira',
+            3 => 'Quarta-feira',
+            4 => 'Quinta-feira',
+            5 => 'Sexta-feira',
+            6 => 'Sábado',
+            7 => 'Domingo',
+        ];
+
+        $dayNamePt = $dayMap[$weekdayIndex] ?? null;
+        if (!$dayNamePt) return null;
+
+        foreach ($schedule as $entry) {
+            if (!is_array($entry)) continue;
+            $entryDay = $entry['day'] ?? null;
+            if ($entryDay && mb_strtolower($entryDay) === mb_strtolower($dayNamePt)) {
+                return $entry;
+            }
+        }
+
+        return null;
+    }
+
+    private function applyLunchPushBusyEnd(?Professional $professional, Carbon $start, Carbon $end): Carbon
+    {
+        $dayConfig = $this->getDayConfig($professional, $start);
+        if (!$dayConfig) return $end;
+
+        $lunchStart = $dayConfig['lunchStart'] ?? null;
+        $lunchEnd   = $dayConfig['lunchEnd'] ?? null;
+
+        if (!$lunchStart || !$lunchEnd) return $end;
+
+        $lStart = $start->copy()->setTimeFromTimeString($lunchStart);
+        $lEnd   = $start->copy()->setTimeFromTimeString($lunchEnd);
+
+        if ($lEnd->lessThanOrEqualTo($lStart)) return $end;
+
+        $overlapsLunch = $start->lt($lEnd) && $end->gt($lStart);
+        if (!$overlapsLunch) return $end;
+
+        $lunchMinutes = $lStart->diffInMinutes($lEnd);
+        return $end->copy()->addMinutes($lunchMinutes);
+    }
+
+    private function hasExternalProfessionalConflictConsideringLunch(
+        string $dateYmd,
+        int $professionalId,
+        Carbon $newStart,
+        Carbon $newBusyEnd,
+        ?int $ignoreAppointmentId = null
+    ): bool {
+        $professional = Professional::find($professionalId);
+
+        $appointments = Appointment::query()
+            ->when($ignoreAppointmentId, fn($q) => $q->where('id', '!=', $ignoreAppointmentId))
+            ->whereNotIn('status', ['cancelled', 'no_show'])
+            ->whereDate('date', $dateYmd)
+            ->whereHas('services', fn($q) => $q->where('professional_id', $professionalId))
+            ->with('services')
+            ->get();
+
+        foreach ($appointments as $appt) {
+            foreach ($appt->services as $srv) {
+                if ((int) ($srv->pivot->professional_id ?? 0) !== $professionalId) continue;
+                if (empty($srv->pivot->starts_at) || empty($srv->pivot->ends_at)) continue;
+
+                $s = Carbon::parse($srv->pivot->starts_at);
+                $e = Carbon::parse($srv->pivot->ends_at);
+
+                $busyE = $this->applyLunchPushBusyEnd($professional, $s, $e);
+
+                if ($this->timeRangesOverlap($s, $busyE, $newStart, $newBusyEnd)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function isPromotionApplicableOnDate(Promotion $promo, Carbon $date): bool

@@ -112,8 +112,9 @@ const applyLunchBreakIfCrosses = (
   if (lunchStartMin == null || lunchEndMin == null) return endMin;
   if (lunchEndMin <= lunchStartMin) return endMin;
 
-  const crosses = startMin < lunchStartMin && endMin > lunchStartMin;
-  return crosses ? endMin + (lunchEndMin - lunchStartMin) : endMin;
+  const overlapsLunch = startMin < lunchEndMin && lunchStartMin < endMin;
+
+  return overlapsLunch ? endMin + (lunchEndMin - lunchStartMin) : endMin;
 };
 
 function getWorkWindowForProfessionalOnDate(
@@ -380,17 +381,31 @@ export function ProfessionalDailyView({
 
         if (svcForProf.length > 0) {
           svcForProf.forEach((s: any) => {
-            const sStart = timeStringToMinutes(s.starts_at) ?? timeStringToMinutes(apt.start_time);
+            const sStart =
+              timeStringToMinutes(s.starts_at) ?? timeStringToMinutes(apt.start_time);
 
-            let sEnd = timeStringToMinutes(s.ends_at);
+            let rawEnd = timeStringToMinutes(s.ends_at);
 
-            if (sStart != null && (sEnd == null || sEnd <= sStart)) {
-              const durReal = Number(s.duration ?? 0) || Number(apt.duration ?? 0) || appointmentDuration(apt) || 30;
-              sEnd = toBusyEnd(sStart, durReal);
+            if (sStart != null && (rawEnd == null || rawEnd <= sStart)) {
+              const durReal =
+                Number(s.duration ?? 0) ||
+                Number(apt.duration ?? 0) ||
+                appointmentDuration(apt) ||
+                30;
+
+              const durPaper = normalizeDurationForPaper(durReal || 30);
+              rawEnd = sStart + durPaper;
             }
 
-            if (sStart != null && sEnd != null && sEnd > sStart) {
-              intervals.push({ start: sStart, end: sEnd });
+            if (sStart != null && rawEnd != null && rawEnd > sStart) {
+              const busyEnd = applyLunchBreakIfCrosses(
+                sStart,
+                rawEnd,
+                workWindow?.lunchStartMin ?? null,
+                workWindow?.lunchEndMin ?? null
+              );
+
+              intervals.push({ start: sStart, end: busyEnd });
             }
           });
 
@@ -400,7 +415,18 @@ export function ProfessionalDailyView({
         const start = timeStringToMinutes(apt.start_time);
         const dur = appointmentDuration(apt);
         if (start != null && dur > 0) {
-          const end = workWindow ? toBusyEnd(start, dur) : start + dur;
+          const durPaper = normalizeDurationForPaper(dur || 30);
+          const rawEnd = start + durPaper;
+
+          const end = workWindow
+            ? applyLunchBreakIfCrosses(
+                start,
+                rawEnd,
+                workWindow.lunchStartMin ?? null,
+                workWindow.lunchEndMin ?? null
+              )
+            : rawEnd;
+
           intervals.push({ start, end });
         }
 
