@@ -768,18 +768,6 @@ export function ProfessionalDailyView({
       workWindow.lunchEndMin ?? null
     );
 
-    if (end > workWindow.dayEndMin) {
-      openReassignDialog({
-        reason: "does_not_fit",
-        message: "Este agendamento não cabe na janela de trabalho do profissional. Escolha um horário disponível:",
-        appointmentId: appointment.id,
-        targetProfessionalId,
-        targetProfessionalName,
-        availableSlots,
-      });
-      return;
-    }
-
     const busy = getBusyIntervalsForProfessional(targetProfessionalId, appointment.id);
     const interval = { start: startMin, end };
     const hasOverlap = busy.some((b) => overlaps(interval, b));

@@ -424,7 +424,7 @@ class AppointmentController extends Controller
         $workStart = $start->copy()->setTimeFromTimeString($startTime);
         $workEnd   = $start->copy()->setTimeFromTimeString($endTime);
 
-        if ($start->lt($workStart) || $start->gte($workEnd)) {
+        if ($start->lt($workStart) || $start->gt($workEnd)) {
             return false;
         }
 
