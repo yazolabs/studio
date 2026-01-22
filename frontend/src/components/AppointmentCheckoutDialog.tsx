@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -22,14 +22,42 @@ import { formatPercentageInput, displayPercentage, formatCurrencyInput, displayC
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 
-const checkoutSchema = z.object({
-  discount_type: z.enum(["percentage", "fixed"]),
-  discount: z.number().min(0),
+const paymentSchema = z.object({
   payment_method: z.string().min(1, "Forma de pagamento é obrigatória"),
-  card_brand: z.string().optional(),
-  installments: z.number().min(1).optional(),
-  installment_fee: z.number().min(0).optional(),
+  amount: z.number().min(0, "Informe um valor válido"),
+  card_brand: z.string().optional().nullable(),
+  installments: z.number().min(1).optional().nullable(),
+  installment_fee: z.number().min(0).optional().nullable(),
+  notes: z.string().optional().nullable(),
 });
+
+const checkoutSchema = z
+  .object({
+    discount_type: z.enum(["percentage", "fixed"]),
+    discount: z.number().min(0),
+    payments: z.array(paymentSchema).min(1, "Adicione pelo menos 1 pagamento"),
+  })
+  .superRefine((val, ctx) => {
+    val.payments.forEach((p, idx) => {
+      if (p.payment_method === "credit") {
+        if (!p.installments || p.installments < 1) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["payments", idx, "installments"],
+            message: "Parcelas obrigatórias no crédito",
+          });
+        }
+        if (p.installment_fee != null && p.installment_fee < 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["payments", idx, "installment_fee"],
+            message: "Taxa inválida",
+          });
+        }
+      }
+
+    });
+  });
 
 interface AppointmentCheckoutDialogProps {
   open: boolean;
@@ -37,40 +65,32 @@ interface AppointmentCheckoutDialogProps {
   appointmentId: number | null;
 }
 
-export function AppointmentCheckoutDialog({
-  open,
-  onOpenChange,
-  appointmentId,
-}: AppointmentCheckoutDialogProps) {
-  const {
-    data: appointmentData,
-    isLoading,
-    refetch,
-  } = useAppointmentQuery(appointmentId ?? 0, !!appointmentId);
+export function AppointmentCheckoutDialog({ open, onOpenChange, appointmentId }: AppointmentCheckoutDialogProps) {
+  const { data: appointmentData, isLoading, refetch } = useAppointmentQuery(appointmentId ?? 0, !!appointmentId);
 
   const { data: professionalsData } = useProfessionalsQuery();
   const { data: servicesData } = useServicesQuery();
   const { data: promotionsData } = usePromotionsQuery();
   const { data: itemsData } = useItemsQuery();
 
-  const professionals = professionalsData?.data ?? [];
-  const servicesList = servicesData ?? [];
-  const promotions: Promotion[] = promotionsData ?? [];
-  const productsList = itemsData?.data ?? [];
+  const professionals = ((professionalsData as any)?.data ?? professionalsData ?? []) as any[];
+  const servicesList = ((servicesData as any)?.data ?? servicesData ?? []) as any[];
+  const promotions = ((promotionsData as any)?.data ?? promotionsData ?? []) as Promotion[];
+  const productsList = ((itemsData as any)?.data ?? itemsData ?? []) as any[];
 
   const [services, setServices] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [selectedService, setSelectedService] = useState("");
-  const [selectedProfessionals, setSelectedProfessionals] = useState<number[]>(
-    []
-  );
+  const [selectedProfessionals, setSelectedProfessionals] = useState<number[]>([]);
   const [selectedProduct, setSelectedProduct] = useState("");
   const [productQuantity, setProductQuantity] = useState(1);
-  const [selectedPromotion, setSelectedPromotion] = useState<string>("");
+  const [selectedPromotion, setSelectedPromotion] = useState<string>("none");
   const [loadingAppointment, setLoadingAppointment] = useState(false);
   const [discountDisplay, setDiscountDisplay] = useState("");
-  const [installmentFeeDisplay, setInstallmentFeeDisplay] = useState("");
   const [didAutoApplyPromotion, setDidAutoApplyPromotion] = useState(false);
+  const [paymentAmountDisplay, setPaymentAmountDisplay] = useState<Record<number, string>>({});
+  const [paymentFeeDisplay, setPaymentFeeDisplay] = useState<Record<number, string>>({});
+
 
   const isMobile = useIsMobile();
 
@@ -79,11 +99,22 @@ export function AppointmentCheckoutDialog({
     defaultValues: {
       discount_type: "percentage",
       discount: 0,
-      payment_method: "",
-      card_brand: "",
-      installments: 1,
-      installment_fee: 0,
+      payments: [
+        {
+          payment_method: "",
+          amount: 0,
+          card_brand: null,
+          installments: 1,
+          installment_fee: 0,
+          notes: null,
+        },
+      ],
     },
+  });
+
+  const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: "payments",
   });
 
   const { mutateAsync: checkout, isPending } = useAppointmentCheckout();
@@ -91,30 +122,36 @@ export function AppointmentCheckoutDialog({
   const formatPromotionShort = (promo: Promotion) => {
     const raw = Number(promo.discount_value ?? 0);
     if (!raw) return "";
-    if (promo.discount_type === "percentage") {
-      return `${raw.toFixed(2).replace(".", ",")}%`;
-    }
+    if (promo.discount_type === "percentage") return `${raw.toFixed(2).replace(".", ",")}%`;
     return `R$ ${raw.toFixed(2).replace(".", ",")}`;
   };
+
+  useEffect(() => {
+    if (open) return;
+    setDidAutoApplyPromotion(false);
+    setSelectedPromotion("none");
+  }, [open]);
 
   useEffect(() => {
     if (!open || !appointmentId) return;
 
     const loadAppointmentData = async () => {
       setLoadingAppointment(true);
+      setDidAutoApplyPromotion(false);
       try {
         const { data } = await refetch();
 
-        const mapped = (data.services ?? []).map((s: any) => ({
+        const mappedServices = (data.services ?? []).map((s: any) => ({
           id: s.id,
           name: s.name,
           price: Number(s.service_price ?? s.price ?? 0),
-          commission_type: s.commission_type ?? 'percentage',
+          commission_type: s.commission_type ?? "percentage",
           commission_value: Number(s.commission_value ?? 0),
           professionals: s.professional_id ? [Number(s.professional_id)] : [],
         }));
 
-        setServices(mapped);
+        setServices(mappedServices);
+
         setProducts(
           (data.items ?? []).map((i: any) => ({
             id: i.id,
@@ -126,62 +163,75 @@ export function AppointmentCheckoutDialog({
 
         const discountTypeFromApi = data.discount_type ?? "percentage";
         const discountNum = Number(data.discount_amount ?? 0);
-        const installmentFeeNum = Number(data.installment_fee ?? 0);
+
+        const paymentsFromApi =
+          (data.payments ?? []).map((p: any) => ({
+            payment_method: p.method ?? "",
+            amount: Number(p.base_amount ?? p.amount ?? 0),
+            card_brand: p.card_brand ?? null,
+            installments: p.installments ?? 1,
+            installment_fee: Number(p.fee_percent ?? 0),
+            notes: null,
+          })) ?? [];
 
         form.reset({
           discount_type: discountTypeFromApi,
           discount: discountNum,
-          payment_method: data.payment_method ?? "",
-          card_brand: data.card_brand ?? "",
-          installments: data.installments ?? 1,
-          installment_fee: installmentFeeNum,
+          payments: paymentsFromApi.length
+            ? paymentsFromApi
+            : [
+                {
+                  payment_method: "",
+                  amount: 0,
+                  card_brand: null,
+                  installments: 1,
+                  installment_fee: 0,
+                  notes: null,
+                },
+              ],
         });
 
-        if (data.promotion_id) {
-          setSelectedPromotion(String(data.promotion_id));
-        } else {
-          setSelectedPromotion("");
-        }
+        const amountDisplayMap: Record<number, string> = {};
+        const feeDisplayMap: Record<number, string> = {};
+
+        (paymentsFromApi.length ? paymentsFromApi : form.getValues("payments")).forEach((p, i) => {
+          amountDisplayMap[i] = p.amount ? displayCurrency(Number(p.amount)) : "";
+          feeDisplayMap[i] = p.installment_fee ? displayPercentage(Number(p.installment_fee)) : "";
+        });
+
+        setPaymentAmountDisplay(amountDisplayMap);
+        setPaymentFeeDisplay(feeDisplayMap);
+        setSelectedPromotion(data.promotion_id ? String(data.promotion_id) : "none");
 
         if (discountNum) {
           setDiscountDisplay(
-            discountTypeFromApi === "percentage"
-              ? displayPercentage(discountNum)
-              : displayCurrency(discountNum)
+            discountTypeFromApi === "percentage" ? displayPercentage(discountNum) : displayCurrency(discountNum)
           );
         } else {
           setDiscountDisplay("");
         }
-
-        setInstallmentFeeDisplay(
-          installmentFeeNum ? displayPercentage(installmentFeeNum) : ""
-        );
       } catch (e) {
         console.error(e);
-        toast.error('Não foi possível carregar os dados do atendimento.');
+        toast.error("Não foi possível carregar os dados do atendimento.");
       } finally {
         setLoadingAppointment(false);
       }
     };
 
     loadAppointmentData();
-  }, [open, appointmentId, refetch]);
+  }, [open, appointmentId, refetch, form]);
 
   const activePromotions = useMemo(() => {
-    const today = new Date();
-
+    const baseDate = appointmentData?.date ? new Date(`${appointmentData.date}T00:00:00`) : new Date();
     return promotions.filter((promo) => {
       if (!promo.active) return false;
-
-      const startDate = promo.start_date ? new Date(promo.start_date) : null;
-      const endDate = promo.end_date ? new Date(promo.end_date) : null;
-
-      if (startDate && today < startDate) return false;
-      if (endDate && today > endDate) return false;
-
+      const startDate = promo.start_date ? new Date(`${promo.start_date}T00:00:00`) : null;
+      const endDate = promo.end_date ? new Date(`${promo.end_date}T23:59:59`) : null;
+      if (startDate && baseDate < startDate) return false;
+      if (endDate && baseDate > endDate) return false;
       return true;
     });
-  }, [promotions]);
+  }, [promotions, appointmentData?.date]);
 
   const handlePromotionChange = useCallback(
     (promotionId: string) => {
@@ -194,9 +244,7 @@ export function AppointmentCheckoutDialog({
         return;
       }
 
-      const promotion = activePromotions.find(
-        (p) => p.id.toString() === promotionId
-      );
+      const promotion = activePromotions.find((p) => p.id.toString() === promotionId);
 
       if (!promotion) {
         form.setValue("discount_type", "percentage");
@@ -211,7 +259,7 @@ export function AppointmentCheckoutDialog({
         form.setValue("discount_type", "percentage");
         form.setValue("discount", raw);
         setDiscountDisplay(displayPercentage(raw));
-      } else if (promotion.discount_type === "fixed") {
+      } else {
         form.setValue("discount_type", "fixed");
         form.setValue("discount", raw);
         setDiscountDisplay(displayCurrency(raw));
@@ -233,29 +281,21 @@ export function AppointmentCheckoutDialog({
     }
 
     const promoId = String(appointmentData.promotion_id);
-
     const exists = activePromotions.some((p) => p.id.toString() === promoId);
     if (!exists) return;
 
     handlePromotionChange(promoId);
     setDidAutoApplyPromotion(true);
-  }, [
-    open,
-    appointmentData,
-    activePromotions,
-    didAutoApplyPromotion,
-    form,
-    handlePromotionChange,
-  ]);
+  }, [open, appointmentData, activePromotions, didAutoApplyPromotion, form, handlePromotionChange]);
 
   const addService = () => {
     if (!selectedService || selectedProfessionals.length === 0) {
       toast.error("Selecione um serviço e pelo menos um profissional");
       return;
     }
-    const service = servicesList.find(
-      (s: any) => s.id.toString() === selectedService
-    );
+
+    const service = servicesList.find((s: any) => s.id.toString() === selectedService);
+
     if (service) {
       setServices((prev) => [
         ...prev,
@@ -273,26 +313,21 @@ export function AppointmentCheckoutDialog({
     }
   };
 
-  const removeService = (index: number) =>
-    setServices((prev) => prev.filter((_, i) => i !== index));
+  const removeService = (index: number) => setServices((prev) => prev.filter((_, i) => i !== index));
 
   const addProduct = () => {
     if (!selectedProduct || productQuantity < 1) {
       toast.error("Selecione um produto e quantidade válida");
       return;
     }
-    const product = productsList.find(
-      (p: any) => p.id.toString() === selectedProduct
-    );
+
+    const product = productsList.find((p: any) => p.id.toString() === selectedProduct);
+
     if (product) {
       setProducts((prev) => {
         const existing = prev.find((p) => p.id === product.id);
         if (existing) {
-          return prev.map((p) =>
-            p.id === product.id
-              ? { ...p, quantity: p.quantity + productQuantity }
-              : p
-          );
+          return prev.map((p) => (p.id === product.id ? { ...p, quantity: p.quantity + productQuantity } : p));
         }
         return [
           ...prev,
@@ -304,31 +339,24 @@ export function AppointmentCheckoutDialog({
           },
         ];
       });
+
       setSelectedProduct("");
       setProductQuantity(1);
     }
   };
 
-  const removeProduct = (index: number) =>
-    setProducts((prev) => prev.filter((_, i) => i !== index));
+  const removeProduct = (index: number) => setProducts((prev) => prev.filter((_, i) => i !== index));
 
   const toggleProfessional = (id: number) => {
-    setSelectedProfessionals((prev) =>
-      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
-    );
+    setSelectedProfessionals((prev) => (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]));
   };
 
-  const servicesTotal = services.reduce((sum, s) => sum + s.price, 0);
-  const productsTotal = products.reduce(
-    (sum, p) => sum + p.price * p.quantity,
-    0
-  );
+  const servicesTotal = services.reduce((sum, s) => sum + Number(s.price || 0), 0);
+  const productsTotal = products.reduce((sum, p) => sum + Number(p.price || 0) * Number(p.quantity || 0), 0);
   const subtotal = servicesTotal + productsTotal;
+
   const discountType = form.watch("discount_type");
   const discountRaw = form.watch("discount") || 0;
-  const paymentMethod = form.watch("payment_method");
-  const installments = form.watch("installments") || 1;
-  const installmentFeePercent = form.watch("installment_fee") || 0;
 
   let discountValue = 0;
   if (discountType === "percentage") {
@@ -337,21 +365,30 @@ export function AppointmentCheckoutDialog({
     discountValue = Math.min(discountRaw, subtotal);
   }
 
-  let totalAfterDiscount = subtotal - discountValue;
+  const totalAfterDiscount = subtotal - discountValue;
 
-  const installmentFeeValue =
-    paymentMethod === "credit"
-      ? (totalAfterDiscount * installmentFeePercent) / 100
-      : 0;
+  const paymentsWatch = form.watch("payments") ?? [];
 
-  const total = totalAfterDiscount + installmentFeeValue;
+  const feeTotal = paymentsWatch.reduce((sum, p) => {
+    if (p.payment_method !== "credit") return sum;
+    const base = Number(p.amount || 0);
+    const fee = Number(p.installment_fee || 0);
+    return sum + (base * fee) / 100;
+  }, 0);
+
+  const total = Number((totalAfterDiscount + feeTotal).toFixed(2));
+
+  const paidTotal = paymentsWatch.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+  const remaining = Number((total - paidTotal).toFixed(2));
+
+  const fillRemainingOnRow = (index: number) => {
+    const current = form.getValues(`payments.${index}.amount`) || 0;
+    form.setValue(`payments.${index}.amount`, Number((current + Math.max(0, remaining)).toFixed(2)));
+  };
 
   const normalizedAppointment = useMemo(() => {
     if (!appointmentData) return null;
-    return {
-      id: Number(appointmentData.id),
-      customer: appointmentData.customer ?? null,
-    };
+    return { id: Number(appointmentData.id), customer: appointmentData.customer ?? null };
   }, [appointmentData]);
 
   const onSubmit = async (data: z.infer<typeof checkoutSchema>) => {
@@ -362,34 +399,84 @@ export function AppointmentCheckoutDialog({
       return;
     }
 
-    const discountTypeForApi = data.discount_type;
-    const discountAmountForApi = data.discount ?? 0;
+    const servicesTotalLocal = services.reduce((sum, s) => sum + Number(s.price || 0), 0);
+    const productsTotalLocal = products.reduce((sum, p) => sum + Number(p.price || 0) * Number(p.quantity || 0), 0);
+    const subtotalLocal = servicesTotalLocal + productsTotalLocal;
+
+    let discountValueLocal = 0;
+    if (data.discount_type === "percentage") discountValueLocal = (subtotalLocal * Number(data.discount || 0)) / 100;
+    else discountValueLocal = Math.min(Number(data.discount || 0), subtotalLocal);
+
+    const totalAfterDiscountLocal = subtotalLocal - discountValueLocal;
+
+    const feeTotalLocal = (data.payments ?? []).reduce((sum, p) => {
+      if (p.payment_method !== "credit") return sum;
+      const base = Number(p.amount || 0);
+      const fee = Number(p.installment_fee || 0);
+      return sum + (base * fee) / 100;
+    }, 0);
+
+    const expectedTotal = Number((totalAfterDiscountLocal + feeTotalLocal).toFixed(2));
+    const paid = Number(
+      (data.payments ?? []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0).toFixed(2)
+    );
+
+    if (Math.abs(paid - expectedTotal) > 0.01) {
+      toast.error(`A soma dos pagamentos (R$ ${paid.toFixed(2)}) deve ser igual ao total (R$ ${expectedTotal.toFixed(2)}).`);
+      return;
+    }
+
+    const discount_type = data.discount_type;
+    const discount_amount = Number(data.discount ?? 0);
+
+    const payments = (data.payments ?? []).map((p) => ({
+      payment_method: p.payment_method,
+      amount: Number(Number(p.amount || 0).toFixed(2)),
+      card_brand:
+        p.payment_method === "credit" || p.payment_method === "credit_link" || p.payment_method === "debit"
+          ? (p.card_brand ?? null)
+          : null,
+      installments: p.payment_method === "credit" ? (p.installments ?? 1) : null,
+      installment_fee: p.payment_method === "credit" ? (p.installment_fee ?? 0) : null,
+      notes: p.notes ?? null,
+    }));
+
+    const servicesPayload = services.map((s) => ({
+      id: Number(s.id),
+      professional_id: Number(s.professionals?.[0] ?? 0) || null,
+      service_price: Number(s.price ?? 0).toFixed(2),
+      commission_type: (s.commission_type ?? "percentage") as "percentage" | "fixed",
+      commission_value: Number(s.commission_value ?? 0).toFixed(2),
+    }));
+
+    const itemsPayload = products.map((p) => ({
+      id: Number(p.id),
+      price: Number(p.price ?? 0).toFixed(2),
+      quantity: Number(p.quantity ?? 1),
+    }));
 
     try {
       await checkout({
         appointmentId: normalizedAppointment.id,
         payload: {
-          discount_type: discountTypeForApi,
-          discount_amount: discountAmountForApi,
-          payment_method: data.payment_method,
-          card_brand: data.card_brand ?? null,
-          installments: data.installments ?? 1,
-          installment_fee: data.installment_fee ?? 0,
-          promotion_id:
-            selectedPromotion && selectedPromotion !== "none"
-              ? Number(selectedPromotion)
-              : null,
+          discount_type,
+          discount_amount,
+          promotion_id: selectedPromotion && selectedPromotion !== "none" ? Number(selectedPromotion) : null,
+          payments,
+          services: servicesPayload,
+          items: itemsPayload,
         },
       });
 
       toast.success("Atendimento finalizado com sucesso!");
-
       onOpenChange(false);
+
       setServices([]);
       setProducts([]);
       form.reset();
       setDiscountDisplay("");
-      setInstallmentFeeDisplay("");
+      setDidAutoApplyPromotion(false);
+      setSelectedPromotion("none");
     } catch (err) {
       console.error(err);
       toast.error("Erro ao finalizar atendimento.");
@@ -399,16 +486,9 @@ export function AppointmentCheckoutDialog({
   if (isLoading || loadingAppointment) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent
-          className={cn(
-            "max-h-[90vh]",
-            isMobile ? "max-w-[95vw]" : "max-w-2xl"
-          )}
-        >
+        <DialogContent className={cn("max-h-[90vh]", isMobile ? "max-w-[95vw]" : "max-w-2xl")}>
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">
-            Requisitando dados do sistema...
-          </p>
+          <p className="text-sm text-muted-foreground">Requisitando dados do sistema...</p>
         </DialogContent>
       </Dialog>
     );
@@ -418,18 +498,12 @@ export function AppointmentCheckoutDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className={cn(
-          "max-h-[90vh]",
-          isMobile ? "max-w-[95vw]" : "max-w-2xl"
-        )}
-      >
+      <DialogContent className={cn("max-h-[90vh]", isMobile ? "max-w-[95vw]" : "max-w-2xl")}>
         <DialogHeader>
           <DialogTitle>Finalizar Atendimento</DialogTitle>
           <DialogDescription>
-            Cliente:{" "}
-            {appointmentData.customer?.name ?? "Cliente não identificado"} •{" "}
-            {new Date(appointmentData.date).toLocaleDateString("pt-BR")} às{" "}
+            Cliente: {appointmentData.customer?.name ?? "Cliente não identificado"} •{" "}
+            {new Date(`${appointmentData.date}T00:00:00`).toLocaleDateString("pt-BR")} às
             {appointmentData.start_time?.slice(0, 5) ?? "--:--"}
           </DialogDescription>
         </DialogHeader>
@@ -440,10 +514,7 @@ export function AppointmentCheckoutDialog({
               <Tag className="h-5 w-5 text-primary" />
               <h3 className="font-semibold">Promoção/Campanha</h3>
             </div>
-            <Select
-              value={selectedPromotion}
-              onValueChange={handlePromotionChange}
-            >
+            <Select value={selectedPromotion} onValueChange={handlePromotionChange}>
               <SelectTrigger>
                 <SelectValue placeholder="Selecione uma promoção (opcional)" />
               </SelectTrigger>
@@ -463,15 +534,12 @@ export function AppointmentCheckoutDialog({
                 ))}
               </SelectContent>
             </Select>
+
             {selectedPromotion && selectedPromotion !== "none" && (
               <Alert className="border-success/50 bg-success/5">
                 <AlertDescription className="text-sm text-success">
                   ✓ Promoção aplicada:{" "}
-                  {
-                    activePromotions.find(
-                      (p: any) => p.id.toString() === selectedPromotion
-                    )?.description
-                  }
+                  {activePromotions.find((p: any) => p.id.toString() === selectedPromotion)?.description}
                 </AlertDescription>
               </Alert>
             )}
@@ -493,12 +561,8 @@ export function AppointmentCheckoutDialog({
                 ))}
               </SelectContent>
             </Select>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={addService}
-              disabled={!selectedService || selectedProfessionals.length === 0}
-            >
+
+            <Button type="button" variant="outline" onClick={addService} disabled={!selectedService || selectedProfessionals.length === 0}>
               <Plus className="h-4 w-4 mr-2" />
               Adicionar Serviço
             </Button>
@@ -506,18 +570,12 @@ export function AppointmentCheckoutDialog({
 
           {selectedService && (
             <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">
-                Selecione os profissionais (pode selecionar múltiplos):
-              </p>
+              <p className="text-sm text-muted-foreground">Selecione os profissionais (pode selecionar múltiplos):</p>
               <div className="flex flex-wrap gap-2">
                 {professionals.map((p: any) => (
                   <Badge
                     key={p.id}
-                    variant={
-                      selectedProfessionals.includes(p.id)
-                        ? "default"
-                        : "outline"
-                    }
+                    variant={selectedProfessionals.includes(p.id) ? "default" : "outline"}
                     className="cursor-pointer"
                     onClick={() => toggleProfessional(p.id)}
                   >
@@ -531,10 +589,7 @@ export function AppointmentCheckoutDialog({
           {services.length > 0 && (
             <div className="space-y-2">
               {services.map((s, i) => (
-                <div
-                  key={i}
-                  className="flex items-start justify-between p-3 border rounded-lg"
-                >
+                <div key={i} className="flex items-start justify-between p-3 border rounded-lg">
                   <div className="flex-1">
                     <p className="font-medium">{s.name}</p>
                     <p className="text-sm text-muted-foreground">
@@ -545,16 +600,9 @@ export function AppointmentCheckoutDialog({
                         return prof?.user?.name ?? prof?.name ?? "—";
                       })()}
                     </p>
-                    <p className="text-sm font-medium mt-1">
-                      R$ {s.price.toFixed(2)}
-                    </p>
+                    <p className="text-sm font-medium mt-1">R$ {Number(s.price).toFixed(2)}</p>
                   </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => removeService(i)}
-                  >
+                  <Button type="button" variant="ghost" size="icon" onClick={() => removeService(i)}>
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
@@ -585,18 +633,11 @@ export function AppointmentCheckoutDialog({
               type="number"
               min="1"
               value={productQuantity}
-              onChange={(e) =>
-                setProductQuantity(parseInt(e.target.value) || 1)
-              }
+              onChange={(e) => setProductQuantity(parseInt(e.target.value) || 1)}
               placeholder="Qtd"
             />
 
-            <Button
-              type="button"
-              variant="outline"
-              onClick={addProduct}
-              disabled={!selectedProduct}
-            >
+            <Button type="button" variant="outline" onClick={addProduct} disabled={!selectedProduct}>
               <Plus className="h-4 w-4 mr-2" />
               Adicionar
             </Button>
@@ -605,26 +646,14 @@ export function AppointmentCheckoutDialog({
           {products.length > 0 && (
             <div className="space-y-2">
               {products.map((p, i) => (
-                <div
-                  key={i}
-                  className="flex items-center justify-between p-3 border rounded-lg"
-                >
+                <div key={i} className="flex items-center justify-between p-3 border rounded-lg">
                   <div className="flex-1">
                     <p className="font-medium">{p.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      Quantidade: {p.quantity}
-                    </p>
+                    <p className="text-sm text-muted-foreground">Quantidade: {p.quantity}</p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <p className="font-medium">
-                      R$ {(p.price * p.quantity).toFixed(2)}
-                    </p>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeProduct(i)}
-                    >
+                    <p className="font-medium">R$ {(Number(p.price) * Number(p.quantity)).toFixed(2)}</p>
+                    <Button type="button" variant="ghost" size="icon" onClick={() => removeProduct(i)}>
                       <X className="h-4 w-4" />
                     </Button>
                   </div>
@@ -638,9 +667,9 @@ export function AppointmentCheckoutDialog({
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <h3 className="font-semibold">Pagamento</h3>
+            <h3 className="font-semibold">Desconto</h3>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <FormField
                 control={form.control}
                 name="discount_type"
@@ -668,11 +697,7 @@ export function AppointmentCheckoutDialog({
                 name="discount"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>
-                      {discountType === "percentage"
-                        ? "Desconto (%)"
-                        : "Desconto (R$)"}
-                    </FormLabel>
+                    <FormLabel>{discountType === "percentage" ? "Desconto (%)" : "Desconto (R$)"}</FormLabel>
                     <FormControl>
                       <Input
                         {...field}
@@ -687,21 +712,13 @@ export function AppointmentCheckoutDialog({
                             const formatted = formatPercentageInput(value);
                             setDiscountDisplay(formatted);
 
-                            const numeric = parseFloat(
-                              formatted.replace(/\./g, "").replace(",", ".")
-                            );
-
+                            const numeric = parseFloat(formatted.replace(/\./g, "").replace(",", "."));
                             field.onChange(isNaN(numeric) ? 0 : numeric);
                           } else {
                             const formatted = formatCurrencyInput(value);
                             setDiscountDisplay(formatted);
 
-                            const numeric = parseFloat(
-                              formatted
-                                .replace(/[^\d,]/g, "")
-                                .replace(",", ".")
-                            );
-
+                            const numeric = parseFloat(formatted.replace(/[^\d,]/g, "").replace(",", "."));
                             field.onChange(isNaN(numeric) ? 0 : numeric);
                           }
                         }}
@@ -711,94 +728,226 @@ export function AppointmentCheckoutDialog({
                   </FormItem>
                 )}
               />
-
-              <FormField
-                control={form.control}
-                name="payment_method"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Forma de Pagamento</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="cash">Dinheiro</SelectItem>
-                        <SelectItem value="credit">Cartão de Crédito</SelectItem>
-                        <SelectItem value="credit_link">
-                          Cartão de Crédito (Link)
-                        </SelectItem>
-                        <SelectItem value="debit">Cartão de Débito</SelectItem>
-                        <SelectItem value="pix">PIX</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
             </div>
 
-            {paymentMethod === "credit" && (
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="installments"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Número de Parcelas</FormLabel>
-                      <Select
-                        onValueChange={(v) => field.onChange(parseInt(v))}
-                        value={field.value?.toString()}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecione" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {[...Array(12)].map((_, i) => (
-                            <SelectItem key={i + 1} value={(i + 1).toString()}>
-                              {i + 1}x
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </FormItem>
-                  )}
-                />
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold">Método de Pagamento</h3>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    append({
+                      payment_method: "",
+                      amount: 0,
+                      card_brand: null,
+                      installments: 1,
+                      installment_fee: 0,
+                      notes: null,
+                    });
 
-                <FormField
-                  control={form.control}
-                  name="installment_fee"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Acréscimo (%)</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          type="text"
-                          inputMode="decimal"
-                          placeholder="0,00"
-                          value={installmentFeeDisplay}
-                          onChange={(e) => {
-                            const formatted = formatPercentageInput(e.target.value);
-                            setInstallmentFeeDisplay(formatted);
-
-                            const numeric = parseFloat(
-                              formatted.replace(/\./g, "").replace(",", ".")
-                            );
-
-                            field.onChange(isNaN(numeric) ? 0 : numeric);
-                          }}
-                        />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
+                    setPaymentAmountDisplay((prev) => ({ ...prev, [fields.length]: "" }));
+                    setPaymentFeeDisplay((prev) => ({ ...prev, [fields.length]: "" }));
+                  }}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Adicionar pagamento
+                </Button>
               </div>
-            )}
+
+              {fields.map((f, idx) => {
+                const method = form.watch(`payments.${idx}.payment_method`);
+                const amountValue = form.watch(`payments.${idx}.amount`) || 0;
+
+                return (
+                  <div key={f.id} className="rounded-lg border p-3 space-y-3">
+                    <div className="grid grid-cols-3 gap-3">
+                      <FormField
+                        control={form.control}
+                        name={`payments.${idx}.payment_method`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Método</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Selecione" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="cash">Dinheiro</SelectItem>
+                                <SelectItem value="pix">PIX</SelectItem>
+                                <SelectItem value="debit">Débito</SelectItem>
+                                <SelectItem value="credit">Crédito</SelectItem>
+                                <SelectItem value="credit_link">Crédito (Link)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name={`payments.${idx}.amount`}
+                        render={({ field }) => (
+                          <FormItem className="min-w-0">
+                            <FormLabel>Valor (R$)</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="R$ 0,00"
+                                value={paymentAmountDisplay[idx] ?? ""}
+                                onChange={(e) => {
+                                  const formatted = formatCurrencyInput(e.target.value);
+                                  setPaymentAmountDisplay((prev) => ({ ...prev, [idx]: formatted }));
+
+                                  const numeric = parseFloat(formatted.replace(/[^\d,]/g, "").replace(",", "."));
+                                  field.onChange(isNaN(numeric) ? 0 : numeric);
+                                }}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <div className="flex gap-2 items-end justify-end">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => fillRemainingOnRow(idx)}
+                          disabled={remaining <= 0}
+                          title="Preencher com o valor restante"
+                        >
+                          Usar restante (R$ {Math.max(0, remaining).toFixed(2)})
+                        </Button>
+
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            remove(idx);
+
+                            setPaymentAmountDisplay((prev) => {
+                              const next: Record<number, string> = {};
+                              Object.keys(prev)
+                                .map(Number)
+                                .filter((k) => k !== idx)
+                                .sort((a, b) => a - b)
+                                .forEach((k, newIndex) => (next[newIndex] = prev[k]));
+                              return next;
+                            });
+
+                            setPaymentFeeDisplay((prev) => {
+                              const next: Record<number, string> = {};
+                              Object.keys(prev)
+                                .map(Number)
+                                .filter((k) => k !== idx)
+                                .sort((a, b) => a - b)
+                                .forEach((k, newIndex) => (next[newIndex] = prev[k]));
+                              return next;
+                            });
+                          }}
+                          disabled={fields.length === 1}
+                          title="Remover pagamento"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    {(method === "credit" || method === "debit" || method === "credit_link") && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <FormField
+                          control={form.control}
+                          name={`payments.${idx}.card_brand`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Bandeira</FormLabel>
+                              <FormControl>
+                                <Input
+                                  placeholder="Ex: Visa / Master..."
+                                  value={field.value ?? ""}
+                                  onChange={(e) => field.onChange(e.target.value)}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        {method === "credit" ? (
+                          <div className="grid grid-cols-2 gap-3">
+                            <FormField
+                              control={form.control}
+                              name={`payments.${idx}.installments`}
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Parcelas</FormLabel>
+                                  <Select onValueChange={(v) => field.onChange(Number(v))} value={String(field.value ?? 1)}>
+                                    <FormControl>
+                                      <SelectTrigger>
+                                        <SelectValue placeholder="1x" />
+                                      </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                      {[...Array(12)].map((_, i) => (
+                                        <SelectItem key={i + 1} value={String(i + 1)}>
+                                          {i + 1}x
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+
+                            <FormField
+                              control={form.control}
+                              name={`payments.${idx}.installment_fee`}
+                              render={({ field }) => (
+                                <FormItem className="min-w-0">
+                                  <FormLabel>Taxa (%)</FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      type="text"
+                                      inputMode="decimal"
+                                      placeholder="0,00"
+                                      value={paymentFeeDisplay[idx] ?? ""}
+                                      onChange={(e) => {
+                                        const formatted = formatPercentageInput(e.target.value);
+                                        setPaymentFeeDisplay((prev) => ({ ...prev, [idx]: formatted }));
+
+                                        const numeric = parseFloat(formatted.replace(/\./g, "").replace(",", "."));
+                                        field.onChange(isNaN(numeric) ? 0 : numeric);
+                                      }}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </div>
+                        ) : (
+                          <div />
+                        )}
+                      </div>
+                    )}
+
+                    <div className="text-xs text-muted-foreground flex justify-between">
+                      <span>Pago nesta linha: R$ {Number(amountValue).toFixed(2)}</span>
+                      <span>
+                        Total pago: R$ {paidTotal.toFixed(2)} • Restante: R$ {Math.max(0, remaining).toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
 
             <div className="space-y-2 p-4 bg-muted rounded-lg border border-border">
               <div className="flex justify-between text-sm">
@@ -823,16 +972,16 @@ export function AppointmentCheckoutDialog({
                   <span>
                     {discountType === "percentage"
                       ? `Desconto (${displayPercentage(discountRaw)}%)`
-                      : `Desconto (R$ ${discountRaw.toFixed(2).replace(".", ",")})`}
+                      : `Desconto (${displayCurrency(discountRaw)})`}
                   </span>
                   <span>- R$ {discountValue.toFixed(2)}</span>
                 </div>
               )}
 
-              {installmentFeeValue > 0 && (
+              {feeTotal > 0 && (
                 <div className="flex justify-between text-sm text-primary">
-                  <span>Acréscimo Maquininha ({installmentFeePercent}%):</span>
-                  <span>+ R$ {installmentFeeValue.toFixed(2)}</span>
+                  <span>Taxas de crédito:</span>
+                  <span>+ R$ {feeTotal.toFixed(2)}</span>
                 </div>
               )}
 
@@ -843,12 +992,10 @@ export function AppointmentCheckoutDialog({
                 <span>R$ {total.toFixed(2)}</span>
               </div>
 
-              {paymentMethod === "credit" && installments > 1 && (
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>{installments}x de:</span>
-                  <span>R$ {(total / installments).toFixed(2)}</span>
-                </div>
-              )}
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Total pago:</span>
+                <span>R$ {paidTotal.toFixed(2)} • Restante: R$ {Math.max(0, remaining).toFixed(2)}</span>
+              </div>
             </div>
 
             <DialogFooter className="flex-col sm:flex-row gap-2">
@@ -856,14 +1003,20 @@ export function AppointmentCheckoutDialog({
                 <Printer className="h-4 w-4" />
                 Imprimir Comanda
               </Button>
+
               <div className="flex gap-2 flex-1 justify-end">
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => onOpenChange(false)}
+                  onClick={() => {
+                    onOpenChange(false);
+                    setDidAutoApplyPromotion(false);
+                    setSelectedPromotion("none");
+                  }}
                 >
                   Cancelar
                 </Button>
+
                 <Button type="submit" disabled={isPending}>
                   {isPending ? "Finalizando..." : "Finalizar Atendimento"}
                 </Button>

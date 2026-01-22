@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Enums\{CommissionStatus, AccountPayableStatus};
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AppointmentResource;
-use App\Models\{AccountPayable, Appointment, Commission, Service, Professional, ProfessionalOpenWindow, Promotion};
+use App\Models\{AccountPayable, Appointment, AppointmentPayment, Commission, Service, Professional, ProfessionalOpenWindow, Promotion};
 use App\Services\PromotionApplicabilityService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -23,7 +23,7 @@ class AppointmentController extends Controller
 
     public function index(Request $request)
     {
-        $appointments = Appointment::with(['customer', 'services', 'items', 'promotion'])
+        $appointments = Appointment::with(['customer', 'services', 'items', 'promotion', 'payments'])
             ->orderBy('date', 'desc')
             ->orderBy('start_time', 'desc')
             ->get();
@@ -46,10 +46,6 @@ class AppointmentController extends Controller
                 'discount_amount',
                 'discount_type',
                 'final_price',
-                'payment_method',
-                'card_brand',
-                'installments',
-                'installment_fee',
                 'promotion_id',
                 'notes',
             ]);
@@ -76,7 +72,7 @@ class AppointmentController extends Controller
             $this->recalculateAppointmentTiming($appointment);
 
             return (new AppointmentResource(
-                $appointment->load(['customer', 'services', 'items', 'promotion'])
+                $appointment->load(['customer', 'services', 'items', 'promotion', 'payments'])
             ))
                 ->response()
                 ->setStatusCode(Response::HTTP_CREATED);
@@ -85,7 +81,7 @@ class AppointmentController extends Controller
 
     public function show(Appointment $appointment)
     {
-        $appointment->load(['customer', 'services', 'items', 'promotion']);
+        $appointment->load(['customer', 'services', 'items', 'promotion', 'payments']);
 
         return new AppointmentResource($appointment);
     }
@@ -510,28 +506,18 @@ class AppointmentController extends Controller
 
     public function calendar(Request $request)
     {
-        $query = Appointment::with(['customer', 'services'])
+        $query = Appointment::with(['customer', 'services', 'payments'])
             ->when($request->filled('professional_id'), function ($q) use ($request) {
-                $q->whereHas(
-                    'services',
-                    fn($sub) =>
-                    $sub->where('professional_id', $request->professional_id)
-                );
+                $q->whereHas('services', fn($sub) => $sub->where('professional_id', $request->professional_id));
             })
-            ->when(
-                $request->filled('status'),
-                fn($q) =>
-                $q->where('status', $request->status)
-            )
+            ->when($request->filled('status'), fn($q) => $q->where('status', $request->status))
             ->when(
                 $request->filled('start_date') && $request->filled('end_date'),
-                fn($q) =>
-                $q->whereBetween('date', [$request->start_date, $request->end_date])
+                fn($q) => $q->whereBetween('date', [$request->start_date, $request->end_date])
             )
             ->when(
                 $request->filled('date') && !$request->filled('start_date'),
-                fn($q) =>
-                $q->whereDate('date', $request->date)
+                fn($q) => $q->whereDate('date', $request->date)
             )
             ->orderBy('date')
             ->orderBy('start_time');
@@ -544,18 +530,26 @@ class AppointmentController extends Controller
         $data = $request->validate([
             'discount_type'   => ['nullable', 'in:percentage,fixed'],
             'discount_amount' => ['nullable', 'numeric', 'min:0'],
-            'payment_method'  => ['required', 'string', 'max:50'],
-            'card_brand'      => ['nullable', 'string', 'max:50'],
-            'installments'    => ['nullable', 'integer', 'min:1'],
-            'installment_fee' => ['nullable', 'numeric', 'min:0'],
             'promotion_id'    => ['nullable', 'exists:promotions,id'],
+            'payments'                  => ['required', 'array', 'min:1'],
+            'payments.*.method'         => ['required', 'string', 'max:50'],
+            'payments.*.amount'         => ['required', 'numeric', 'min:0.01'],
+            'payments.*.fee_percent'    => ['nullable', 'numeric', 'min:0'],
+            'payments.*.card_brand'     => ['nullable', 'string', 'max:50'],
+            'payments.*.installments'   => ['nullable', 'integer', 'min:1'],
+            'payments.*.meta'           => ['nullable', 'array'],
+            'payments.*.notes'          => ['nullable', 'string', 'max:255'],
         ]);
 
         try {
             DB::transaction(function () use ($data, $appointment) {
-                $appointment->loadMissing(['customer', 'services', 'items']);
+                $appointment->loadMissing(['customer', 'services', 'items', 'payments']);
 
-                $appointment->fill($data);
+                $appointment->fill(Arr::only($data, [
+                    'discount_type',
+                    'discount_amount',
+                    'promotion_id',
+                ]));
 
                 $promoId = $appointment->promotion_id ? (int) $appointment->promotion_id : null;
 
@@ -574,20 +568,13 @@ class AppointmentController extends Controller
                 if (!$appointment->end_time) {
                     $appointment->end_time = now();
                 }
-
                 if ($appointment->status !== 'completed') {
                     $appointment->status = 'completed';
                 }
 
-                $servicesTotal = $appointment->services->sum(
-                    fn($s) => (float) $s->pivot->service_price
-                );
-
-                $productsTotal = $appointment->items->sum(
-                    fn($i) => (float) $i->pivot->price * (int) $i->pivot->quantity
-                );
-
-                $subtotal = $servicesTotal + $productsTotal;
+                $servicesTotal = $appointment->services->sum(fn($s) => (float) $s->pivot->service_price);
+                $productsTotal = $appointment->items->sum(fn($i) => (float) $i->pivot->price * (int) $i->pivot->quantity);
+                $subtotal      = $servicesTotal + $productsTotal;
 
                 $promo = null;
                 if ($appointment->promotion_id) {
@@ -606,11 +593,9 @@ class AppointmentController extends Controller
                     $discountType = $promo->discount_type?->value ?? (string) $promo->discount_type;
                     $discountRaw  = (float) $promo->discount_value;
 
-                    if ($discountType === 'percentage') {
-                        $discountValue = $subtotal * ($discountRaw / 100);
-                    } else {
-                        $discountValue = min($discountRaw, $subtotal);
-                    }
+                    $discountValue = $discountType === 'percentage'
+                        ? $subtotal * ($discountRaw / 100)
+                        : min($discountRaw, $subtotal);
 
                     if ($promo->max_discount !== null) {
                         $discountValue = min($discountValue, (float) $promo->max_discount);
@@ -618,38 +603,81 @@ class AppointmentController extends Controller
 
                     $appointment->discount_type   = $discountType;
                     $appointment->discount_amount = $discountRaw;
-
                 } else {
                     $discountType = $appointment->discount_type ?: 'percentage';
-                    $discountRaw  = $appointment->discount_amount ?? 0;
+                    $discountRaw  = (float) ($appointment->discount_amount ?? 0);
 
-                    if ($discountType === 'percentage') {
-                        $discountValue = $subtotal * ((float) $discountRaw / 100);
-                    } else {
-                        $discountValue = min((float) $discountRaw, $subtotal);
-                    }
+                    $discountValue = $discountType === 'percentage'
+                        ? $subtotal * ($discountRaw / 100)
+                        : min($discountRaw, $subtotal);
                 }
 
                 $totalAfterDiscount = $subtotal - $discountValue;
 
-                $installmentFeePercent = $appointment->installment_fee ?? 0;
+                $toCents = fn($v) => (int) round(((float) $v) * 100);
 
-                $installmentFeeValue =
-                    $appointment->payment_method === 'credit'
-                    ? ($totalAfterDiscount * $installmentFeePercent) / 100
-                    : 0;
+                $expectedBaseCents = $toCents($totalAfterDiscount);
 
-                $finalPrice = $totalAfterDiscount + $installmentFeeValue;
+                $appointment->payments()->delete();
 
-                $appointment->total_price     = $subtotal;
-                $appointment->discount_type   = $discountType;
-                $appointment->discount_amount = $discountRaw;
-                $appointment->installment_fee = $installmentFeePercent;
-                $appointment->final_price     = round($finalPrice, 2);
+                $sumBaseCents   = 0;
+                $sumAmountCents = 0;
 
-                if ($appointment->payment_status !== 'prepaid') {
-                    $appointment->payment_status = 'paid';
+                foreach ($data['payments'] as $p) {
+                    $method     = (string) $p['method'];
+                    $amount     = round((float) $p['amount'], 2);
+                    $feePercent = (float) ($p['fee_percent'] ?? 0);
+
+                    $isCreditLike = in_array($method, ['credit', 'credit_link'], true);
+
+                    if ($isCreditLike && empty($p['card_brand'])) {
+                        throw ValidationException::withMessages([
+                            'payments' => 'Cartão de crédito exige a bandeira (card_brand).',
+                        ]);
+                    }
+
+                    $hasFee    = $feePercent > 0 && $isCreditLike;
+                    $baseAmount = $hasFee
+                        ? round($amount / (1 + ($feePercent / 100)), 2)
+                        : $amount;
+
+                    $feeAmount = $hasFee
+                        ? round($amount - $baseAmount, 2)
+                        : 0.00;
+
+                    $baseCents   = $toCents($baseAmount);
+                    $amountCents = $toCents($amount);
+
+                    $sumBaseCents   += $baseCents;
+                    $sumAmountCents += $amountCents;
+
+                    $meta = $p['meta'] ?? null;
+                    if (!empty($p['notes'])) {
+                        $meta = is_array($meta) ? $meta : [];
+                        $meta['notes'] = (string) $p['notes'];
+                    }
+
+                    $appointment->payments()->create([
+                        'method'       => $method,
+                        'base_amount'  => number_format($baseCents / 100, 2, '.', ''),
+                        'fee_percent'  => $hasFee ? number_format($feePercent, 2, '.', '') : '0.00',
+                        'fee_amount'   => number_format($toCents($feeAmount) / 100, 2, '.', ''),
+                        'amount'       => number_format($amountCents / 100, 2, '.', ''),
+                        'card_brand'   => $p['card_brand'] ?? null,
+                        'installments' => $p['installments'] ?? null,
+                        'meta'         => $meta,
+                    ]);
                 }
+
+                if ($sumBaseCents !== $expectedBaseCents) {
+                    throw ValidationException::withMessages([
+                        'payments' => 'A soma dos pagamentos (sem taxa) deve ser igual ao valor após desconto.',
+                    ]);
+                }
+
+                $appointment->total_price   = number_format($toCents($subtotal) / 100, 2, '.', '');
+                $appointment->final_price   = number_format($sumAmountCents / 100, 2, '.', '');
+                $appointment->payment_status = 'paid';
 
                 $appointment->save();
 
@@ -676,7 +704,7 @@ class AppointmentController extends Controller
                         ? $servicePrice * ($commissionValue / 100)
                         : $commissionValue;
 
-                    $commission = Commission::create([
+                    Commission::create([
                         'professional_id'   => $professionalId,
                         'appointment_id'    => $appointment->id,
                         'service_id'        => $service->id,
@@ -688,10 +716,9 @@ class AppointmentController extends Controller
                         'commission_amount' => $commissionAmount,
                         'status'            => CommissionStatus::Pending,
                     ]);
-
                     $createdCommissions++;
 
-                    $account = AccountPayable::create([
+                    AccountPayable::create([
                         'description'     => "Comissão: {$service->name}",
                         'amount'          => $commissionAmount,
                         'due_date'        => now()->addDays(7)->toDateString(),
@@ -701,7 +728,6 @@ class AppointmentController extends Controller
                         'appointment_id'  => $appointment->id,
                         'reference'       => "APP-{$appointment->id}-SRV-{$service->id}",
                     ]);
-
                     $createdAccounts++;
                 }
 
@@ -725,7 +751,7 @@ class AppointmentController extends Controller
         }
 
         return (new AppointmentResource(
-            $appointment->load(['customer', 'services', 'items', 'promotion'])
+            $appointment->load(['customer', 'services', 'items', 'promotion', 'payments'])
         ))
             ->response()
             ->setStatusCode(Response::HTTP_OK);

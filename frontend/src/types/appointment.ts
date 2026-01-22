@@ -1,3 +1,24 @@
+export type AppointmentPaymentMethod =
+  | "cash"
+  | "pix"
+  | "debit"
+  | "credit"
+  | "credit_link";
+
+export type AppointmentPayment = {
+  id: number;
+  method: AppointmentPaymentMethod | string;
+  base_amount: string;
+  fee_percent: string;
+  fee_amount: string;
+  amount: string;
+  card_brand: string | null;
+  installments: number | null;
+  meta: Record<string, any> | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
 export type AppointmentServiceProfessional = {
   id: number;
   name: string | null;
@@ -44,17 +65,12 @@ export type Appointment = {
     | "cancelled"
     | "no_show"
     | "rescheduled";
-
   payment_status: AppointmentPaymentStatus;
-
   total_price: string;
   discount_type: "percentage" | "fixed" | null;
   discount_amount: string;
   final_price: string;
-  payment_method: string | null;
-  card_brand: string | null;
-  installments: number | null;
-  installment_fee: string | null;
+  payments?: AppointmentPayment[] | null;
   notes: string | null;
   created_at: string | null;
   updated_at: string | null;

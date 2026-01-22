@@ -4,6 +4,7 @@ import { createAppointment, getAppointment, listAppointments, removeAppointment,
 import type { Appointment, CreateAppointmentDto, UpdateAppointmentDto } from "../../types/appointment";
 import { toast } from "sonner";
 
+
 export function useAppointmentsQuery(
   params?: Parameters<typeof listAppointments>[0]
 ) {

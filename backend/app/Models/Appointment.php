@@ -22,10 +22,6 @@ class Appointment extends Model
         'discount_amount',
         'discount_type',
         'final_price',
-        'payment_method',
-        'card_brand',
-        'installments',
-        'installment_fee',
         'promotion_id',
         'notes',
     ];
@@ -41,8 +37,6 @@ class Appointment extends Model
         'discount_amount' => 'decimal:2',
         'discount_type' => 'string',
         'final_price' => 'decimal:2',
-        'installments' => 'integer',
-        'installment_fee' => 'decimal:2',
     ];
 
     public function customer()
@@ -84,5 +78,15 @@ class Appointment extends Model
     public function accountsPayable()
     {
         return $this->hasMany(AccountPayable::class);
+    }
+
+    public function payments()
+    {
+        return $this->hasMany(AppointmentPayment::class);
+    }
+
+    public function primaryPayment()
+    {
+        return $this->hasOne(AppointmentPayment::class)->latestOfMany();
     }
 }

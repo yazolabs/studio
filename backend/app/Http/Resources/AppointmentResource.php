@@ -97,15 +97,41 @@ class AppointmentResource extends JsonResource
             'discount_type'   => $this->discount_type,
             'discount_amount' => $this->discount_amount,
             'final_price'     => $this->final_price,
-            'payment_method'  => $this->payment_method,
-            'card_brand'      => $this->card_brand,
-            'installments'    => $this->installments,
-            'installment_fee' => $this->installment_fee,
             'promotion_id' => $this->promotion_id,
             'promotion' => $this->whenLoaded('promotion', fn () => [
                 'id'   => $this->promotion->id,
                 'name' => $this->promotion->name,
             ]),
+            'payments' => $this->whenLoaded('payments', fn () =>
+                $this->payments->map(fn ($p) => [
+                    'id'           => $p->id,
+                    'method'       => $p->method,
+                    'base_amount'  => $p->base_amount,
+                    'fee_percent'  => $p->fee_percent,
+                    'fee_amount'   => $p->fee_amount,
+                    'amount'       => $p->amount,
+                    'card_brand'   => $p->card_brand,
+                    'installments' => $p->installments,
+                    'meta'         => $p->meta,
+                    'created_at'   => $p->created_at?->toISOString(),
+                    'updated_at'   => $p->updated_at?->toISOString(),
+                ])
+            ),
+            'payment_summary' => $this->whenLoaded('payments', function () {
+                $grouped = $this->payments->groupBy('method');
+
+                return $grouped->map(function ($rows, $method) {
+                    $sumCents = 0;
+                    foreach ($rows as $r) {
+                        $sumCents += (int) round(((float) $r->amount) * 100);
+                    }
+
+                    return [
+                        'method' => $method,
+                        'amount' => number_format($sumCents / 100, 2, '.', ''),
+                    ];
+                })->values();
+            }),
             'notes'      => $this->notes,
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),

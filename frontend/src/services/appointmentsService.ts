@@ -1,6 +1,6 @@
 import { api } from "./api";
 import type { Paginated } from "../types/pagination";
-import type { Appointment, CreateAppointmentDto, UpdateAppointmentDto } from "../types/appointment";
+import type { Appointment, AppointmentPaymentMethod, CreateAppointmentDto, UpdateAppointmentDto } from "../types/appointment";
 
 const basePath = "/appointments";
 
@@ -15,18 +15,34 @@ type AppointmentQueryParams = {
   end_date?: string;
 };
 
-export type CheckoutAppointmentDto = {
-  services_total: number;
-  products_total: number;
-  discount_type?: "percentage" | "fixed" | null;
-  discount_amount?: number | null;
-  final_price: number;
-  payment_method: string;
+export type CheckoutPaymentDto = {
+  payment_method: AppointmentPaymentMethod | string;
+  amount: number;
   card_brand?: string | null;
   installments?: number | null;
   installment_fee?: number | null;
-  promotion_id?: number | null;
+  notes?: string | null;
 };
+
+export type CheckoutAppointmentDto = {
+  discount_type?: "percentage" | "fixed" | null;
+  discount_amount?: number | null;
+  promotion_id?: number | null;
+  payments: CheckoutPaymentDto[];
+  services?: Array<{
+    id: number;
+    professional_id?: number | null;
+    service_price: string;
+    commission_type?: "percentage" | "fixed" | string | null;
+    commission_value?: string;
+  }>;
+  items?: Array<{
+    id: number;
+    price: string;
+    quantity: number;
+  }>;
+};
+
 
 function mapPayload(payload: CreateAppointmentDto | UpdateAppointmentDto) {
   const body = {

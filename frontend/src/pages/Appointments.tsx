@@ -198,10 +198,14 @@ const appointmentSchema = z.object({
   services: z
     .array(
       z.object({
-        service_id: z.union([z.number(), z.string()]).pipe(z.coerce.number()),
+        service_id: z
+          .union([z.number(), z.string()])
+          .nullable()
+          .transform((val) => (val == null || val === "" ? null : Number(val))),
         professional_id: z
           .union([z.number(), z.string()])
-          .pipe(z.coerce.number()),
+          .nullable()
+          .transform((val) => (val == null || val === "" ? null : Number(val))),
         start_time: z
           .string()
           .min(1, "Horário é obrigatório para cada serviço"),
@@ -539,11 +543,9 @@ export default function Appointments() {
           (p) => String(p.id) === String(professionalFilter)
         );
         const byPivot = (apt.services || []).some(
-          (s) =>
-            s.professional_id &&
-            String(s.professional_id) === String(professionalFilter)
+          (s) => s.professional_id != null && String(s.professional_id) === String(professionalFilter)
         );
-        return byProfArray || byPivot;
+        return byPivot;
       });
     }
 
@@ -631,10 +633,45 @@ export default function Appointments() {
     const dateStr = format(professionalViewDate, "yyyy-MM-dd");
     return filteredAppointments.filter((a) => a.date === dateStr);
   }, [filteredAppointments, professionalViewDate]);
+  const selectedServiceIds = useMemo(() => {
+    const servicesField = form.watch("services") || [];
+    const ids = servicesField
+      .map((s) => Number(s.service_id))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    return Array.from(new Set(ids));
+  }, [form.watch("services")]);
   const applicablePromotions = useMemo(() => {
     if (!selectedDate) return [];
-    return promotions.filter((p) => isPromotionApplicableOnDate(p, selectedDate));
-  }, [promotions, selectedDate]);
+
+    return promotions.filter((p) => {
+      if (!isPromotionApplicableOnDate(p, selectedDate)) return false;
+
+      const promoServiceIds = Array.isArray((p as any).services)
+        ? (p as any).services.map((s: any) => Number(s.id)).filter(Boolean)
+        : [];
+
+      if (promoServiceIds.length > 0) {
+        return selectedServiceIds.some((id) => promoServiceIds.includes(id));
+      }
+
+      return true;
+    });
+  }, [promotions, selectedDate, selectedServiceIds]);
+
+  const getProfessionalIdsFromAppointment = (apt: AppointmentBackend): number[] => {
+    const ids = (apt.services || [])
+      .map((s) => (s.professional_id != null ? Number(s.professional_id) : NaN))
+      .filter((n) => Number.isFinite(n)) as number[];
+
+    return Array.from(new Set(ids));
+  };
+
+  const getProfessionalNamesFromAppointment = (apt: AppointmentBackend): string[] => {
+    const ids = getProfessionalIdsFromAppointment(apt);
+    return ids
+      .map((id) => professionalById.get(id)?.name)
+      .filter(Boolean) as string[];
+  };
 
   useEffect(() => {
     const current = form.getValues("promotion_id");
@@ -1558,8 +1595,8 @@ export default function Appointments() {
       setEditingAppointment(apt);
 
       const defaultServices = (apt.services || []).map((s) => ({
-        service_id: Number(s.id),
-        professional_id: Number(s.professional_id ?? 0),
+        service_id: s.id != null ? Number(s.id) : null,
+        professional_id: s.professional_id != null ? Number(s.professional_id) : null,
         start_time: toHHmmFromDateTime(s.starts_at),
       }));
 
@@ -1668,7 +1705,7 @@ export default function Appointments() {
           | "percentage"
           | "fixed",
         commission_value: String(svc?.commission_value ?? "0"),
-        professional_id: Number(s.professional_id),
+        professional_id: s.professional_id != null ? Number(s.professional_id) : null,
         starts_at: toDateTimeString(serviceStartMinutes),
         ends_at: toDateTimeString(serviceEndMinutes),
       };
@@ -1860,7 +1897,7 @@ export default function Appointments() {
     client: apt.customer?.name ?? "Cliente",
     clientPhone: (apt.customer as any)?.phone ?? undefined,
     service: (apt.services || []).map((s) => s.name).join(", "),
-    professionals: (apt.professionals || []).map((p) => String(p.id)),
+    professionals: getProfessionalIdsFromAppointment(apt).map(String),
     date: apt.date,
     time: (apt.start_time || "").slice(0, 5),
     duration: apt.duration ?? undefined,
@@ -1877,12 +1914,7 @@ export default function Appointments() {
 
   const printAppointmentReceipt = (apt: AppointmentBackend) => {
     const legacy = toLegacy(apt);
-
-    const professionalNames = (apt.professionals || [])
-      .map((p) => p.name)
-      .filter(Boolean)
-      .join(", ");
-
+    const professionalNames = getProfessionalNamesFromAppointment(apt).join(", ");
     const date = new Date(legacy.date);
     const formattedDate = date.toLocaleDateString("pt-BR", {
       day: "2-digit",
@@ -2190,9 +2222,7 @@ export default function Appointments() {
       key: "professionals",
       header: "Profissionais",
       render: (apt: AppointmentBackend) => {
-        const names = (apt.professionals || [])
-          .map((p) => p.name)
-          .filter(Boolean);
+        const names = getProfessionalNamesFromAppointment(apt);
 
         return renderBadgesWithOverflow(names, "professional");
       },
@@ -3106,8 +3136,8 @@ export default function Appointments() {
                               field.onChange([
                                 ...servicesValue,
                                 {
-                                  service_id: "",
-                                  professional_id: "",
+                                  service_id: null,
+                                  professional_id: null,
                                   start_time: "",
                                 },
                               ])
