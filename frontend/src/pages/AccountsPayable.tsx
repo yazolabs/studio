@@ -161,7 +161,17 @@ export default function AccountsPayable() {
     if (markPaidMutation.isPending) return;
 
     try {
-      await markPaidMutation.mutateAsync(selectedId);
+      if (!paymentData.payment_method) {
+        toast.error("Selecione a forma de pagamento.");
+        return;
+      }
+
+      await markPaidMutation.mutateAsync({
+        id: selectedId,
+        payment_method: paymentData.payment_method,
+        payment_date: paymentData.payment_date,
+      });
+
       toast.success("Pagamento registrado com sucesso!");
       setIsPaymentDialogOpen(false);
       setSelectedId(null);

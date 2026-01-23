@@ -54,9 +54,14 @@ export function useMarkAccountAsPaid() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: number) => markAccountAsPaid(id),
+    mutationFn: (input: { id: number; payment_method: string; payment_date: string }) =>
+      markAccountAsPaid(input.id, {
+        payment_method: input.payment_method,
+        payment_date: input.payment_date,
+      }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['accounts-payable'] });
+      queryClient.invalidateQueries({ queryKey: ['cashier-transactions'] });
       toast.success(`Conta #${data.id} marcada como paga com sucesso!`);
     },
     onError: () => {

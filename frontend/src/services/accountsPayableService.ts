@@ -59,7 +59,7 @@ export async function removeAccountPayable(id: number) {
   await api.delete(`${basePath}/${id}`);
 }
 
-export async function markAccountAsPaid(id: number) {
-  const { data } = await api.patch(`${basePath}/${id}/mark-paid`);
+export async function markAccountAsPaid(id: number, payload: { payment_method: string; payment_date: string }) {
+  const { data } = await api.patch(`${basePath}/${id}/mark-paid`, payload);
   return data.data;
 }

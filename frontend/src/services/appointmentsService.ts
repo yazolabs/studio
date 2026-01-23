@@ -16,11 +16,14 @@ type AppointmentQueryParams = {
 };
 
 export type CheckoutPaymentDto = {
-  payment_method: AppointmentPaymentMethod | string;
+  method?: AppointmentPaymentMethod | string;
+  payment_method?: AppointmentPaymentMethod | string;
   amount: number;
+  fee_percent?: number | null;
   card_brand?: string | null;
   installments?: number | null;
   installment_fee?: number | null;
+  meta?: Record<string, any> | null;
   notes?: string | null;
 };
 
@@ -43,6 +46,10 @@ export type CheckoutAppointmentDto = {
   }>;
 };
 
+export type PrepayAppointmentDto = {
+  received_date?: string | null;
+  payments: CheckoutPaymentDto[];
+};
 
 function mapPayload(payload: CreateAppointmentDto | UpdateAppointmentDto) {
   const body = {
@@ -79,9 +86,7 @@ function mapPayload(payload: CreateAppointmentDto | UpdateAppointmentDto) {
     })),
   };
 
-  return Object.fromEntries(
-    Object.entries(body).filter(([, v]) => v !== undefined)
-  );
+  return Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined));
 }
 
 export async function listAppointments(params?: AppointmentQueryParams) {
@@ -99,14 +104,8 @@ export async function createAppointment(payload: CreateAppointmentDto) {
   return data;
 }
 
-export async function updateAppointment(
-  id: number,
-  payload: UpdateAppointmentDto
-) {
-  const { data } = await api.put<Appointment>(
-    `${basePath}/${id}`,
-    mapPayload(payload)
-  );
+export async function updateAppointment(id: number, payload: UpdateAppointmentDto) {
+  const { data } = await api.put<Appointment>(`${basePath}/${id}`, mapPayload(payload));
   return data;
 }
 
@@ -119,19 +118,60 @@ export async function listAppointmentsCalendar(params?: {
   end_date?: string;
   professional_id?: number;
 }) {
-  const { data } = await api.get<Appointment[]>(`${basePath}/calendar`, {
-    params,
-  });
+  const { data } = await api.get<Appointment[]>(`${basePath}/calendar`, { params });
   return data;
 }
 
-export async function checkoutAppointment(
-  id: number,
-  payload: CheckoutAppointmentDto
-) {
-  const { data } = await api.patch<Appointment>(
-    `${basePath}/${id}/checkout`,
-    payload
-  );
+function normalizePayments(payments: CheckoutPaymentDto[] = []) {
+  return payments.map((p) => ({
+    method: p.method ?? p.payment_method,
+    amount: p.amount,
+    fee_percent: p.fee_percent ?? null,
+    card_brand: p.card_brand ?? null,
+    installments: p.installments ?? null,
+    meta: p.meta ?? null,
+    notes: p.notes ?? null,
+  }));
+}
+
+function normalizeCheckoutPayload(payload: CheckoutAppointmentDto): CheckoutAppointmentDto {
+  return {
+    ...payload,
+    payments: normalizePayments(payload.payments ?? []),
+  };
+}
+
+export async function checkoutAppointment(id: number, payload: CheckoutAppointmentDto) {
+  const normalized = normalizeCheckoutPayload(payload);
+
+  console.log("CHECKOUT PAYLOAD (normalized)", normalized);
+
+  const { data } = await api.patch<Appointment>(`${basePath}/${id}/checkout`, normalized, {
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    transformRequest: [(data) => JSON.stringify(data)],
+  });
+
+  return data;
+}
+
+export async function prepayAppointment(id: number, payload: PrepayAppointmentDto) {
+  const normalized = {
+    received_date: payload.received_date ?? null,
+    payments: normalizePayments(payload.payments ?? []),
+  };
+
+  console.log("PREPAY PAYLOAD (normalized)", normalized);
+
+  const { data } = await api.patch<Appointment>(`${basePath}/${id}/prepay`, normalized, {
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    transformRequest: [(data) => JSON.stringify(data)],
+  });
+
   return data;
 }

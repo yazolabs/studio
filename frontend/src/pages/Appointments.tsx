@@ -16,12 +16,13 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select,  SelectContent,  SelectItem,  SelectTrigger,  SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useAppointmentsQuery, useCreateAppointment, useDeleteAppointment, useAppointmentQuery } from "@/hooks/appointments";
+import { useAppointmentsQuery, useCreateAppointment, useDeleteAppointment, useAppointmentQuery, useAppointmentPrepay } from "@/hooks/appointments";
 import { useCustomersQuery } from "@/hooks/customers";
 import { useProfessionalsQuery } from "@/hooks/professionals";
 import { usePromotionsQuery } from "@/hooks/promotions";
 import { useServicesQuery } from "@/hooks/services";
 import { usePermission } from "@/hooks/usePermission";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { ProfessionalOpenWindow } from "@/types/professional-open-window";
@@ -33,11 +34,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useIsMobile } from "@/hooks/use-mobile";
 import type { Appointment as AppointmentBackend } from "@/types/appointment";
 import { PAPER_STEP_MIN, isLongFlexibleService, buildSlotsBetween, overlaps, minutesToHHmm, normalizeDurationForPaper, buildPaperSlotsForDay } from "@/lib/scheduling/paperSlots";
 import { getStatusBadgeClass, getStatusLabel } from "@/lib/appointments/statusUI";
 import { isPromotionApplicableOnDate } from "@/lib/promotions/applicability";
+import { AppointmentPrepayDialog } from "@/components/AppointmentPrepayDialog";
 
 type ID = number | string;
 
@@ -434,6 +435,7 @@ export default function Appointments() {
 
   const createAppointment = useCreateAppointment();
   const deleteAppointment = useDeleteAppointment();
+  const prepayAppointment = useAppointmentPrepay();
 
   const [checkoutAppointmentId, setCheckoutAppointmentId] = useState<number | null>(null);
   const [checkoutDialogOpen, setCheckoutDialogOpen] = useState(false);
@@ -462,12 +464,14 @@ export default function Appointments() {
   const [dateFromFilter, setDateFromFilter] = useState<Date | null>(null);
   const [dateToFilter, setDateToFilter] = useState<Date | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [customerPopoverOpen, setCustomerPopoverOpen] = useState(false);
   const [professionalViewDate, setProfessionalViewDate] = useState<Date>(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
     return d;
   });
+  const [prepayDialogOpen, setPrepayDialogOpen] = useState(false);
+  const [prepayAppointmentId, setPrepayAppointmentId] = useState<number | null>(null);
+  const [prepayTotalAmount, setPrepayTotalAmount] = useState<number>(0);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(appointmentSchema),
@@ -482,7 +486,6 @@ export default function Appointments() {
   });
 
   const watchedServices = form.watch("services") || [];
-  const watchedPaymentStatus = form.watch("payment_status");
   const selectedDate = form.watch("date");
 
   const appointments: AppointmentBackend[] = useMemo(() => {
@@ -545,7 +548,7 @@ export default function Appointments() {
         const byPivot = (apt.services || []).some(
           (s) => s.professional_id != null && String(s.professional_id) === String(professionalFilter)
         );
-        return byPivot;
+        return byPivot || byProfArray;
       });
     }
 
@@ -611,11 +614,10 @@ export default function Appointments() {
     [services]
   );
   const selectedServiceObjects = useMemo(() => {
-    const servicesField = form.watch("services") || [];
-    return servicesField
+    return watchedServices
       .map((s) => serviceById.get(Number(s.service_id)))
       .filter(Boolean) as Service[];
-  }, [services, serviceById, form.watch("services")]);
+  }, [watchedServices, serviceById]);
   const totalDuration = useMemo(
     () =>
       selectedServiceObjects.reduce(
@@ -1421,7 +1423,6 @@ export default function Appointments() {
     })();
   };
 
-  const { data: fullAppointmentData, isLoading: loadingFullAppointment } = useAppointmentQuery(checkoutAppointmentId ?? 0, !!checkoutAppointmentId);
 
   const getTimeSlotsForRow = (
     selectedDate: Date | undefined,
@@ -1776,19 +1777,42 @@ export default function Appointments() {
 
     const payload = buildPayload(values);
 
+    const wantsPrepay = payload.payment_status === "prepaid";
+    const payloadToSave = wantsPrepay
+      ? { ...payload, payment_status: "unpaid" as const }
+      : payload;
+
     try {
       if (editingAppointment) {
-        const { updateAppointment: updateFn } = await import(
-          "@/services/appointmentsService"
-        );
-        await updateFn(Number(editingAppointment.id), payload);
+        const { updateAppointment: updateFn } = await import("@/services/appointmentsService");
+        await updateFn(Number(editingAppointment.id), payloadToSave);
+
+        if (wantsPrepay) {
+          const total = Number(payload.final_price ?? payload.total_price ?? 0);
+          setPrepayAppointmentId(Number(editingAppointment.id));
+          setPrepayTotalAmount(total);
+          setPrepayDialogOpen(true);
+        }
+
         await refetchAppointments();
         toast({ title: "Agendamento atualizado com sucesso." });
       } else {
-        await createAppointment.mutateAsync(payload);
+        const created = await createAppointment.mutateAsync(payloadToSave);
         await refetchAppointments();
         toast({ title: "Agendamento criado com sucesso." });
+
+        if (wantsPrepay) {
+          const createdId = Number((created as any)?.id ?? (created as any)?.data?.id);
+          const total = Number(payload.final_price ?? payload.total_price ?? 0);
+
+          if (Number.isFinite(createdId) && createdId > 0) {
+            setPrepayAppointmentId(createdId);
+            setPrepayTotalAmount(total);
+            setPrepayDialogOpen(true);
+          }
+        }
       }
+
       setIsDialogOpen(false);
       setEditingAppointment(null);
       form.reset();
@@ -1796,17 +1820,13 @@ export default function Appointments() {
       console.error(e);
 
       let description = e?.message ?? "Tente novamente.";
-
-      const response = e?.response;
-      const data = response?.data;
+      const data = e?.response?.data;
 
       if (data) {
         if (data.errors && typeof data.errors === "object") {
           const firstKey = Object.keys(data.errors)[0];
           const firstMessage = data.errors[firstKey]?.[0];
-          if (firstMessage) {
-            description = firstMessage;
-          }
+          if (firstMessage) description = firstMessage;
         } else if (typeof data.message === "string") {
           description = data.message;
         }
@@ -1915,7 +1935,7 @@ export default function Appointments() {
   const printAppointmentReceipt = (apt: AppointmentBackend) => {
     const legacy = toLegacy(apt);
     const professionalNames = getProfessionalNamesFromAppointment(apt).join(", ");
-    const date = new Date(legacy.date);
+    const date = new Date(`${legacy.date}T00:00:00`);
     const formattedDate = date.toLocaleDateString("pt-BR", {
       day: "2-digit",
       month: "2-digit",
@@ -2879,7 +2899,6 @@ export default function Appointments() {
                           <SelectContent>
                             <SelectItem value="unpaid">Não pago</SelectItem>
                             <SelectItem value="prepaid">Pago antecipado</SelectItem>
-                            <SelectItem value="paid">Pago</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -3225,8 +3244,57 @@ export default function Appointments() {
 
         <AppointmentCheckoutDialog
           open={checkoutDialogOpen}
-          onOpenChange={setCheckoutDialogOpen}
+          onOpenChange={(open) => {
+            setCheckoutDialogOpen(open);
+            if (!open) {
+              setCheckoutAppointmentId(null);
+              refetchAppointments();
+            }
+          }}
           appointmentId={checkoutAppointmentId}
+        />
+
+        <AppointmentPrepayDialog
+          open={prepayDialogOpen}
+          onOpenChange={(open) => {
+            setPrepayDialogOpen(open);
+            if (!open) {
+              setPrepayAppointmentId(null);
+              setPrepayTotalAmount(0);
+            }
+          }}
+          totalAmount={prepayTotalAmount}
+          onCancel={() => {
+            setPrepayDialogOpen(false);
+            setPrepayAppointmentId(null);
+            setPrepayTotalAmount(0);
+          }}
+          onConfirm={async (payments) => {
+            if (!prepayAppointmentId) return;
+
+            try {
+              await prepayAppointment.mutateAsync({
+                appointmentId: prepayAppointmentId,
+                payload: {
+                  received_date: null,
+                  payments,
+                },
+              });
+
+              await refetchAppointments();
+
+              setPrepayDialogOpen(false);
+              setPrepayAppointmentId(null);
+              setPrepayTotalAmount(0);
+            } catch (e: any) {
+              console.error(e);
+              toast({
+                title: "Erro ao registrar pagamento antecipado",
+                description: e?.message ?? "Tente novamente.",
+                variant: "destructive",
+              });
+            }
+          }}
         />
       </div>
     </TooltipProvider>

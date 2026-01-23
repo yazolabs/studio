@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AccountPayableResource;
-use App\Models\AccountPayable;
+use App\Models\{AccountPayable, CashierTransaction};
 use App\Services\AccountPayableService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -111,19 +111,43 @@ class AccountPayableController extends Controller
         return response()->noContent();
     }
 
-    public function markAsPaid(AccountPayable $accountPayable)
+    public function markAsPaid(Request $request, AccountPayable $accountPayable)
     {
+        $payload = $request->validate([
+            'payment_method' => ['required', 'string', 'max:50'],
+            'payment_date' => ['required', 'date'],
+        ]);
+
         $accountPayable->update([
             'status' => 'paid',
-            'payment_date' => now()->toDateString(),
+            'payment_method' => $payload['payment_method'],
+            'payment_date' => $payload['payment_date'],
         ]);
 
         if ($accountPayable->commission) {
             $accountPayable->commission->update([
                 'status' => 'paid',
-                'payment_date' => now()->toDateString(),
+                'payment_date' => $payload['payment_date'],
             ]);
         }
+
+        $ref = $accountPayable->reference ?: "AP-{$accountPayable->id}";
+
+        CashierTransaction::firstOrCreate(
+            [
+                'type' => 'saida',
+                'reference' => $ref,
+            ],
+            [
+                'date' => $payload['payment_date'],
+                'category' => $accountPayable->category ?: 'Contas a pagar',
+                'description' => $accountPayable->description ?: "Conta paga #{$accountPayable->id}",
+                'amount' => $accountPayable->amount,
+                'payment_method' => $payload['payment_method'],
+                'user_id' => $request->user()?->id,
+                'notes' => $accountPayable->notes,
+            ]
+        );
 
         return new AccountPayableResource($accountPayable->fresh(['professional', 'appointment', 'commission']));
     }

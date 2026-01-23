@@ -18,9 +18,30 @@ class CashierTransactionController extends Controller
 
     public function index(Request $request)
     {
-        $transactions = $this->service->paginate($request->all());
+        $query = CashierTransaction::query();
 
-        return CashierTransactionResource::collection($transactions);
+        if ($request->filled('search')) {
+            $term = $request->input('search');
+            $query->where(function ($q) use ($term) {
+                $q->where('description', 'like', "%{$term}%")
+                ->orWhere('category', 'like', "%{$term}%")
+                ->orWhere('reference', 'like', "%{$term}%");
+            });
+        }
+
+        if ($request->filled('type')) {
+            $query->where('type', $request->input('type'));
+        }
+
+        if ($request->filled('startDate')) {
+            $query->whereDate('date', '>=', $request->input('startDate'));
+        }
+
+        if ($request->filled('endDate')) {
+            $query->whereDate('date', '<=', $request->input('endDate'));
+        }
+
+        return $query->orderByDesc('date')->orderByDesc('id')->get();
     }
 
     public function store(Request $request)

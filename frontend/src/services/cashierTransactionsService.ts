@@ -1,17 +1,9 @@
-// src/services/cashierTransactionsService.ts
 import { api } from "./api";
-import type { Paginated } from "../types/pagination";
-import type {
-  CashierTransaction,
-  CreateCashierTransactionDto,
-  UpdateCashierTransactionDto,
-} from "../types/cashier-transaction";
+import type { CashierTransaction, CreateCashierTransactionDto, UpdateCashierTransactionDto } from "../types/cashier-transaction";
 
 const basePath = "/cashier";
 
 export type CashierQueryParams = {
-  page?: number;
-  perPage?: number;
   search?: string;
   type?: "entrada" | "saida";
   startDate?: string;
@@ -25,19 +17,17 @@ function mapPayload(payload: CreateCashierTransactionDto | UpdateCashierTransact
     category: payload.category,
     description: payload.description,
     amount: payload.amount,
-    payment_method: payload.paymentMethod,
+    payment_method: payload.payment_method,
     reference: payload.reference,
-    user_id: payload.userId,
+    user_id: payload.user_id,
     notes: payload.notes,
   };
 
-  return Object.fromEntries(
-    Object.entries(body).filter(([, value]) => value !== undefined),
-  );
+  return Object.fromEntries(Object.entries(body).filter(([, value]) => value !== undefined));
 }
 
 export async function listCashierTransactions(params?: CashierQueryParams) {
-  const { data } = await api.get<Paginated<CashierTransaction>>(basePath, { params });
+  const { data } = await api.get<CashierTransaction[]>(basePath, { params });
   return data;
 }
 
@@ -51,10 +41,7 @@ export async function createCashierTransaction(payload: CreateCashierTransaction
   return data;
 }
 
-export async function updateCashierTransaction(
-  id: number,
-  payload: UpdateCashierTransactionDto,
-) {
+export async function updateCashierTransaction(id: number, payload: UpdateCashierTransactionDto) {
   const { data } = await api.put<CashierTransaction>(`${basePath}/${id}`, mapPayload(payload));
   return data;
 }

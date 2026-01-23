@@ -5,12 +5,12 @@ export type CashierTransaction = {
   category: string;
   description: string | null;
   amount: string;
-  paymentMethod: string | null;
+  payment_method: string | null;
   reference: string | null;
-  userId: number | null;
+  user_id: number | null;
   notes: string | null;
-  createdAt: string | null;
-  updatedAt: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
 export type CreateCashierTransactionDto = Pick<
@@ -20,9 +20,9 @@ export type CreateCashierTransactionDto = Pick<
   | 'category'
   | 'description'
   | 'amount'
-  | 'paymentMethod'
+  | 'payment_method'
   | 'reference'
-  | 'userId'
+  | 'user_id'
   | 'notes'
 >;
 

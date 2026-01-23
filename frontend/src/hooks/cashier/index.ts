@@ -1,17 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../../services/api';
-import {
-  createCashierTransaction,
-  getCashierTransaction,
-  listCashierTransactions,
-  removeCashierTransaction,
-  updateCashierTransaction,
-} from '../../services/cashierTransactionsService';
-import type {
-  CashierTransaction,
-  CreateCashierTransactionDto,
-  UpdateCashierTransactionDto,
-} from '../../types/cashier-transaction';
+import { createCashierTransaction, getCashierTransaction, listCashierTransactions, removeCashierTransaction, updateCashierTransaction } from '../../services/cashierTransactionsService';
+import type { CashierTransaction, CreateCashierTransactionDto, UpdateCashierTransactionDto } from '../../types/cashier-transaction';
 
 export function useCashierTransactionsQuery(params?: Parameters<typeof listCashierTransactions>[0]) {
   return useQuery({

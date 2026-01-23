@@ -1,44 +1,18 @@
-// src/pages/Cashier.tsx
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataTable } from "@/components/DataTable";
 import { Badge } from "@/components/ui/badge";
-import {
-  DollarSign,
-  TrendingUp,
-  ArrowUpCircle,
-  ArrowDownCircle,
-  Download,
-  FileText,
-  Tag,
-  CreditCard,
-} from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-
+import { DollarSign, TrendingUp, ArrowUpCircle, ArrowDownCircle, Download, FileText, Tag, CreditCard } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
+import { listAccountsPayable } from "@/services/accountsPayableService";
 import { listCashierTransactions } from "@/services/cashierTransactionsService";
+import type { AccountPayable } from "@/types/account-payable";
 import type { CashierTransaction } from "@/types/cashier-transaction";
 
 type Period = "day" | "week" | "month";
@@ -52,28 +26,23 @@ export default function Cashier() {
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
     useState<string>("all");
 
-  // =========================
-  // 1) BUSCA NA API
-  // =========================
-  const {
-    data: paginated,
-    isLoading,
-    isError,
-  } = useQuery({
+  const { data: transactionsRaw, isLoading, isError } = useQuery({
     queryKey: ["cashier-transactions"],
-    // Pode ajustar perPage depois, se quiser paginar de verdade aqui
-    queryFn: () => listCashierTransactions({ perPage: 500 }),
+    queryFn: () => listCashierTransactions(),
+  });
+  const { data: accountsPayableRaw } = useQuery({
+    queryKey: ["accounts-payable", "cashier"],
+    queryFn: () => listAccountsPayable({ perPage: 1000 }),
   });
 
-  const transactions: CashierTransaction[] = useMemo(
-    () => paginated?.data ?? [],
-    [paginated]
+  const accountsPayable: AccountPayable[] = useMemo(
+    () => (accountsPayableRaw as any)?.data ?? [],
+    [accountsPayableRaw]
   );
-
-  // =========================
-  // 2) LISTAS PARA FILTROS
-  // =========================
-
+  const transactions: CashierTransaction[] = useMemo(
+    () => transactionsRaw ?? [],
+    [transactionsRaw]
+  );
   const uniqueCategories = useMemo(() => {
     const set = new Set<string>();
     transactions.forEach((t) => {
@@ -81,7 +50,6 @@ export default function Cashier() {
     });
     return Array.from(set).sort();
   }, [transactions]);
-
   const uniquePaymentMethods = useMemo(() => {
     const set = new Set<string>();
     transactions.forEach((t) => {
@@ -89,24 +57,19 @@ export default function Cashier() {
     });
     return Array.from(set).sort();
   }, [transactions]);
-
-  // =========================
-  // 3) FILTROS POR PERÍODO + CAMPOS
-  // =========================
-
   const filteredTransactions = useMemo(() => {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
     return transactions.filter((transaction) => {
-      const transactionDate = new Date(transaction.date);
+      const transactionDate = transaction.date ? new Date(transaction.date) : null;
+      if (!transactionDate) return false;
       const transactionDay = new Date(
         transactionDate.getFullYear(),
         transactionDate.getMonth(),
         transactionDate.getDate()
       );
 
-      
       let periodMatch = false;
       if (period === "day") {
         periodMatch = transactionDay.getTime() === today.getTime();
@@ -120,16 +83,13 @@ export default function Cashier() {
         periodMatch = transactionDate >= monthAgo;
       }
 
-      
       const typeMatch =
         selectedType === "all" || transaction.type === selectedType;
 
-      
       const categoryMatch =
         selectedCategory === "all" ||
         (transaction.category && transaction.category === selectedCategory);
 
-      
       const paymentMatch =
         selectedPaymentMethod === "all" ||
         (transaction.payment_method &&
@@ -138,11 +98,6 @@ export default function Cashier() {
       return periodMatch && typeMatch && categoryMatch && paymentMatch;
     });
   }, [transactions, period, selectedType, selectedCategory, selectedPaymentMethod]);
-
-  // =========================
-  // 4) RESUMO / AGRUPAMENTOS
-  // =========================
-
   const summary = useMemo(() => {
     const entradas = filteredTransactions.filter((t) => t.type === "entrada");
     const saidas = filteredTransactions.filter((t) => t.type === "saida");
@@ -182,10 +137,33 @@ export default function Cashier() {
       byCategory,
     };
   }, [filteredTransactions]);
+  const pendingPayablesInPeriod = useMemo(() => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-  // =========================
-  // 5) EXPORTAÇÕES
-  // =========================
+    const start = today;
+    const end = new Date(today);
+
+    if (period === "day") {
+    } else if (period === "week") {
+      end.setDate(end.getDate() + 7);
+    } else {
+      end.setMonth(end.getMonth() + 1);
+    }
+
+    return accountsPayable.filter((a) => {
+      if (a.status !== "pending") return false;
+      if (!a.due_date) return false;
+      const due = new Date(`${a.due_date}T00:00:00`);
+      return due >= start && due <= end;
+    });
+  }, [accountsPayable, period]);
+  const pendingPayablesTotal = useMemo(() => {
+    return pendingPayablesInPeriod.reduce((sum, a) => sum + Number(a.amount || 0), 0);
+  }, [pendingPayablesInPeriod]);
+  const projectedBalance = useMemo(() => {
+    return summary.saldo - pendingPayablesTotal;
+  }, [summary.saldo, pendingPayablesTotal]);
 
   const getPeriodLabel = () => {
     switch (period) {
@@ -283,9 +261,6 @@ export default function Cashier() {
     );
   };
 
-  // =========================
-  // 6) COLUNAS DA TABELA
-  // =========================
 
   const columns = [
     {
@@ -317,8 +292,8 @@ export default function Cashier() {
     {
       key: "date",
       header: "Data/Hora",
-      render: (transaction: CashierTransaction) =>
-        new Date(transaction.date).toLocaleString("pt-BR"),
+      render: (t: CashierTransaction) =>
+        t.date ? new Date(t.date).toLocaleDateString("pt-BR") : "-"
     },
     {
       key: "description",
@@ -356,11 +331,7 @@ export default function Cashier() {
     },
   ];
 
-  // =========================
-  // 7) ESTADOS DE CARREGAMENTO/ERRO
-  // =========================
-
-  if (isLoading && !paginated) {
+  if (isLoading && !transactionsRaw) {
     return (
       <div className="space-y-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -395,10 +366,6 @@ export default function Cashier() {
     );
   }
 
-  // =========================
-  // 8) RENDER PRINCIPAL
-  // =========================
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -420,7 +387,6 @@ export default function Cashier() {
         </div>
       </div>
 
-      {/* Filtros */}
       <Card>
         <CardHeader>
           <CardTitle>Filtros</CardTitle>
@@ -511,7 +477,6 @@ export default function Cashier() {
         </CardContent>
       </Card>
 
-      {/* Cards de resumo */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -554,9 +519,8 @@ export default function Cashier() {
           </CardHeader>
           <CardContent>
             <div
-              className={`text-2xl font-bold ${
-                summary.saldo >= 0 ? "text-green-600" : "text-red-600"
-              }`}
+              className={`text-2xl font-bold ${summary.saldo >= 0 ? "text-green-600" : "text-red-600"
+                }`}
             >
               R$ {summary.saldo.toFixed(2)}
             </div>
@@ -601,7 +565,49 @@ export default function Cashier() {
         </Card>
       </div>
 
-      {/* Tabelas e agrupamentos */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">
+              Saídas Pendentes (Contas a Pagar)
+            </CardTitle>
+            <ArrowDownCircle className="h-4 w-4 text-yellow-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-yellow-600">
+              R$ {pendingPayablesTotal.toFixed(2)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Previstas para: {getPeriodLabel()}
+            </p>
+            {pendingPayablesInPeriod.length > 0 && (
+              <p className="text-xs text-muted-foreground mt-2">
+                {pendingPayablesInPeriod.length} conta(s) pendente(s)
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">
+              Saldo Projetado (se pagar pendências)
+            </CardTitle>
+            <DollarSign className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div
+              className={`text-2xl font-bold ${projectedBalance >= 0 ? "text-green-600" : "text-red-600"}`}
+            >
+              R$ {projectedBalance.toFixed(2)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Saldo atual - saídas pendentes
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
       <Tabs defaultValue="transactions" className="space-y-4">
         <TabsList className="grid grid-cols-4 lg:grid-cols-5 w-full">
           <TabsTrigger value="transactions">Todas</TabsTrigger>

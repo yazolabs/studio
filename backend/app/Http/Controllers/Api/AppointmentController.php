@@ -2,15 +2,15 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Enums\{CommissionStatus, AccountPayableStatus};
+use App\Enums\{CommissionStatus, AccountPayableStatus, AppointmentPaymentStatus, TransactionType};
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AppointmentResource;
-use App\Models\{AccountPayable, Appointment, AppointmentPayment, Commission, Service, Professional, ProfessionalOpenWindow, Promotion};
+use App\Models\{AccountPayable, Appointment, AppointmentPayment, CashierTransaction, Commission, Service, Professional, ProfessionalOpenWindow, Promotion};
 use App\Services\PromotionApplicabilityService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Facades\{DB, Log};
+use Illuminate\Support\Facades\{Auth, DB, Log};
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -530,10 +530,6 @@ class AppointmentController extends Controller
         ]);
     }
 
-    /**
-     * Retorna o intervalo de almoço do profissional para a data (mesmo dia do $ref),
-     * no formato [Carbon $lStart, Carbon $lEnd] ou null.
-     */
     private function getLunchIntervalForProfessionalOnDate(Professional $professional, Carbon $ref): ?array
     {
         if (empty($professional->work_schedule)) return null;
@@ -613,22 +609,24 @@ class AppointmentController extends Controller
     public function checkout(Request $request, Appointment $appointment)
     {
         $data = $request->validate([
-            'discount_type'   => ['nullable', 'in:percentage,fixed'],
-            'discount_amount' => ['nullable', 'numeric', 'min:0'],
-            'promotion_id'    => ['nullable', 'exists:promotions,id'],
-            'payments'                  => ['required', 'array', 'min:1'],
-            'payments.*.method'         => ['required', 'string', 'max:50'],
-            'payments.*.amount'         => ['required', 'numeric', 'min:0.01'],
-            'payments.*.fee_percent'    => ['nullable', 'numeric', 'min:0'],
-            'payments.*.card_brand'     => ['nullable', 'string', 'max:50'],
-            'payments.*.installments'   => ['nullable', 'integer', 'min:1'],
-            'payments.*.meta'           => ['nullable', 'array'],
-            'payments.*.notes'          => ['nullable', 'string', 'max:255'],
+            'discount_type'           => ['nullable', 'in:percentage,fixed'],
+            'discount_amount'         => ['nullable', 'numeric', 'min:0'],
+            'promotion_id'            => ['nullable', 'exists:promotions,id'],
+            'payments'                => ['required', 'array', 'min:1'],
+            'payments.*.method'       => ['required', 'string', 'max:50'],
+            'payments.*.amount'       => ['required', 'numeric', 'min:0.01'],
+            'payments.*.fee_percent'  => ['nullable', 'numeric', 'min:0'],
+            'payments.*.card_brand'   => ['nullable', 'string', 'max:50'],
+            'payments.*.installments' => ['nullable', 'integer', 'min:1'],
+            'payments.*.meta'         => ['nullable', 'array'],
+            'payments.*.notes'        => ['nullable', 'string', 'max:255'],
         ]);
 
         try {
             DB::transaction(function () use ($data, $appointment) {
-                $appointment->loadMissing(['customer', 'services', 'items', 'payments']);
+                $appointment->loadMissing(['customer', 'services', 'items']);
+
+                $wasPrepaid = $appointment->payment_status === AppointmentPaymentStatus::Prepaid->value;
 
                 $appointment->fill(Arr::only($data, [
                     'discount_type',
@@ -700,7 +698,6 @@ class AppointmentController extends Controller
                 $totalAfterDiscount = $subtotal - $discountValue;
 
                 $toCents = fn($v) => (int) round(((float) $v) * 100);
-
                 $expectedBaseCents = $toCents($totalAfterDiscount);
 
                 $appointment->payments()->delete();
@@ -710,9 +707,9 @@ class AppointmentController extends Controller
 
                 foreach ($data['payments'] as $p) {
                     $method     = (string) $p['method'];
-                    $amount     = round((float) $p['amount'], 2);
-                    $feePercent = (float) ($p['fee_percent'] ?? 0);
+                    $baseAmount = round((float) $p['amount'], 2);
 
+                    $feePercent   = (float) ($p['fee_percent'] ?? 0);
                     $isCreditLike = in_array($method, ['credit', 'credit_link'], true);
 
                     if ($isCreditLike && empty($p['card_brand'])) {
@@ -721,17 +718,18 @@ class AppointmentController extends Controller
                         ]);
                     }
 
-                    $hasFee    = $feePercent > 0 && $isCreditLike;
-                    $baseAmount = $hasFee
-                        ? round($amount / (1 + ($feePercent / 100)), 2)
-                        : $amount;
+                    $hasFee = $isCreditLike && $feePercent > 0;
+
+                    $grossAmount = $hasFee
+                        ? round($baseAmount * (1 + ($feePercent / 100)), 2)
+                        : $baseAmount;
 
                     $feeAmount = $hasFee
-                        ? round($amount - $baseAmount, 2)
+                        ? round($grossAmount - $baseAmount, 2)
                         : 0.00;
 
                     $baseCents   = $toCents($baseAmount);
-                    $amountCents = $toCents($amount);
+                    $amountCents = $toCents($grossAmount);
 
                     $sumBaseCents   += $baseCents;
                     $sumAmountCents += $amountCents;
@@ -760,16 +758,40 @@ class AppointmentController extends Controller
                     ]);
                 }
 
-                $appointment->total_price   = number_format($toCents($subtotal) / 100, 2, '.', '');
-                $appointment->final_price   = number_format($sumAmountCents / 100, 2, '.', '');
-                $appointment->payment_status = 'paid';
-
+                $appointment->total_price    = number_format($toCents($subtotal) / 100, 2, '.', '');
+                $appointment->final_price    = number_format($sumAmountCents / 100, 2, '.', '');
+                $appointment->payment_status = AppointmentPaymentStatus::Paid->value;
                 $appointment->save();
 
-                $appointment->load(['services', 'items', 'customer']);
+                $appointment->unsetRelation('payments');
+                $appointment->load(['payments', 'customer']);
 
-                $createdCommissions = 0;
-                $createdAccounts    = 0;
+                if (!$wasPrepaid) {
+                    $cashierDate  = optional($appointment->date)->toDateString() ?? now()->toDateString();
+                    $refCheckout  = "APP-{$appointment->id}-CHECKOUT";
+                    $customerName = $appointment->customer?->name ?? "Cliente";
+
+                    CashierTransaction::where('reference', $refCheckout)
+                        ->where('category', 'Atendimentos')
+                        ->where('type', TransactionType::Income)
+                        ->delete();
+
+                    foreach ($appointment->payments as $pay) {
+                        CashierTransaction::create([
+                            'date'           => $cashierDate,
+                            'type'           => TransactionType::Income,
+                            'category'       => 'Atendimentos',
+                            'description'    => "Checkout agendamento #{$appointment->id} - {$customerName}",
+                            'amount'         => $pay->amount,
+                            'payment_method' => $pay->method,
+                            'reference'      => $refCheckout,
+                            'user_id'        => Auth::id(),
+                            'notes'          => null,
+                        ]);
+                    }
+                }
+
+                $appointment->loadMissing(['services', 'items', 'customer']);
 
                 foreach ($appointment->services as $service) {
                     $professionalId  = $service->pivot->professional_id;
@@ -786,8 +808,8 @@ class AppointmentController extends Controller
                     }
 
                     $commissionAmount = $commissionType === 'percentage'
-                        ? $servicePrice * ($commissionValue / 100)
-                        : $commissionValue;
+                        ? $servicePrice * ((float) $commissionValue / 100)
+                        : (float) $commissionValue;
 
                     Commission::create([
                         'professional_id'   => $professionalId,
@@ -801,7 +823,6 @@ class AppointmentController extends Controller
                         'commission_amount' => $commissionAmount,
                         'status'            => CommissionStatus::Pending,
                     ]);
-                    $createdCommissions++;
 
                     AccountPayable::create([
                         'description'     => "Comissão: {$service->name}",
@@ -813,19 +834,162 @@ class AppointmentController extends Controller
                         'appointment_id'  => $appointment->id,
                         'reference'       => "APP-{$appointment->id}-SRV-{$service->id}",
                     ]);
-                    $createdAccounts++;
                 }
-
-                Log::info('CHECKOUT COMPLETED', [
-                    'appointment_id'      => $appointment->id,
-                    'commissions_created' => $createdCommissions,
-                    'accounts_created'    => $createdAccounts,
-                    'total_price'         => $appointment->total_price,
-                    'final_price'         => $appointment->final_price,
-                ]);
             });
         } catch (\Throwable $e) {
             Log::error('CHECKOUT FAILED', [
+                'appointment_id' => $appointment->id ?? null,
+                'message'        => $e->getMessage(),
+                'file'           => $e->getFile(),
+                'line'           => $e->getLine(),
+            ]);
+
+            throw $e;
+        }
+
+        return (new AppointmentResource(
+            $appointment->load(['customer', 'services', 'items', 'promotion', 'payments'])
+        ))
+            ->response()
+            ->setStatusCode(Response::HTTP_OK);
+    }
+
+    public function prepay(Request $request, Appointment $appointment)
+    {
+        $data = $request->validate([
+            'received_date'           => ['nullable', 'date'],
+            'payments'                => ['required', 'array', 'min:1'],
+            'payments.*.method'       => ['required', 'string', 'max:50'],
+            'payments.*.amount'       => ['required', 'numeric', 'min:0.01'],
+            'payments.*.fee_percent'  => ['nullable', 'numeric', 'min:0'],
+            'payments.*.card_brand'   => ['nullable', 'string', 'max:50'],
+            'payments.*.installments' => ['nullable', 'integer', 'min:1'],
+            'payments.*.meta'         => ['nullable', 'array'],
+            'payments.*.notes'        => ['nullable', 'string', 'max:255'],
+        ]);
+
+        try {
+            DB::transaction(function () use ($appointment, $data) {
+                $appointment->loadMissing(['customer', 'services', 'items']);
+
+                $servicesTotal = $appointment->services->sum(fn($s) => (float) $s->pivot->service_price);
+                $productsTotal = $appointment->items->sum(fn($i) => (float) $i->pivot->price * (int) $i->pivot->quantity);
+                $subtotal      = $servicesTotal + $productsTotal;
+
+                $discountType = $appointment->discount_type ?: 'percentage';
+                $discountRaw  = (float) ($appointment->discount_amount ?? 0);
+
+                $discountValue = $discountType === 'percentage'
+                    ? $subtotal * ($discountRaw / 100)
+                    : min($discountRaw, $subtotal);
+
+                $totalAfterDiscount = $subtotal - $discountValue;
+
+                $toCents = fn($v) => (int) round(((float) $v) * 100);
+                $expectedBaseCents = $toCents($totalAfterDiscount);
+
+                $appointment->payments()->delete();
+
+                $sumBaseCents   = 0;
+                $sumAmountCents = 0;
+
+                foreach ($data['payments'] as $p) {
+                    $method     = (string) $p['method'];
+                    $baseAmount = round((float) $p['amount'], 2);
+
+                    $feePercent   = (float) ($p['fee_percent'] ?? 0);
+                    $isCreditLike = in_array($method, ['credit', 'credit_link'], true);
+
+                    if ($isCreditLike && empty($p['card_brand'])) {
+                        throw ValidationException::withMessages([
+                            'payments' => 'Cartão de crédito exige a bandeira (card_brand).',
+                        ]);
+                    }
+
+                    $hasFee = $isCreditLike && $feePercent > 0;
+
+                    $grossAmount = $hasFee
+                        ? round($baseAmount * (1 + ($feePercent / 100)), 2)
+                        : $baseAmount;
+
+                    $feeAmount = $hasFee
+                        ? round($grossAmount - $baseAmount, 2)
+                        : 0.00;
+
+                    $baseCents   = $toCents($baseAmount);
+                    $amountCents = $toCents($grossAmount);
+
+                    $sumBaseCents   += $baseCents;
+                    $sumAmountCents += $amountCents;
+
+                    $meta = $p['meta'] ?? null;
+                    if (!empty($p['notes'])) {
+                        $meta = is_array($meta) ? $meta : [];
+                        $meta['notes'] = (string) $p['notes'];
+                    }
+
+                    $appointment->payments()->create([
+                        'method'       => $method,
+                        'base_amount'  => number_format($baseCents / 100, 2, '.', ''),
+                        'fee_percent'  => $hasFee ? number_format($feePercent, 2, '.', '') : '0.00',
+                        'fee_amount'   => number_format($toCents($feeAmount) / 100, 2, '.', ''),
+                        'amount'       => number_format($amountCents / 100, 2, '.', ''),
+                        'card_brand'   => $p['card_brand'] ?? null,
+                        'installments' => $p['installments'] ?? null,
+                        'meta'         => $meta,
+                    ]);
+                }
+
+                if ($sumBaseCents !== $expectedBaseCents) {
+                    throw ValidationException::withMessages([
+                        'payments' => 'A soma dos pagamentos (sem taxa) deve ser igual ao valor após desconto.',
+                    ]);
+                }
+
+                $appointment->total_price    = number_format($toCents($subtotal) / 100, 2, '.', '');
+                $appointment->final_price    = number_format($sumAmountCents / 100, 2, '.', '');
+                $appointment->payment_status = AppointmentPaymentStatus::Prepaid->value;
+                $appointment->save();
+
+                $appointment->unsetRelation('payments');
+                $appointment->load(['payments', 'customer']);
+
+                $cashierDate  = !empty($data['received_date'])
+                    ? Carbon::parse($data['received_date'])->toDateString()
+                    : now()->toDateString();
+
+                $refPrepay    = "APP-{$appointment->id}-PREPAY";
+                $customerName = $appointment->customer?->name ?? "Cliente";
+
+                CashierTransaction::where('reference', $refPrepay)
+                    ->where('category', 'Atendimentos')
+                    ->where('type', TransactionType::Income)
+                    ->delete();
+
+                foreach ($appointment->payments as $pay) {
+                    CashierTransaction::create([
+                        'date'           => $cashierDate,
+                        'type'           => TransactionType::Income,
+                        'category'       => 'Atendimentos',
+                        'description'    => "Pré-pago agendamento #{$appointment->id} - {$customerName}",
+                        'amount'         => $pay->amount,
+                        'payment_method' => $pay->method,
+                        'reference'      => $refPrepay,
+                        'user_id'        => Auth::id(),
+                        'notes'          => 'PREPAID',
+                    ]);
+                }
+
+                Log::info('PREPAY COMPLETED', [
+                    'appointment_id' => $appointment->id,
+                    'cashier_date'   => $cashierDate,
+                    'rows'           => $appointment->payments->count(),
+                    'total_price'    => $appointment->total_price,
+                    'final_price'    => $appointment->final_price,
+                ]);
+            });
+        } catch (\Throwable $e) {
+            Log::error('PREPAY FAILED', [
                 'appointment_id' => $appointment->id ?? null,
                 'message'        => $e->getMessage(),
                 'file'           => $e->getFile(),

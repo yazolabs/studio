@@ -36,4 +36,6 @@ export type UpdateAccountPayableDto = Partial<CreateAccountPayableDto>;
 
 export type MarkAccountAsPaidDto = {
   id: number;
+  payment_method: string;
+  payment_date: string;
 };

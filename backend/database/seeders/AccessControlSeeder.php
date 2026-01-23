@@ -162,6 +162,12 @@ class AccessControlSeeder extends Seeder
                         'email' => 'melissa@yazolabs.com',
                         'password' => 'admin123',
                     ],
+                    [
+                        'name' => 'Yazo',
+                        'username' => 'yazo',
+                        'email' => 'yazo@yazolabs.com',
+                        'password' => 'yazo12',
+                    ],
                 ],
 
                 'professional' => [

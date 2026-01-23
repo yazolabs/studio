@@ -366,24 +366,41 @@ export function AppointmentCheckoutDialog({ open, onOpenChange, appointmentId }:
   }
 
   const totalAfterDiscount = subtotal - discountValue;
-
   const paymentsWatch = form.watch("payments") ?? [];
+  const baseTotal = Number(totalAfterDiscount.toFixed(2));
+  const paidBaseTotal = Number(
+    paymentsWatch.reduce((sum, p) => sum + (Number(p.amount) || 0), 0).toFixed(2)
+  );
+  const remaining = Number((baseTotal - paidBaseTotal).toFixed(2));
+  const feeTotal = Number(
+    paymentsWatch.reduce((sum, p) => {
+      const method = String(p.payment_method || "").trim();
+      if (method !== "credit" && method !== "credit_link") return sum;
 
-  const feeTotal = paymentsWatch.reduce((sum, p) => {
-    if (p.payment_method !== "credit") return sum;
-    const base = Number(p.amount || 0);
-    const fee = Number(p.installment_fee || 0);
-    return sum + (base * fee) / 100;
-  }, 0);
-
-  const total = Number((totalAfterDiscount + feeTotal).toFixed(2));
-
-  const paidTotal = paymentsWatch.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-  const remaining = Number((total - paidTotal).toFixed(2));
+      const base = Number(p.amount || 0);
+      const fee = Number(p.installment_fee || 0);
+      return sum + (base * fee) / 100;
+    }, 0).toFixed(2)
+  );
+  const total = Number((baseTotal + feeTotal).toFixed(2));
+  const paidTotal = paidBaseTotal;
 
   const fillRemainingOnRow = (index: number) => {
-    const current = form.getValues(`payments.${index}.amount`) || 0;
-    form.setValue(`payments.${index}.amount`, Number((current + Math.max(0, remaining)).toFixed(2)));
+    const current = Number(form.getValues(`payments.${index}.amount`) || 0);
+    const add = Math.max(0, remaining);
+
+    const next = Number((current + add).toFixed(2));
+
+    form.setValue(`payments.${index}.amount`, next, {
+      shouldDirty: true,
+      shouldTouch: true,
+      shouldValidate: true,
+    });
+
+    setPaymentAmountDisplay((prev) => ({
+      ...prev,
+      [index]: next > 0 ? displayCurrency(next) : "",
+    }));
   };
 
   const normalizedAppointment = useMemo(() => {
@@ -409,37 +426,40 @@ export function AppointmentCheckoutDialog({ open, onOpenChange, appointmentId }:
 
     const totalAfterDiscountLocal = subtotalLocal - discountValueLocal;
 
-    const feeTotalLocal = (data.payments ?? []).reduce((sum, p) => {
-      if (p.payment_method !== "credit") return sum;
-      const base = Number(p.amount || 0);
-      const fee = Number(p.installment_fee || 0);
-      return sum + (base * fee) / 100;
-    }, 0);
+    const expectedBase = Number(totalAfterDiscountLocal.toFixed(2));
 
-    const expectedTotal = Number((totalAfterDiscountLocal + feeTotalLocal).toFixed(2));
-    const paid = Number(
-      (data.payments ?? []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0).toFixed(2)
+    const paidBase = Number(
+      (data.payments ?? [])
+        .reduce((sum, p) => sum + (Number(p.amount) || 0), 0)
+        .toFixed(2)
     );
 
-    if (Math.abs(paid - expectedTotal) > 0.01) {
-      toast.error(`A soma dos pagamentos (R$ ${paid.toFixed(2)}) deve ser igual ao total (R$ ${expectedTotal.toFixed(2)}).`);
+    if (Math.abs(paidBase - expectedBase) > 0.01) {
+      toast.error(
+        `A soma dos pagamentos (R$ ${paidBase.toFixed(2)}) deve ser igual ao valor após desconto (R$ ${expectedBase.toFixed(2)}).`
+      );
       return;
     }
 
     const discount_type = data.discount_type;
     const discount_amount = Number(data.discount ?? 0);
 
-    const payments = (data.payments ?? []).map((p) => ({
-      payment_method: p.payment_method,
-      amount: Number(Number(p.amount || 0).toFixed(2)),
-      card_brand:
-        p.payment_method === "credit" || p.payment_method === "credit_link" || p.payment_method === "debit"
-          ? (p.card_brand ?? null)
-          : null,
-      installments: p.payment_method === "credit" ? (p.installments ?? 1) : null,
-      installment_fee: p.payment_method === "credit" ? (p.installment_fee ?? 0) : null,
-      notes: p.notes ?? null,
-    }));
+    const payments = (data.payments ?? []).map((p) => {
+      const method = String(p.payment_method || "").trim();
+
+      const isCreditLike = method === "credit" || method === "credit_link";
+      const isCard = isCreditLike || method === "debit";
+
+      return {
+        method,
+        amount: Number(Number(p.amount || 0).toFixed(2)),
+        fee_percent: isCreditLike ? Number(Number(p.installment_fee ?? 0).toFixed(2)) : 0,
+        card_brand: isCard ? (p.card_brand ?? null) : null,
+        installments: method === "credit" ? (p.installments ?? 1) : null,
+        meta: null,
+        notes: p.notes ?? null,
+      };
+    });
 
     const servicesPayload = services.map((s) => ({
       id: Number(s.id),

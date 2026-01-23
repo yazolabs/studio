@@ -118,8 +118,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/{appointment}', 'update')->middleware('permission:appointments,update');
         Route::delete('/{appointment}', 'destroy')->middleware('permission:appointments,delete');
         Route::patch('/{appointment}/checkout', 'checkout')->middleware('permission:appointments,update');
+        Route::patch('/{appointment}/prepay', 'prepay')->middleware('permission:appointments,update');
     });
-
 
     Route::prefix('commissions')->controller(CommissionController::class)->group(function () {
         Route::get('/', 'index')->middleware('permission:commissions,read');
