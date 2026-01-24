@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataTable } from "@/components/DataTable";
 import { Badge } from "@/components/ui/badge";
-import { DollarSign, TrendingUp, ArrowUpCircle, ArrowDownCircle, Download, FileText, Tag, CreditCard } from "lucide-react";
+import { DollarSign, TrendingUp, ArrowUpCircle, ArrowDownCircle, Download, FileText, Tag, CreditCard, Check, X, Filter, ChevronDown, ChevronUp, Calendar as CalendarIcon } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -14,17 +14,152 @@ import { listAccountsPayable } from "@/services/accountsPayableService";
 import { listCashierTransactions } from "@/services/cashierTransactionsService";
 import type { AccountPayable } from "@/types/account-payable";
 import type { CashierTransaction } from "@/types/cashier-transaction";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 type Period = "day" | "week" | "month";
+type MultiSelectOption = { value: string; label: string };
+
+function MultiSelectString({
+  value,
+  onChange,
+  options,
+  placeholder,
+  searchPlaceholder = "Buscar...",
+  emptyLabel = "Nada encontrado",
+}: {
+  value: string[];
+  onChange: (next: string[]) => void;
+  options: MultiSelectOption[];
+  placeholder: string;
+  searchPlaceholder?: string;
+  emptyLabel?: string;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const toggle = (val: string) => {
+    const exists = value.includes(val);
+    if (exists) onChange(value.filter((v) => v !== val));
+    else onChange([...value, val]);
+  };
+
+  const selectedLabels = options
+    .filter((o) => value.includes(o.value))
+    .map((o) => o.label);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between"
+        >
+          <div className="flex flex-wrap gap-2 items-center">
+            {value.length === 0 ? (
+              <span className="text-muted-foreground">{placeholder}</span>
+            ) : (
+              selectedLabels.map((label) => (
+                <Badge key={label} variant="secondary">
+                  {label}
+                </Badge>
+              ))
+            )}
+          </div>
+          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+
+      <PopoverContent className="p-0 w-[--radix-popover-trigger-width] max-w-[calc(100vw-2rem)]">
+        <Command>
+          <CommandInput placeholder={searchPlaceholder} />
+          <CommandList>
+            <CommandEmpty>{emptyLabel}</CommandEmpty>
+            <CommandGroup>
+              {options.map((opt) => {
+                const isSelected = value.includes(opt.value);
+                return (
+                  <CommandItem
+                    key={opt.value}
+                    value={opt.label}
+                    onSelect={() => toggle(opt.value)}
+                    className="flex items-center justify-between"
+                  >
+                    <span>{opt.label}</span>
+                    {isSelected ? (
+                      <Check className="h-4 w-4 opacity-100" />
+                    ) : (
+                      <X className="h-4 w-4 opacity-30" />
+                    )}
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export default function Cashier() {
-  const [period, setPeriod] = useState<Period>("day");
-  const [selectedType, setSelectedType] = useState<"all" | "entrada" | "saida">(
-    "all"
-  );
+  const [period, setPeriod] = useState<Period>("month");
+  const [selectedType, setSelectedType] = useState<"all" | "entrada" | "saida">("all");
+  const [dateFrom, setDateFrom] = useState<Date | null>(null);
+  const [dateTo, setDateTo] = useState<Date | null>(null);
+  const [selectedPaymentMethods, setSelectedPaymentMethods] = useState<string[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
-  const [selectedPaymentMethod, setSelectedPaymentMethod] =
-    useState<string>("all");
+
+  const PAYMENT_METHOD_LABEL: Record<string, string> = {
+    pix: "Pix",
+    cash: "Dinheiro",
+    debit: "Débito",
+    credit: "Crédito",
+    credit_link: "Crédito (link)",
+  };
+
+  const toStartOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+
+  const isWithinRange = (date: Date, from?: Date | null, to?: Date | null) => {
+    const day = toStartOfDay(date);
+
+    if (from) {
+      const s = toStartOfDay(from);
+      if (day < s) return false;
+    }
+    if (to) {
+      const e = toStartOfDay(to);
+      if (day > e) return false;
+    }
+    return true;
+  };
+
+  const formatBR = (d: Date) => format(d, "dd/MM/yyyy", { locale: ptBR });
+
+  const presetRange = useMemo(() => {
+    const today = toStartOfDay(new Date());
+    if (period === "day") {
+      return { from: today, to: today };
+    }
+    if (period === "week") {
+      const from = new Date(today);
+      from.setDate(from.getDate() - 6);
+      return { from, to: today };
+    }
+    const from = new Date(today);
+    from.setDate(from.getDate() - 29);
+    return { from, to: today };
+  }, [period]);
+
+  const effectiveFrom = dateFrom ?? presetRange.from;
+  const effectiveTo = dateTo ?? presetRange.to;
+
+  const periodText = `${formatBR(effectiveFrom)} a ${formatBR(effectiveTo)}`;
 
   const { data: transactionsRaw, isLoading, isError } = useQuery({
     queryKey: ["cashier-transactions"],
@@ -57,47 +192,40 @@ export default function Cashier() {
     });
     return Array.from(set).sort();
   }, [transactions]);
+  const paymentMethodOptions = useMemo(() => {
+    const base = ["pix", "cash", "debit", "credit", "credit_link"];
+
+    const fromData = uniquePaymentMethods
+      .filter((m) => m && !base.includes(m))
+      .sort();
+
+    const all = [...base, ...fromData];
+
+    return all.map((m) => ({
+      value: m,
+      label: PAYMENT_METHOD_LABEL[m] ?? m,
+    }));
+  }, [uniquePaymentMethods]);
   const filteredTransactions = useMemo(() => {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return transactions.filter((t) => {
+      const transactionDate = t.date ? new Date(t.date) : null;
+      if (!transactionDate || Number.isNaN(transactionDate.getTime())) return false;
 
-    return transactions.filter((transaction) => {
-      const transactionDate = transaction.date ? new Date(transaction.date) : null;
-      if (!transactionDate) return false;
-      const transactionDay = new Date(
-        transactionDate.getFullYear(),
-        transactionDate.getMonth(),
-        transactionDate.getDate()
-      );
+      const periodMatch = isWithinRange(transactionDate, effectiveFrom, effectiveTo);
 
-      let periodMatch = false;
-      if (period === "day") {
-        periodMatch = transactionDay.getTime() === today.getTime();
-      } else if (period === "week") {
-        const weekAgo = new Date(today);
-        weekAgo.setDate(weekAgo.getDate() - 7);
-        periodMatch = transactionDate >= weekAgo;
-      } else {
-        const monthAgo = new Date(today);
-        monthAgo.setMonth(monthAgo.getMonth() - 1);
-        periodMatch = transactionDate >= monthAgo;
-      }
-
-      const typeMatch =
-        selectedType === "all" || transaction.type === selectedType;
+      const typeMatch = selectedType === "all" || t.type === selectedType;
 
       const categoryMatch =
         selectedCategory === "all" ||
-        (transaction.category && transaction.category === selectedCategory);
+        (t.category && t.category === selectedCategory);
 
       const paymentMatch =
-        selectedPaymentMethod === "all" ||
-        (transaction.payment_method &&
-          transaction.payment_method === selectedPaymentMethod);
+        selectedPaymentMethods.length === 0 ||
+        (t.payment_method && selectedPaymentMethods.includes(t.payment_method));
 
       return periodMatch && typeMatch && categoryMatch && paymentMatch;
     });
-  }, [transactions, period, selectedType, selectedCategory, selectedPaymentMethod]);
+  }, [transactions, effectiveFrom, effectiveTo, selectedType, selectedCategory, selectedPaymentMethods]);
   const summary = useMemo(() => {
     const entradas = filteredTransactions.filter((t) => t.type === "entrada");
     const saidas = filteredTransactions.filter((t) => t.type === "saida");
@@ -138,18 +266,8 @@ export default function Cashier() {
     };
   }, [filteredTransactions]);
   const pendingPayablesInPeriod = useMemo(() => {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-    const start = today;
-    const end = new Date(today);
-
-    if (period === "day") {
-    } else if (period === "week") {
-      end.setDate(end.getDate() + 7);
-    } else {
-      end.setMonth(end.getMonth() + 1);
-    }
+    const start = toStartOfDay(effectiveFrom);
+    const end = toStartOfDay(effectiveTo);
 
     return accountsPayable.filter((a) => {
       if (a.status !== "pending") return false;
@@ -157,7 +275,7 @@ export default function Cashier() {
       const due = new Date(`${a.due_date}T00:00:00`);
       return due >= start && due <= end;
     });
-  }, [accountsPayable, period]);
+  }, [accountsPayable, effectiveFrom, effectiveTo]);
   const pendingPayablesTotal = useMemo(() => {
     return pendingPayablesInPeriod.reduce((sum, a) => sum + Number(a.amount || 0), 0);
   }, [pendingPayablesInPeriod]);
@@ -183,9 +301,8 @@ export default function Cashier() {
 
     doc.setFontSize(18);
     doc.text("Relatório de Fluxo de Caixa", 14, 22);
-
     doc.setFontSize(11);
-    doc.text(`Período: ${getPeriodLabel()}`, 14, 32);
+    doc.text(`Período: ${periodText}`, 14, 32);
     doc.text(
       `Total Entradas: R$ ${summary.totalEntradas.toFixed(2)}`,
       14,
@@ -208,11 +325,7 @@ export default function Cashier() {
       ]),
     });
 
-    doc.save(
-      `relatorio-caixa-${period}-${new Date()
-        .toISOString()
-        .split("T")[0]}.pdf`
-    );
+    doc.save(`relatorio-caixa-${format(effectiveFrom, "yyyy-MM-dd")}_a_${format(effectiveTo, "yyyy-MM-dd")}.pdf`);
   };
 
   const exportToExcel = () => {
@@ -310,8 +423,11 @@ export default function Cashier() {
     {
       key: "payment_method",
       header: "Forma de Pagamento",
-      render: (transaction: CashierTransaction) =>
-        transaction.payment_method ?? "-",
+      render: (transaction: CashierTransaction) => {
+        const m = transaction.payment_method;
+        if (!m) return "-";
+        return PAYMENT_METHOD_LABEL[m] ?? m;
+      },
     },
     {
       key: "amount",
@@ -395,7 +511,7 @@ export default function Cashier() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
             <div className="space-y-2">
               <label className="text-sm font-medium">Período</label>
               <Select
@@ -411,6 +527,61 @@ export default function Cashier() {
                   <SelectItem value="month">Último Mês</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">De</label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-start text-left font-normal">
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {dateFrom ? format(dateFrom, "dd/MM/yyyy", { locale: ptBR }) : "Selecione"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={dateFrom ?? undefined}
+                    onSelect={(d) => setDateFrom(d ?? null)}
+                    initialFocus
+                    locale={ptBR}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Até</label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-start text-left font-normal">
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {dateTo ? format(dateTo, "dd/MM/yyyy", { locale: ptBR }) : "Selecione"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={dateTo ?? undefined}
+                    onSelect={(d) => setDateTo(d ?? null)}
+                    initialFocus
+                    locale={ptBR}
+                  />
+                </PopoverContent>
+              </Popover>
+
+              {(dateFrom || dateTo) && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="px-0 text-xs text-muted-foreground"
+                  onClick={() => {
+                    setDateFrom(null);
+                    setDateTo(null);
+                  }}
+                >
+                  Limpar datas
+                </Button>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -453,25 +624,13 @@ export default function Cashier() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">
-                Forma de Pagamento
-              </label>
-              <Select
-                value={selectedPaymentMethod}
-                onValueChange={setSelectedPaymentMethod}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas as Formas</SelectItem>
-                  {uniquePaymentMethods.map((method) => (
-                    <SelectItem key={method} value={method}>
-                      {method}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <label className="text-sm font-medium">Forma de Pagamento</label>
+              <MultiSelectString
+                value={selectedPaymentMethods}
+                onChange={setSelectedPaymentMethods}
+                options={paymentMethodOptions}
+                placeholder="Todas as formas"
+              />
             </div>
           </div>
         </CardContent>
@@ -700,7 +859,7 @@ export default function Cashier() {
                     >
                       <span className="flex items-center gap-2 font-medium">
                         <CreditCard className="h-4 w-4" />
-                        {method}
+                        {PAYMENT_METHOD_LABEL[method] ?? method}
                       </span>
                       <span className="text-lg font-bold">
                         R$ {amount.toFixed(2)}
