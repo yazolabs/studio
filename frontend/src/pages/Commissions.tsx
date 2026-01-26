@@ -11,7 +11,6 @@ import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import { format, parseISO } from 'date-fns';
 import { useCommissionsQuery, useMarkCommissionAsPaid } from '@/hooks/commissions';
-import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { Commission } from '@/types/commission';
 import { displayCurrency } from '@/utils/formatters';
@@ -37,7 +36,7 @@ export default function Commissions() {
   const { mutate: markAsPaid, isPending: isMarkingPaid } =
     useMarkCommissionAsPaid();
 
-  const commissions = data?.data ?? [];
+  const commissions = data ?? [];
 
   const uniqueProfessionals = useMemo(() => {
     const names = new Map<number, string>();
@@ -113,10 +112,11 @@ export default function Commissions() {
     autoTable(doc, {
       startY: 65,
       head: [
-        ['Data', 'Profissional', 'Cliente', 'Serviço', 'Valor Serv.', 'Comissão'],
+        ['Data', 'Agendamento', 'Profissional', 'Cliente', 'Serviço', 'Valor Serv.', 'Comissão']
       ],
       body: filteredCommissions.map((c) => [
-        c.date ? format(parseISO(c.date), 'dd/MM/yyyy HH:mm') : '-',
+        c.date ? format(parseISO(c.date), 'dd/MM/yyyy') : '-',
+        `#${c.appointment?.id} (linha ${c.appointment_service_id ?? '-'})`,
         c.professional?.name ?? '-',
         c.customer?.name ?? '-',
         c.service?.name ?? '-',
@@ -131,7 +131,9 @@ export default function Commissions() {
   const exportToExcel = () => {
     const ws = XLSX.utils.json_to_sheet(
       filteredCommissions.map((c) => ({
-        Data: c.date ? format(parseISO(c.date), 'dd/MM/yyyy HH:mm') : '-',
+        Data: c.date ? format(parseISO(c.date), 'dd/MM/yyyy') : '-',
+        Agendamento: c.appointment?.id ? `#${c.appointment?.id}` : '-',
+        Linha: c.appointment_service_id ?? '-',
         Profissional: c.professional?.name ?? '-',
         Cliente: c.customer?.name ?? '-',
         Serviço: c.service?.name ?? '-',
@@ -164,10 +166,7 @@ export default function Commissions() {
   };
 
   const handleMarkAsPaid = (id: number) => {
-    markAsPaid(id, {
-      onSuccess: () => toast.success('Comissão marcada como paga!'),
-      onError: () => toast.error('Erro ao marcar comissão como paga.'),
-    });
+    markAsPaid(id);
   };
 
   const columns = [
@@ -175,7 +174,45 @@ export default function Commissions() {
       key: 'date',
       header: 'Data/Hora',
       render: (c: Commission) =>
-        c.date ? format(parseISO(c.date), 'dd/MM/yyyy HH:mm') : '-',
+      c.date ? format(parseISO(c.date), 'dd/MM/yyyy') : '-',
+    },
+    {
+      key: "appointment_service_id",
+      header: "Atendimento",
+      render: (c: Commission) => {
+        const appId = c.appointment?.id;
+        const lineId = c.appointment_service_id ?? c.appointment_service?.id;
+
+        const starts = c.appointment_service?.starts_at
+          ? format(parseISO(c.appointment_service.starts_at), "HH:mm")
+          : null;
+
+        const ends = c.appointment_service?.ends_at
+          ? format(parseISO(c.appointment_service.ends_at), "HH:mm")
+          : null;
+
+        const windowLabel = starts && ends ? `${starts}–${ends}` : null;
+
+        const linePrice =
+          c.appointment_service?.service_price ?? c.service_price ?? "0";
+
+        return (
+          <div className="space-y-0.5">
+            <div className="font-medium">
+              {appId ? `#${appId}` : "-"}
+            </div>
+
+            <div className="text-xs text-muted-foreground">
+              Linha: {lineId ?? "-"}
+              {windowLabel ? ` • ${windowLabel}` : ""}
+            </div>
+
+            <div className="text-xs text-muted-foreground">
+              Valor linha: {displayCurrency(Number(linePrice || 0))}
+            </div>
+          </div>
+        );
+      },
     },
     {
       key: 'professional',
@@ -388,8 +425,20 @@ export default function Commissions() {
           <DataTable
             data={filteredCommissions}
             columns={columns}
+            loading={isLoading}
             searchPlaceholder="Buscar por profissional, cliente ou serviço..."
             emptyMessage="Nenhuma comissão encontrada"
+            searchFn={(c, term) =>
+              [
+                c.professional?.name,
+                c.customer?.name,
+                c.service?.name,
+                c.appointment?.id ? String(c.appointment.id) : null,
+                c.id ? String(c.id) : null,
+              ]
+                .filter(Boolean)
+                .some((v) => String(v).toLowerCase().includes(term))
+            }
           />
         </CardContent>
       </Card>

@@ -21,6 +21,8 @@ class AccountPayable extends Model
         'supplier_id',
         'professional_id',
         'appointment_id',
+        'origin_type',
+        'origin_id',
         'payment_date',
         'payment_method',
         'reference',
@@ -32,6 +34,7 @@ class AccountPayable extends Model
         'due_date' => 'date',
         'status' => AccountPayableStatus::class,
         'payment_date' => 'date',
+        'origin_id' => 'integer',
     ];
 
     public function supplier()
@@ -51,12 +54,17 @@ class AccountPayable extends Model
 
     public function commission()
     {
-        return $this->belongsTo(Commission::class, 'appointment_id', 'appointment_id')
-                    ->whereColumn('professional_id', 'commissions.professional_id');
+        return $this->belongsTo(Commission::class, 'origin_id')
+            ->where('origin_type', 'commission');
     }
 
     public function isPending(): bool
     {
         return $this->status->value === 'pending';
+    }
+
+    public function isFromCommission(): bool
+    {
+        return $this->origin_type === 'commission' && !empty($this->origin_id);
     }
 }

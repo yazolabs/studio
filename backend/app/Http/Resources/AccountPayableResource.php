@@ -16,6 +16,8 @@ class AccountPayableResource extends JsonResource
             'status' => $this->status,
             'category' => $this->category,
             'supplier_id' => $this->supplier_id,
+            'origin_type' => $this->origin_type,
+            'origin_id' => $this->origin_id,
             'professional' => $this->whenLoaded('professional', fn() => [
                 'id' => $this->professional->id,
                 'name' => $this->professional->name ?? $this->professional->user->name ?? null,

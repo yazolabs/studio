@@ -12,7 +12,7 @@ import { MoreHorizontal, Plus, Pencil, Check, Eye, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAccountsPayableQuery, useCreateAccountPayable, useUpdateAccountPayable, useDeleteAccountPayable, useMarkAccountAsPaid } from "@/hooks/accounts-payable";
 import { displayCurrency, formatCurrencyInput } from "@/utils/formatters";
-import { CreateAccountPayableDto } from "@/types/account-payable";
+import type { AccountPayable, CreateAccountPayableDto } from "@/types/account-payable";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
@@ -27,11 +27,9 @@ export default function AccountsPayable() {
 
   const isMobile = useIsMobile();
 
-  const { data, isLoading } = useAccountsPayableQuery({
-    perPage: 200,
-  });
+  const { data, isLoading } = useAccountsPayableQuery();
 
-  const accounts = data?.data ?? [];
+  const accounts = data ?? [];
 
   const createMutation = useCreateAccountPayable();
   const updateMutation = useUpdateAccountPayable(editingId ?? 0);
@@ -243,6 +241,34 @@ export default function AccountsPayable() {
       render: (row: any) => getStatusBadge(row.status),
     },
     {
+      key: "origin",
+      header: "Origem",
+      render: (row: AccountPayable) => {
+        const type = row.origin_type ?? "manual";
+
+        const label =
+          type === "commission" ? "Comissão"
+          : type === "manual" ? "Manual"
+          : type;
+
+        const originId = row.origin_id ?? row.commission?.id ?? null;
+        const appId = row.appointment?.id ?? row.appointment_id ?? null;
+
+        return (
+          <div className="space-y-0.5">
+            <div className="text-sm font-medium">
+              {label}{originId ? ` #${originId}` : ""}
+            </div>
+
+            <div className="text-xs text-muted-foreground">
+              {appId ? `Agendamento #${appId}` : "—"}
+              {row.commission?.status ? ` • Comissão: ${row.commission.status === "paid" ? "paga" : "pendente"}` : ""}
+            </div>
+          </div>
+        );
+      },
+    },
+    {
       key: "actions",
       header: "Ações",
       render: (row: any) => (
@@ -361,6 +387,21 @@ export default function AccountsPayable() {
         loading={isLoading}
         emptyMessage="Nenhuma conta encontrada"
         searchPlaceholder="Buscar contas..."
+        searchFn={(a, term) =>
+          [
+            a.description,
+            a.category,
+            a.reference,
+            a.origin_type,
+            a.origin_id ? String(a.origin_id) : null,
+            a.commission?.id ? String(a.commission.id) : null,
+            a.appointment?.id ? String(a.appointment.id) : a.appointment_id ? String(a.appointment_id) : null,
+            a.professional?.name,
+            a.id ? String(a.id) : null,
+          ]
+            .filter(Boolean)
+            .some((v) => String(v).toLowerCase().includes(term))
+        }
       />
 
       <Dialog
@@ -688,6 +729,43 @@ export default function AccountsPayable() {
                         {getStatusBadge(acc.status)}
                       </div>
                     </div>
+
+                    <div>
+                      <Label className="text-muted-foreground">Origem</Label>
+                      <p className="font-medium">
+                        {acc.origin_type ?? "manual"}
+                        {acc.origin_id
+                          ? ` #${acc.origin_id}`
+                          : acc.commission?.id
+                          ? ` #${acc.commission.id}`
+                          : ""}
+                      </p>
+                    </div>
+
+                    {(acc.appointment?.id ?? acc.appointment_id) && (
+                      <div>
+                        <Label className="text-muted-foreground">Agendamento</Label>
+                        <p className="font-medium">
+                          #{acc.appointment?.id ?? acc.appointment_id}
+                          {acc.appointment?.date
+                            ? ` • ${format(parseISO(acc.appointment.date), "dd/MM/yyyy")}`
+                            : ""}
+                        </p>
+                      </div>
+                    )}
+
+                    {acc.commission && (
+                      <div>
+                        <Label className="text-muted-foreground">Comissão</Label>
+                        <p className="font-medium">
+                          #{acc.commission.id} •{" "}
+                          {acc.commission.status === "paid" ? "Paga" : "Pendente"}
+                          {acc.commission.payment_date
+                            ? ` • ${format(parseISO(acc.commission.payment_date), "dd/MM/yyyy")}`
+                            : ""}
+                        </p>
+                      </div>
+                    )}
 
                     {acc.payment_date && (
                       <>

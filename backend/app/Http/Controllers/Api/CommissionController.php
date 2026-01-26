@@ -28,7 +28,7 @@ class CommissionController extends Controller
             'perPage',
         ]);
 
-        $query = Commission::with(['professional', 'customer', 'service', 'appointment'])
+        $query = Commission::with(['professional', 'customer', 'service', 'appointment', 'appointmentService', 'accountPayable'])
             ->when($filters['status'] ?? null, fn($q, $status) => $q->where('status', $status))
             ->when($filters['professional_id'] ?? null, fn($q, $id) => $q->where('professional_id', $id))
             ->when($filters['appointment_id'] ?? null, fn($q, $id) => $q->where('appointment_id', $id))
@@ -51,13 +51,14 @@ class CommissionController extends Controller
 
         return CommissionResource::collection($commissions);
     }
-    
+
     public function store(Request $request)
     {
         $payload = Arr::only($request->all(), [
             'professional_id',
             'appointment_id',
             'service_id',
+            'appointment_service_id',
             'customer_id',
             'date',
             'service_price',
@@ -70,14 +71,16 @@ class CommissionController extends Controller
 
         $commission = $this->service->create($payload);
 
-        return (new CommissionResource($commission->load(['professional', 'customer', 'service', 'appointment'])))
+        return (new CommissionResource(
+            $commission->load(['professional', 'customer', 'service', 'appointment', 'appointmentService', 'accountPayable'])
+        ))
             ->response()
             ->setStatusCode(Response::HTTP_CREATED);
     }
 
     public function show(Commission $commission)
     {
-        return new CommissionResource($commission->load(['professional', 'customer', 'service', 'appointment']));
+        return new CommissionResource($commission->load(['professional', 'customer', 'service', 'appointment', 'appointmentService', 'accountPayable']));
     }
 
     public function update(Request $request, Commission $commission)
@@ -86,6 +89,7 @@ class CommissionController extends Controller
             'professional_id',
             'appointment_id',
             'service_id',
+            'appointment_service_id',
             'customer_id',
             'date',
             'service_price',
@@ -98,7 +102,7 @@ class CommissionController extends Controller
 
         $updated = $this->service->update($commission, $payload);
 
-        return new CommissionResource($updated->load(['professional', 'customer', 'service', 'appointment']));
+        return new CommissionResource($updated->load(['professional', 'customer', 'service', 'appointment', 'appointmentService', 'accountPayable']));
     }
 
     public function destroy(Commission $commission)
@@ -115,6 +119,7 @@ class CommissionController extends Controller
             'payment_date' => now()->toDateString(),
         ]);
 
+        $commission->load('accountPayable');
         if ($commission->accountPayable) {
             $commission->accountPayable->update([
                 'status' => 'paid',
@@ -122,6 +127,8 @@ class CommissionController extends Controller
             ]);
         }
 
-        return new CommissionResource($commission->fresh(['professional', 'customer', 'service', 'appointment', 'accountPayable']));
+        return new CommissionResource(
+            $commission->fresh(['professional', 'customer', 'service', 'appointment', 'appointmentService', 'accountPayable'])
+        );
     }
 }

@@ -1,12 +1,9 @@
 import { api } from './api';
-import type { Paginated } from '../types/pagination';
-import type { Commission, CreateCommissionDto, UpdateCommissionDto, MarkCommissionAsPaidDto } from '../types/commission';
+import type { Commission, CreateCommissionDto, UpdateCommissionDto } from '../types/commission';
 
 const basePath = '/commissions';
 
 type CommissionQueryParams = {
-  page?: number;
-  perPage?: number;
   search?: string;
   professional_id?: number;
   status?: string;
@@ -14,17 +11,20 @@ type CommissionQueryParams = {
   end_date?: string;
 };
 
+type ResourceResponse<T> = { data: T };
+type CollectionResponse<T> = { data: T[] };
+
 function mapPayload(payload: CreateCommissionDto | UpdateCommissionDto) {
   const body = {
     professional_id: payload.professional_id,
     appointment_id: payload.appointment_id,
     service_id: payload.service_id,
     customer_id: payload.customer_id,
+    appointment_service_id: payload.appointment_service_id,
     date: payload.date,
     service_price: payload.service_price,
     commission_type: payload.commission_type,
     commission_value: payload.commission_value,
-    commission_amount: payload.commission_amount,
     status: payload.status,
     payment_date: payload.payment_date,
   };
@@ -33,23 +33,23 @@ function mapPayload(payload: CreateCommissionDto | UpdateCommissionDto) {
 }
 
 export async function listCommissions(params?: CommissionQueryParams) {
-  const { data } = await api.get<Paginated<Commission>>(basePath, { params });
-  return data;
+  const { data } = await api.get<CollectionResponse<Commission>>(basePath, { params });
+  return (data as any).data ?? (data as any);
 }
 
 export async function getCommission(id: number) {
-  const { data } = await api.get<Commission>(`${basePath}/${id}`);
-  return data;
+  const { data } = await api.get<ResourceResponse<Commission>>(`${basePath}/${id}`);
+  return (data as any).data ?? (data as any);
 }
 
 export async function createCommission(payload: CreateCommissionDto) {
-  const { data } = await api.post<Commission>(basePath, mapPayload(payload));
-  return data;
+  const { data } = await api.post<ResourceResponse<Commission>>(basePath, mapPayload(payload));
+  return (data as any).data ?? (data as any);
 }
 
 export async function updateCommission(id: number, payload: UpdateCommissionDto) {
-  const { data } = await api.put<Commission>(`${basePath}/${id}`, mapPayload(payload));
-  return data;
+  const { data } = await api.put<ResourceResponse<Commission>>(`${basePath}/${id}`, mapPayload(payload));
+  return (data as any).data ?? (data as any);
 }
 
 export async function removeCommission(id: number) {
@@ -57,6 +57,6 @@ export async function removeCommission(id: number) {
 }
 
 export async function markCommissionAsPaid(id: number) {
-  const { data } = await api.patch<Commission>(`${basePath}/${id}/mark-paid`);
-  return data;
+  const { data } = await api.patch<ResourceResponse<Commission>>(`${basePath}/${id}/mark-paid`);
+  return (data as any).data ?? (data as any);
 }

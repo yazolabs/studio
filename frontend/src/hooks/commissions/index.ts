@@ -1,19 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../../services/api';
-import { createCommission, getCommission, listCommissions, removeCommission, updateCommission } from '../../services/commissionsService';
+import { createCommission, getCommission, listCommissions, removeCommission, updateCommission, markCommissionAsPaid } from '../../services/commissionsService';
 import type { Commission, CreateCommissionDto, UpdateCommissionDto } from '../../types/commission';
-import { markCommissionAsPaid } from '../../services/commissionsService';
 import { toast } from 'sonner';
 
 export function useCommissionsQuery(params?: Parameters<typeof listCommissions>[0]) {
-  return useQuery({
+  return useQuery<Commission[]>({
     queryKey: [queryKeys.commissions[0], params],
     queryFn: () => listCommissions(params),
   });
 }
 
 export function useCommissionQuery(id: number, enabled = true) {
-  return useQuery({
+  return useQuery<Commission>({
     queryKey: [queryKeys.commissions[0], id],
     queryFn: () => getCommission(id),
     enabled,
@@ -54,10 +53,11 @@ export function useDeleteCommission() {
 export function useMarkCommissionAsPaid() {
   const queryClient = useQueryClient();
 
-  return useMutation({
-    mutationFn: (id: number) => markCommissionAsPaid(id),
+  return useMutation<Commission, unknown, number>({
+    mutationFn: (id) => markCommissionAsPaid(id),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.commissions });
+      queryClient.invalidateQueries({ queryKey: [queryKeys.commissions[0], data.id] });
       toast.success(`Comissão #${data.id} marcada como paga com sucesso!`);
     },
     onError: () => {

@@ -3,7 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\{Builder, Model};
 
 class AppointmentService extends Model
 {
@@ -23,6 +23,7 @@ class AppointmentService extends Model
     ];
 
     protected $casts = [
+        'service_price' => 'decimal:2',
         'starts_at' => 'datetime',
         'ends_at'   => 'datetime',
     ];
@@ -40,5 +41,15 @@ class AppointmentService extends Model
     public function professional()
     {
         return $this->belongsTo(Professional::class);
+    }
+
+    public function commissions()
+    {
+        return $this->hasMany(Commission::class, 'appointment_service_id');
+    }
+
+    public function scopeActive(Builder $query): Builder
+    {
+        return $query->whereHas('appointment', fn ($q) => $q->whereNull('deleted_at'));
     }
 }

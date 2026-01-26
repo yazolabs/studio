@@ -20,6 +20,7 @@ interface DataTableProps<T> {
   emptyMessage?: string;
   loading?: boolean;
   itemsPerPage?: number;
+  searchFn?: (item: T, term: string) => boolean;
 }
 
 export function DataTable<T extends Record<string, any>>({
@@ -30,16 +31,23 @@ export function DataTable<T extends Record<string, any>>({
   emptyMessage = "Nenhum registro encontrado.",
   loading = false,
   itemsPerPage = 10,
+  searchFn,
 }: DataTableProps<T>) {
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const isMobile = useIsMobile();
 
-  const filteredData = data.filter((item) =>
-    Object.values(item).some((value) =>
-      String(value).toLowerCase().includes(searchTerm.toLowerCase())
-    )
-  );
+  const normalizedTerm = searchTerm.trim().toLowerCase();
+
+  const filteredData = !normalizedTerm
+    ? data
+    : data.filter((item) =>
+        searchFn
+          ? searchFn(item, normalizedTerm)
+          : Object.values(item).some((value) =>
+              String(value).toLowerCase().includes(normalizedTerm)
+            )
+      );
 
   const totalPages = Math.max(
     1,

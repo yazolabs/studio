@@ -2,9 +2,10 @@
 
 namespace App\Services;
 
-use App\Models\Commission;
+use App\Models\{Commission, AppointmentService};
 use Illuminate\Database\Eloquent\{Builder, Model};
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class CommissionService extends BaseService
 {
@@ -30,6 +31,29 @@ class CommissionService extends BaseService
                 $data['date'] = now()->toDateString();
             }
 
+            $data = $this->hydrateAppointmentServiceLink($data);
+
+            unset($data['_auto']);
+
+            $data['commission_amount'] = $this->calculateCommissionAmount($data);
+
+            return parent::create($data);
+        });
+    }
+
+    public function createAuto(array $data): Model
+    {
+        return DB::transaction(function () use ($data) {
+            $data['_auto'] = true;
+
+            if (empty($data['date'])) {
+                $data['date'] = now()->toDateString();
+            }
+
+            $data = $this->hydrateAppointmentServiceLink($data);
+
+            unset($data['_auto']);
+
             $data['commission_amount'] = $this->calculateCommissionAmount($data);
 
             return parent::create($data);
@@ -41,15 +65,92 @@ class CommissionService extends BaseService
         return DB::transaction(function () use ($model, $data) {
 
             if (
+                array_key_exists('appointment_service_id', $data) ||
+                array_key_exists('appointment_id', $data) ||
+                array_key_exists('service_id', $data) ||
+                array_key_exists('professional_id', $data)
+            ) {
+                $merged = array_merge($model->toArray(), $data);
+                $data = $this->hydrateAppointmentServiceLink($data, $merged);
+            }
+
+            if (
                 isset($data['service_price']) ||
                 isset($data['commission_type']) ||
                 isset($data['commission_value'])
             ) {
-                $data['commission_amount'] = $this->calculateCommissionAmount($data);
+                $merged = array_merge($model->toArray(), $data);
+                $data['commission_amount'] = $this->calculateCommissionAmount($merged);
             }
+
+            unset($data['_auto']);
 
             return parent::update($model, $data);
         });
+    }
+
+    public function updateAuto(Model $model, array $data): Model
+    {
+        $data['_auto'] = true;
+
+        $updated = $this->update($model, $data);
+
+        return $updated;
+    }
+
+    protected function hydrateAppointmentServiceLink(array $data, ?array $context = null): array
+    {
+        $ctx = $context ?? $data;
+
+        if (!empty($data['appointment_service_id'])) {
+            $svc = AppointmentService::query()->find($data['appointment_service_id']);
+
+            if (!$svc) {
+                throw ValidationException::withMessages([
+                    'appointment_service_id' => ['appointment_service_id inválido.'],
+                ]);
+            }
+
+            foreach (['appointment_id', 'service_id', 'professional_id'] as $k) {
+                if (!empty($ctx[$k]) && (int)$ctx[$k] !== (int)$svc->{$k}) {
+                    throw ValidationException::withMessages([
+                        'appointment_service_id' => ["appointment_service_id não bate com {$k} informado."],
+                    ]);
+                }
+            }
+
+            $data['appointment_id'] ??= $svc->appointment_id;
+            $data['service_id'] ??= $svc->service_id;
+            $data['professional_id'] ??= $svc->professional_id;
+
+            $data['service_price'] ??= $svc->service_price;
+
+            $data['commission_type'] ??= $svc->commission_type;
+            $data['commission_value'] ??= $svc->commission_value;
+
+            return $data;
+        }
+
+        if (!empty($ctx['appointment_id']) && !empty($ctx['service_id']) && !empty($ctx['professional_id'])) {
+            $svcId = AppointmentService::query()
+                ->where('appointment_id', $ctx['appointment_id'])
+                ->where('service_id', $ctx['service_id'])
+                ->where('professional_id', $ctx['professional_id'])
+                ->orderBy('id')
+                ->value('id');
+
+            if ($svcId) {
+                $data['appointment_service_id'] = $svcId;
+            }
+        }
+
+        if (!empty($data['_auto']) && empty($data['appointment_service_id'])) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'appointment_service_id' => ['Não foi possível resolver appointment_service_id automaticamente.'],
+            ]);
+        }
+
+        return $data;
     }
 
     protected function calculateCommissionAmount(array $data): float

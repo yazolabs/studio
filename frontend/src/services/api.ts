@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL ?? '/api',
+  baseURL: import.meta.env.VITE_API_URL || '/api',
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
@@ -26,7 +26,7 @@ export const queryKeys = {
   promotions: ['promotions'],
   appointments: ['appointments'],
   commissions: ['commissions'],
-  cashier: ['cashier'],
+  cashierTransactions: ['cashier-transactions'],
   accountsPayable: ['accounts-payable'],
   itemPrices: ['item-prices'],
   itemPriceHistories: ['item-price-histories'],

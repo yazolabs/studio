@@ -1,12 +1,9 @@
 import { api } from './api';
-import type { Paginated } from '../types/pagination';
-import type { AccountPayable, CreateAccountPayableDto, UpdateAccountPayableDto, MarkAccountAsPaidDto } from '../types/account-payable';
+import type { AccountPayable, CreateAccountPayableDto, UpdateAccountPayableDto } from '../types/account-payable';
 
 const basePath = '/accounts-payable';
 
 type AccountsPayableQueryParams = {
-  page?: number;
-  perPage?: number;
   search?: string;
   status?: string;
   category?: string;
@@ -15,6 +12,9 @@ type AccountsPayableQueryParams = {
   start_date?: string;
   end_date?: string;
 };
+
+type ResourceResponse<T> = { data: T };
+type CollectionResponse<T> = { data: T[] };
 
 function mapPayload(payload: CreateAccountPayableDto | UpdateAccountPayableDto) {
   const body = {
@@ -26,6 +26,8 @@ function mapPayload(payload: CreateAccountPayableDto | UpdateAccountPayableDto) 
     supplier_id: payload.supplier_id,
     professional_id: payload.professional_id,
     appointment_id: payload.appointment_id,
+    origin_type: payload.origin_type,
+    origin_id: payload.origin_id,
     payment_date: payload.payment_date,
     payment_method: payload.payment_method,
     reference: payload.reference,
@@ -36,23 +38,23 @@ function mapPayload(payload: CreateAccountPayableDto | UpdateAccountPayableDto) 
 }
 
 export async function listAccountsPayable(params?: AccountsPayableQueryParams) {
-  const { data } = await api.get<Paginated<AccountPayable>>(basePath, { params });
-  return data;
+  const { data } = await api.get<CollectionResponse<AccountPayable>>(basePath, { params });
+  return (data as any).data ?? (data as any);
 }
 
 export async function getAccountPayable(id: number) {
-  const { data } = await api.get(`${basePath}/${id}`);
-  return data?.data;
+  const { data } = await api.get<ResourceResponse<AccountPayable>>(`${basePath}/${id}`);
+  return (data as any).data ?? (data as any);
 }
 
 export async function createAccountPayable(payload: CreateAccountPayableDto) {
-  const { data } = await api.post(basePath, mapPayload(payload));
-  return data.data;
+  const { data } = await api.post<ResourceResponse<AccountPayable>>(basePath, mapPayload(payload));
+  return (data as any).data ?? (data as any);
 }
 
 export async function updateAccountPayable(id: number, payload: UpdateAccountPayableDto) {
-  const { data } = await api.put(`${basePath}/${id}`, mapPayload(payload));
-  return data.data;
+  const { data } = await api.put<ResourceResponse<AccountPayable>>(`${basePath}/${id}`, mapPayload(payload));
+  return (data as any).data ?? (data as any);
 }
 
 export async function removeAccountPayable(id: number) {
@@ -60,6 +62,6 @@ export async function removeAccountPayable(id: number) {
 }
 
 export async function markAccountAsPaid(id: number, payload: { payment_method: string; payment_date: string }) {
-  const { data } = await api.patch(`${basePath}/${id}/mark-paid`, payload);
-  return data.data;
+  const { data } = await api.patch<ResourceResponse<AccountPayable>>(`${basePath}/${id}/mark-paid`, payload);
+  return (data as any).data ?? (data as any);
 }

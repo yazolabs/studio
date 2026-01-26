@@ -12,9 +12,7 @@ use Symfony\Component\HttpFoundation\Response;
 
 class AccountPayableController extends Controller
 {
-    public function __construct(private readonly AccountPayableService $service)
-    {
-    }
+    public function __construct(private readonly AccountPayableService $service) {}
 
     public function index(Request $request)
     {
@@ -35,9 +33,7 @@ class AccountPayableController extends Controller
             ->when($filters['appointment_id'] ?? null, fn($q, $id) => $q->where('appointment_id', $id))
             ->when(
                 ($filters['start_date'] ?? null) && ($filters['end_date'] ?? null),
-                function ($q) use ($filters) {
-                    $q->whereBetween('due_date', [$filters['start_date'], $filters['end_date']]);
-                }
+                fn($q) => $q->whereBetween('due_date', [$filters['start_date'], $filters['end_date']])
             )
             ->when($filters['search'] ?? null, function ($q, $term) {
                 $q->where(function ($sub) use ($term) {
@@ -48,9 +44,7 @@ class AccountPayableController extends Controller
             })
             ->orderByDesc('due_date');
 
-        $records = $query->get();
-
-        return AccountPayableResource::collection($records);
+        return AccountPayableResource::collection($query->get());
     }
 
     public function store(Request $request)
@@ -64,6 +58,11 @@ class AccountPayableController extends Controller
             'supplier_id',
             'professional_id',
             'appointment_id',
+
+            // ✅ NOVOS
+            'origin_type',
+            'origin_id',
+
             'payment_date',
             'payment_method',
             'reference',
@@ -93,6 +92,8 @@ class AccountPayableController extends Controller
             'supplier_id',
             'professional_id',
             'appointment_id',
+            'origin_type',
+            'origin_id',
             'payment_date',
             'payment_method',
             'reference',
@@ -107,7 +108,6 @@ class AccountPayableController extends Controller
     public function destroy(AccountPayable $accountPayable)
     {
         $this->service->delete($accountPayable);
-
         return response()->noContent();
     }
 
@@ -124,6 +124,7 @@ class AccountPayableController extends Controller
             'payment_date' => $payload['payment_date'],
         ]);
 
+        $accountPayable->load('commission');
         if ($accountPayable->commission) {
             $accountPayable->commission->update([
                 'status' => 'paid',

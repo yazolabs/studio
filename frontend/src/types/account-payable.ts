@@ -8,6 +8,11 @@ export type AccountPayable = {
   supplier_id: number | null;
   professional_id: number | null;
   appointment_id: number | null;
+  origin_type?: 'manual' | 'commission' | string | null;
+  origin_id?: number | null;
+  professional?: { id: number; name: string } | null;
+  appointment?: { id: number; date: string | null; payment_method: string | null } | null;
+  commission?: { id: number; status: 'pending' | 'paid'; payment_date: string | null } | null;
   payment_date: string | null;
   payment_method: string | null;
   reference: string | null;
@@ -16,21 +21,22 @@ export type AccountPayable = {
   updated_at: string | null;
 };
 
-export type CreateAccountPayableDto = Pick<
-  AccountPayable,
-  | 'description'
-  | 'amount'
-  | 'due_date'
-  | 'status'
-  | 'category'
-  | 'supplier_id'
-  | 'professional_id'
-  | 'appointment_id'
-  | 'payment_date'
-  | 'payment_method'
-  | 'reference'
-  | 'notes'
->;
+export type CreateAccountPayableDto = {
+  description: string;
+  amount: string;
+  due_date: string | null;
+  status: 'pending' | 'paid';
+  category: string | null;
+  supplier_id: number | null;
+  professional_id: number | null;
+  appointment_id: number | null;
+  origin_type?: 'manual' | 'commission' | string | null;
+  origin_id?: number | null;
+  payment_date: string | null;
+  payment_method: string | null;
+  reference: string | null;
+  notes: string | null;
+};
 
 export type UpdateAccountPayableDto = Partial<CreateAccountPayableDto>;
 

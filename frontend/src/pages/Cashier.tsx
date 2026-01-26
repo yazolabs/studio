@@ -1,12 +1,39 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataTable } from "@/components/DataTable";
 import { Badge } from "@/components/ui/badge";
-import { DollarSign, TrendingUp, ArrowUpCircle, ArrowDownCircle, Download, FileText, Tag, CreditCard, Check, X, Filter, ChevronDown, ChevronUp, Calendar as CalendarIcon } from "lucide-react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  DollarSign,
+  TrendingUp,
+  ArrowUpCircle,
+  ArrowDownCircle,
+  Download,
+  FileText,
+  Tag,
+  CreditCard,
+  Check,
+  X,
+  Filter,
+  ChevronDown,
+  ChevronUp,
+  Calendar as CalendarIcon,
+} from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
@@ -16,11 +43,18 @@ import type { AccountPayable } from "@/types/account-payable";
 import type { CashierTransaction } from "@/types/cashier-transaction";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { cn } from "@/lib/utils";
 
-type Period = "day" | "week" | "month";
 type MultiSelectOption = { value: string; label: string };
 
 function MultiSelectString({
@@ -108,12 +142,16 @@ function MultiSelectString({
 }
 
 export default function Cashier() {
-  const [period, setPeriod] = useState<Period>("month");
-  const [selectedType, setSelectedType] = useState<"all" | "entrada" | "saida">("all");
+  const [selectedType, setSelectedType] = useState<"all" | "entrada" | "saida">(
+    "all"
+  );
   const [dateFrom, setDateFrom] = useState<Date | null>(null);
   const [dateTo, setDateTo] = useState<Date | null>(null);
-  const [selectedPaymentMethods, setSelectedPaymentMethods] = useState<string[]>([]);
+  const [selectedPaymentMethods, setSelectedPaymentMethods] = useState<string[]>(
+    []
+  );
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const PAYMENT_METHOD_LABEL: Record<string, string> = {
     pix: "Pix",
@@ -139,32 +177,38 @@ export default function Cashier() {
     return true;
   };
 
-  const formatBR = (d: Date) => format(d, "dd/MM/yyyy", { locale: ptBR });
+  const hasActiveFilters =
+    selectedType !== "all" ||
+    selectedCategory !== "all" ||
+    selectedPaymentMethods.length > 0 ||
+    dateFrom !== null ||
+    dateTo !== null;
 
-  const presetRange = useMemo(() => {
-    const today = toStartOfDay(new Date());
-    if (period === "day") {
-      return { from: today, to: today };
-    }
-    if (period === "week") {
-      const from = new Date(today);
-      from.setDate(from.getDate() - 6);
-      return { from, to: today };
-    }
-    const from = new Date(today);
-    from.setDate(from.getDate() - 29);
-    return { from, to: today };
-  }, [period]);
+  useEffect(() => {
+    if (hasActiveFilters) setFiltersOpen(true);
+  }, [hasActiveFilters]);
 
-  const effectiveFrom = dateFrom ?? presetRange.from;
-  const effectiveTo = dateTo ?? presetRange.to;
+  const clearFilters = () => {
+    setSelectedType("all");
+    setSelectedCategory("all");
+    setSelectedPaymentMethods([]);
+    setDateFrom(null);
+    setDateTo(null);
+  };
 
-  const periodText = `${formatBR(effectiveFrom)} a ${formatBR(effectiveTo)}`;
+  const periodText = useMemo(() => {
+    if (!dateFrom && !dateTo) return "Todos os períodos";
+    const fmt = (d: Date) => format(d, "dd/MM/yyyy", { locale: ptBR });
+    const fromTxt = dateFrom ? fmt(dateFrom) : "…";
+    const toTxt = dateTo ? fmt(dateTo) : "…";
+    return `${fromTxt} a ${toTxt}`;
+  }, [dateFrom, dateTo]);
 
   const { data: transactionsRaw, isLoading, isError } = useQuery({
     queryKey: ["cashier-transactions"],
     queryFn: () => listCashierTransactions(),
   });
+
   const { data: accountsPayableRaw } = useQuery({
     queryKey: ["accounts-payable", "cashier"],
     queryFn: () => listAccountsPayable({ perPage: 1000 }),
@@ -174,10 +218,12 @@ export default function Cashier() {
     () => (accountsPayableRaw as any)?.data ?? [],
     [accountsPayableRaw]
   );
+
   const transactions: CashierTransaction[] = useMemo(
     () => transactionsRaw ?? [],
     [transactionsRaw]
   );
+
   const uniqueCategories = useMemo(() => {
     const set = new Set<string>();
     transactions.forEach((t) => {
@@ -185,6 +231,7 @@ export default function Cashier() {
     });
     return Array.from(set).sort();
   }, [transactions]);
+
   const uniquePaymentMethods = useMemo(() => {
     const set = new Set<string>();
     transactions.forEach((t) => {
@@ -192,13 +239,10 @@ export default function Cashier() {
     });
     return Array.from(set).sort();
   }, [transactions]);
+
   const paymentMethodOptions = useMemo(() => {
     const base = ["pix", "cash", "debit", "credit", "credit_link"];
-
-    const fromData = uniquePaymentMethods
-      .filter((m) => m && !base.includes(m))
-      .sort();
-
+    const fromData = uniquePaymentMethods.filter((m) => m && !base.includes(m)).sort();
     const all = [...base, ...fromData];
 
     return all.map((m) => ({
@@ -206,26 +250,29 @@ export default function Cashier() {
       label: PAYMENT_METHOD_LABEL[m] ?? m,
     }));
   }, [uniquePaymentMethods]);
+
   const filteredTransactions = useMemo(() => {
     return transactions.filter((t) => {
       const transactionDate = t.date ? new Date(t.date) : null;
       if (!transactionDate || Number.isNaN(transactionDate.getTime())) return false;
 
-      const periodMatch = isWithinRange(transactionDate, effectiveFrom, effectiveTo);
+      // ✅ Datas só filtram se o usuário escolher
+      const dateMatch =
+        !dateFrom && !dateTo ? true : isWithinRange(transactionDate, dateFrom, dateTo);
 
       const typeMatch = selectedType === "all" || t.type === selectedType;
 
       const categoryMatch =
-        selectedCategory === "all" ||
-        (t.category && t.category === selectedCategory);
+        selectedCategory === "all" || (t.category && t.category === selectedCategory);
 
       const paymentMatch =
         selectedPaymentMethods.length === 0 ||
         (t.payment_method && selectedPaymentMethods.includes(t.payment_method));
 
-      return periodMatch && typeMatch && categoryMatch && paymentMatch;
+      return dateMatch && typeMatch && categoryMatch && paymentMatch;
     });
-  }, [transactions, effectiveFrom, effectiveTo, selectedType, selectedCategory, selectedPaymentMethods]);
+  }, [transactions, dateFrom, dateTo, selectedType, selectedCategory, selectedPaymentMethods]);
+
   const summary = useMemo(() => {
     const entradas = filteredTransactions.filter((t) => t.type === "entrada");
     const saidas = filteredTransactions.filter((t) => t.type === "saida");
@@ -234,26 +281,19 @@ export default function Cashier() {
     const totalSaidas = saidas.reduce((sum, t) => sum + Number(t.amount), 0);
     const saldo = totalEntradas - totalSaidas;
     const transactionsCount = filteredTransactions.length;
-    const avgTicketEntradas =
-      entradas.length > 0 ? totalEntradas / entradas.length : 0;
+    const avgTicketEntradas = entradas.length > 0 ? totalEntradas / entradas.length : 0;
 
-    const byPaymentMethod = filteredTransactions.reduce(
-      (acc, t) => {
-        const key = t.payment_method || "Não informado";
-        acc[key] = (acc[key] || 0) + Number(t.amount);
-        return acc;
-      },
-      {} as Record<string, number>
-    );
+    const byPaymentMethod = filteredTransactions.reduce((acc, t) => {
+      const key = t.payment_method || "Não informado";
+      acc[key] = (acc[key] || 0) + Number(t.amount);
+      return acc;
+    }, {} as Record<string, number>);
 
-    const byCategory = filteredTransactions.reduce(
-      (acc, t) => {
-        const key = t.category || "Sem categoria";
-        acc[key] = (acc[key] || 0) + Number(t.amount);
-        return acc;
-      },
-      {} as Record<string, number>
-    );
+    const byCategory = filteredTransactions.reduce((acc, t) => {
+      const key = t.category || "Sem categoria";
+      acc[key] = (acc[key] || 0) + Number(t.amount);
+      return acc;
+    }, {} as Record<string, number>);
 
     return {
       totalEntradas,
@@ -265,36 +305,37 @@ export default function Cashier() {
       byCategory,
     };
   }, [filteredTransactions]);
-  const pendingPayablesInPeriod = useMemo(() => {
-    const start = toStartOfDay(effectiveFrom);
-    const end = toStartOfDay(effectiveTo);
+
+  const pendingPayablesInRange = useMemo(() => {
+    // ✅ Se não tem datas, considera todas as pendências
+    if (!dateFrom && !dateTo) {
+      return accountsPayable.filter((a) => a.status === "pending");
+    }
+
+    const start = dateFrom ? toStartOfDay(dateFrom) : null;
+    const end = dateTo ? toStartOfDay(dateTo) : null;
 
     return accountsPayable.filter((a) => {
       if (a.status !== "pending") return false;
       if (!a.due_date) return false;
+
       const due = new Date(`${a.due_date}T00:00:00`);
-      return due >= start && due <= end;
+      if (Number.isNaN(due.getTime())) return false;
+
+      if (start && due < start) return false;
+      if (end && due > end) return false;
+
+      return true;
     });
-  }, [accountsPayable, effectiveFrom, effectiveTo]);
+  }, [accountsPayable, dateFrom, dateTo]);
+
   const pendingPayablesTotal = useMemo(() => {
-    return pendingPayablesInPeriod.reduce((sum, a) => sum + Number(a.amount || 0), 0);
-  }, [pendingPayablesInPeriod]);
+    return pendingPayablesInRange.reduce((sum, a) => sum + Number(a.amount || 0), 0);
+  }, [pendingPayablesInRange]);
+
   const projectedBalance = useMemo(() => {
     return summary.saldo - pendingPayablesTotal;
   }, [summary.saldo, pendingPayablesTotal]);
-
-  const getPeriodLabel = () => {
-    switch (period) {
-      case "day":
-        return "Hoje";
-      case "week":
-        return "Última Semana";
-      case "month":
-        return "Último Mês";
-      default:
-        return "";
-    }
-  };
 
   const exportToPDF = () => {
     const doc = new jsPDF();
@@ -303,11 +344,7 @@ export default function Cashier() {
     doc.text("Relatório de Fluxo de Caixa", 14, 22);
     doc.setFontSize(11);
     doc.text(`Período: ${periodText}`, 14, 32);
-    doc.text(
-      `Total Entradas: R$ ${summary.totalEntradas.toFixed(2)}`,
-      14,
-      40
-    );
+    doc.text(`Total Entradas: R$ ${summary.totalEntradas.toFixed(2)}`, 14, 40);
     doc.text(`Total Saídas: R$ ${summary.totalSaidas.toFixed(2)}`, 14, 48);
     doc.text(`Saldo: R$ ${summary.saldo.toFixed(2)}`, 14, 56);
     doc.text(`Transações: ${summary.transactions}`, 14, 64);
@@ -320,12 +357,17 @@ export default function Cashier() {
         t.type === "entrada" ? "Entrada" : "Saída",
         t.description ?? "-",
         t.reference ?? "-",
-        t.payment_method ?? "-",
+        PAYMENT_METHOD_LABEL[t.payment_method ?? ""] ?? t.payment_method ?? "-",
         `R$ ${Number(t.amount).toFixed(2)}`,
       ]),
     });
 
-    doc.save(`relatorio-caixa-${format(effectiveFrom, "yyyy-MM-dd")}_a_${format(effectiveTo, "yyyy-MM-dd")}.pdf`);
+    const suffix =
+      dateFrom || dateTo
+        ? `${dateFrom ? format(dateFrom, "yyyy-MM-dd") : "x"}_a_${dateTo ? format(dateTo, "yyyy-MM-dd") : "x"}`
+        : "todos";
+
+    doc.save(`relatorio-caixa-${suffix}.pdf`);
   };
 
   const exportToExcel = () => {
@@ -336,7 +378,8 @@ export default function Cashier() {
         Descrição: t.description ?? "-",
         Categoria: t.category ?? "-",
         Referência: t.reference ?? "-",
-        "Forma de Pagamento": t.payment_method ?? "-",
+        "Forma de Pagamento":
+          PAYMENT_METHOD_LABEL[t.payment_method ?? ""] ?? t.payment_method ?? "-",
         "Valor (R$)": Number(t.amount).toFixed(2),
       }))
     );
@@ -345,35 +388,24 @@ export default function Cashier() {
     XLSX.utils.book_append_sheet(wb, ws, "Transações");
 
     const summaryData = [
-      {
-        Métrica: "Total Entradas",
-        Valor: `R$ ${summary.totalEntradas.toFixed(2)}`,
-      },
-      {
-        Métrica: "Total Saídas",
-        Valor: `R$ ${summary.totalSaidas.toFixed(2)}`,
-      },
+      { Métrica: "Período", Valor: periodText },
+      { Métrica: "Total Entradas", Valor: `R$ ${summary.totalEntradas.toFixed(2)}` },
+      { Métrica: "Total Saídas", Valor: `R$ ${summary.totalSaidas.toFixed(2)}` },
       { Métrica: "Saldo", Valor: `R$ ${summary.saldo.toFixed(2)}` },
-      {
-        Métrica: "Número de Transações",
-        Valor: summary.transactions,
-      },
-      {
-        Métrica: "Ticket Médio (Entradas)",
-        Valor: `R$ ${summary.avgTicketEntradas.toFixed(2)}`,
-      },
+      { Métrica: "Número de Transações", Valor: summary.transactions },
+      { Métrica: "Ticket Médio (Entradas)", Valor: `R$ ${summary.avgTicketEntradas.toFixed(2)}` },
     ];
+
     const wsSummary = XLSX.utils.json_to_sheet(summaryData);
     XLSX.utils.book_append_sheet(wb, wsSummary, "Resumo");
 
-    XLSX.writeFile(
-      wb,
-      `relatorio-caixa-${period}-${new Date()
-        .toISOString()
-        .split("T")[0]}.xlsx`
-    );
-  };
+    const suffix =
+      dateFrom || dateTo
+        ? `${dateFrom ? format(dateFrom, "yyyy-MM-dd") : "x"}_a_${dateTo ? format(dateTo, "yyyy-MM-dd") : "x"}`
+        : "todos";
 
+    XLSX.writeFile(wb, `relatorio-caixa-${suffix}.xlsx`);
+  };
 
   const columns = [
     {
@@ -381,14 +413,8 @@ export default function Cashier() {
       header: "Tipo",
       render: (transaction: CashierTransaction) => (
         <Badge
-          variant={
-            transaction.type === "entrada" ? "default" : "destructive"
-          }
-          className={
-            transaction.type === "entrada"
-              ? "bg-green-500"
-              : "bg-red-500"
-          }
+          variant={transaction.type === "entrada" ? "default" : "destructive"}
+          className={transaction.type === "entrada" ? "bg-green-500" : "bg-red-500"}
         >
           {transaction.type === "entrada" ? (
             <>
@@ -406,19 +432,17 @@ export default function Cashier() {
       key: "date",
       header: "Data/Hora",
       render: (t: CashierTransaction) =>
-        t.date ? new Date(t.date).toLocaleDateString("pt-BR") : "-"
+        t.date ? new Date(t.date).toLocaleDateString("pt-BR") : "-",
     },
     {
       key: "description",
       header: "Descrição",
-      render: (transaction: CashierTransaction) =>
-        transaction.description ?? "-",
+      render: (transaction: CashierTransaction) => transaction.description ?? "-",
     },
     {
       key: "reference",
       header: "Referência",
-      render: (transaction: CashierTransaction) =>
-        transaction.reference ?? "-",
+      render: (transaction: CashierTransaction) => transaction.reference ?? "-",
     },
     {
       key: "payment_method",
@@ -440,8 +464,7 @@ export default function Cashier() {
               : "text-red-600 font-semibold"
           }
         >
-          {transaction.type === "entrada" ? "+" : "-"} R${" "}
-          {Number(transaction.amount).toFixed(2)}
+          {transaction.type === "entrada" ? "+" : "-"} R$ {Number(transaction.amount).toFixed(2)}
         </span>
       ),
     },
@@ -453,9 +476,7 @@ export default function Cashier() {
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-3xl font-bold">Caixa</h1>
-            <p className="text-muted-foreground">
-              Gestão financeira e relatórios
-            </p>
+            <p className="text-muted-foreground">Gestão financeira e relatórios</p>
           </div>
         </div>
         <p className="text-sm text-muted-foreground">Carregando...</p>
@@ -469,14 +490,11 @@ export default function Cashier() {
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-3xl font-bold">Caixa</h1>
-            <p className="text-muted-foreground">
-              Gestão financeira e relatórios
-            </p>
+            <p className="text-muted-foreground">Gestão financeira e relatórios</p>
           </div>
         </div>
         <p className="text-sm text-red-500">
-          Ocorreu um erro ao carregar os dados do caixa. Verifique suas
-          permissões ou tente novamente.
+          Ocorreu um erro ao carregar os dados do caixa. Verifique suas permissões ou tente novamente.
         </p>
       </div>
     );
@@ -487,9 +505,7 @@ export default function Cashier() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Caixa</h1>
-          <p className="text-muted-foreground">
-            Gestão financeira e relatórios
-          </p>
+          <p className="text-muted-foreground">Gestão financeira e relatórios</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={exportToPDF}>
@@ -503,38 +519,73 @@ export default function Cashier() {
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Filtros</CardTitle>
-          <CardDescription>
-            Refine os resultados por período e outros critérios
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Período</label>
-              <Select
-                value={period}
-                onValueChange={(value) => setPeriod(value as Period)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="day">Hoje</SelectItem>
-                  <SelectItem value="week">Última Semana</SelectItem>
-                  <SelectItem value="month">Último Mês</SelectItem>
-                </SelectContent>
-              </Select>
+      {/* ✅ Filtros no estilo /appointments */}
+      <div className="bg-muted/40 border rounded-lg p-3 md:p-4 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <div className="flex flex-col">
+              <span className="text-xs md:text-sm font-medium text-muted-foreground">
+                Filtros
+              </span>
+
+              {hasActiveFilters && (
+                <span className="text-[11px] text-muted-foreground">
+                  {filteredTransactions.length} resultado
+                  {filteredTransactions.length === 1 ? "" : "s"} encontrado
+                  {filteredTransactions.length === 1 ? "" : "s"}
+                </span>
+              )}
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">De</label>
+          </div>
+
+          <div className="flex items-center gap-1">
+            {hasActiveFilters && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-[11px] md:text-xs"
+                onClick={clearFilters}
+              >
+                Limpar filtros
+              </Button>
+            )}
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="text-[11px] md:text-xs gap-1"
+              onClick={() => setFiltersOpen((prev) => !prev)}
+            >
+              {filtersOpen ? "Ocultar filtros" : "Mostrar filtros"}
+              {filtersOpen ? (
+                <ChevronUp className="h-3 w-3" />
+              ) : (
+                <ChevronDown className="h-3 w-3" />
+              )}
+            </Button>
+          </div>
+        </div>
+
+        {filtersOpen && (
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-2 mt-2">
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-muted-foreground">
+                Data de
+              </span>
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full justify-start text-left font-normal">
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {dateFrom ? format(dateFrom, "dd/MM/yyyy", { locale: ptBR }) : "Selecione"}
+                  <Button
+                    variant="outline"
+                    className={cn(
+                      "justify-between px-3 py-2 h-9 text-xs",
+                      !dateFrom && "text-muted-foreground"
+                    )}
+                  >
+                    {dateFrom ? format(dateFrom, "P", { locale: ptBR }) : "Qualquer data"}
+                    <CalendarIcon className="ml-2 h-3 w-3 opacity-60" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
@@ -542,20 +593,27 @@ export default function Cashier() {
                     mode="single"
                     selected={dateFrom ?? undefined}
                     onSelect={(d) => setDateFrom(d ?? null)}
-                    initialFocus
                     locale={ptBR}
                   />
                 </PopoverContent>
               </Popover>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Até</label>
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-muted-foreground">
+                Data até
+              </span>
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full justify-start text-left font-normal">
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {dateTo ? format(dateTo, "dd/MM/yyyy", { locale: ptBR }) : "Selecione"}
+                  <Button
+                    variant="outline"
+                    className={cn(
+                      "justify-between px-3 py-2 h-9 text-xs",
+                      !dateTo && "text-muted-foreground"
+                    )}
+                  >
+                    {dateTo ? format(dateTo, "P", { locale: ptBR }) : "Qualquer data"}
+                    <CalendarIcon className="ml-2 h-3 w-3 opacity-60" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
@@ -563,37 +621,36 @@ export default function Cashier() {
                     mode="single"
                     selected={dateTo ?? undefined}
                     onSelect={(d) => setDateTo(d ?? null)}
-                    initialFocus
                     locale={ptBR}
                   />
                 </PopoverContent>
               </Popover>
-
-              {(dateFrom || dateTo) && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="px-0 text-xs text-muted-foreground"
-                  onClick={() => {
-                    setDateFrom(null);
-                    setDateTo(null);
-                  }}
-                >
-                  Limpar datas
-                </Button>
-              )}
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Tipo</label>
+            <div className="flex flex-col gap-1 lg:col-span-2">
+              <span className="text-[11px] font-medium text-muted-foreground">
+                Forma de Pagamento
+              </span>
+              <MultiSelectString
+                value={selectedPaymentMethods}
+                onChange={setSelectedPaymentMethods}
+                options={paymentMethodOptions}
+                placeholder="Todas as formas"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-muted-foreground">
+                Tipo
+              </span>
               <Select
                 value={selectedType}
                 onValueChange={(value) =>
                   setSelectedType(value as "all" | "entrada" | "saida")
                 }
               >
-                <SelectTrigger>
-                  <SelectValue />
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="Todos" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todas</SelectItem>
@@ -603,14 +660,13 @@ export default function Cashier() {
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Categoria</label>
-              <Select
-                value={selectedCategory}
-                onValueChange={setSelectedCategory}
-              >
-                <SelectTrigger>
-                  <SelectValue />
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-muted-foreground">
+                Categoria
+              </span>
+              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="Todas" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todas as Categorias</SelectItem>
@@ -622,26 +678,14 @@ export default function Cashier() {
                 </SelectContent>
               </Select>
             </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Forma de Pagamento</label>
-              <MultiSelectString
-                value={selectedPaymentMethods}
-                onChange={setSelectedPaymentMethods}
-                options={paymentMethodOptions}
-                placeholder="Todas as formas"
-              />
-            </div>
           </div>
-        </CardContent>
-      </Card>
+        )}
+      </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Total Entradas
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Total Entradas</CardTitle>
             <ArrowUpCircle className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
@@ -649,16 +693,14 @@ export default function Cashier() {
               R$ {summary.totalEntradas.toFixed(2)}
             </div>
             <p className="text-xs text-muted-foreground">
-              {getPeriodLabel()}
+              {hasActiveFilters ? periodText : "Todos os períodos"}
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Total Saídas
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Total Saídas</CardTitle>
             <ArrowDownCircle className="h-4 w-4 text-red-600" />
           </CardHeader>
           <CardContent>
@@ -666,7 +708,7 @@ export default function Cashier() {
               R$ {summary.totalSaidas.toFixed(2)}
             </div>
             <p className="text-xs text-muted-foreground">
-              {getPeriodLabel()}
+              {hasActiveFilters ? periodText : "Todos os períodos"}
             </p>
           </CardContent>
         </Card>
@@ -678,48 +720,37 @@ export default function Cashier() {
           </CardHeader>
           <CardContent>
             <div
-              className={`text-2xl font-bold ${summary.saldo >= 0 ? "text-green-600" : "text-red-600"
-                }`}
+              className={`text-2xl font-bold ${
+                summary.saldo >= 0 ? "text-green-600" : "text-red-600"
+              }`}
             >
               R$ {summary.saldo.toFixed(2)}
             </div>
-            <p className="text-xs text-muted-foreground">
-              Entradas - Saídas
-            </p>
+            <p className="text-xs text-muted-foreground">Entradas - Saídas</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Transações
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Transações</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {summary.transactions}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Total no período
-            </p>
+            <div className="text-2xl font-bold">{summary.transactions}</div>
+            <p className="text-xs text-muted-foreground">Total nos filtros</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Ticket Médio
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Ticket Médio</CardTitle>
             <Tag className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
               R$ {summary.avgTicketEntradas.toFixed(2)}
             </div>
-            <p className="text-xs text-muted-foreground">
-              Por atendimento (entradas)
-            </p>
+            <p className="text-xs text-muted-foreground">Por atendimento (entradas)</p>
           </CardContent>
         </Card>
       </div>
@@ -737,11 +768,11 @@ export default function Cashier() {
               R$ {pendingPayablesTotal.toFixed(2)}
             </div>
             <p className="text-xs text-muted-foreground">
-              Previstas para: {getPeriodLabel()}
+              {hasActiveFilters ? `Previstas para: ${periodText}` : "Todas as pendências"}
             </p>
-            {pendingPayablesInPeriod.length > 0 && (
+            {pendingPayablesInRange.length > 0 && (
               <p className="text-xs text-muted-foreground mt-2">
-                {pendingPayablesInPeriod.length} conta(s) pendente(s)
+                {pendingPayablesInRange.length} conta(s) pendente(s)
               </p>
             )}
           </CardContent>
@@ -756,7 +787,9 @@ export default function Cashier() {
           </CardHeader>
           <CardContent>
             <div
-              className={`text-2xl font-bold ${projectedBalance >= 0 ? "text-green-600" : "text-red-600"}`}
+              className={`text-2xl font-bold ${
+                projectedBalance >= 0 ? "text-green-600" : "text-red-600"
+              }`}
             >
               R$ {projectedBalance.toFixed(2)}
             </div>
@@ -781,7 +814,8 @@ export default function Cashier() {
             <CardHeader>
               <CardTitle>Todas as Transações</CardTitle>
               <CardDescription>
-                Lista completa de entradas e saídas do período
+                Lista completa de entradas e saídas{" "}
+                {hasActiveFilters ? `(${periodText})` : "(todos os períodos)"}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -803,9 +837,7 @@ export default function Cashier() {
           <Card>
             <CardHeader>
               <CardTitle>Receitas (Entradas)</CardTitle>
-              <CardDescription>
-                Entradas financeiras registradas no período
-              </CardDescription>
+              <CardDescription>Entradas financeiras conforme filtros</CardDescription>
             </CardHeader>
             <CardContent>
               <DataTable
@@ -821,9 +853,7 @@ export default function Cashier() {
           <Card>
             <CardHeader>
               <CardTitle>Despesas (Saídas)</CardTitle>
-              <CardDescription>
-                Saídas financeiras registradas no período
-              </CardDescription>
+              <CardDescription>Saídas financeiras conforme filtros</CardDescription>
             </CardHeader>
             <CardContent>
               <DataTable
@@ -839,34 +869,27 @@ export default function Cashier() {
           <Card>
             <CardHeader>
               <CardTitle>Faturamento por Forma de Pagamento</CardTitle>
-              <CardDescription>
-                Distribuição de valores por método de pagamento
-              </CardDescription>
+              <CardDescription>Distribuição de valores por método</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
                 {Object.entries(summary.byPaymentMethod).length === 0 && (
                   <p className="text-muted-foreground text-center py-8">
-                    Nenhuma transação no período para exibir por forma de
-                    pagamento.
+                    Nenhuma transação para exibir por forma de pagamento.
                   </p>
                 )}
-                {Object.entries(summary.byPaymentMethod).map(
-                  ([method, amount]) => (
-                    <div
-                      key={method}
-                      className="flex items-center justify-between border-b pb-2"
-                    >
-                      <span className="flex items-center gap-2 font-medium">
-                        <CreditCard className="h-4 w-4" />
-                        {PAYMENT_METHOD_LABEL[method] ?? method}
-                      </span>
-                      <span className="text-lg font-bold">
-                        R$ {amount.toFixed(2)}
-                      </span>
-                    </div>
-                  )
-                )}
+                {Object.entries(summary.byPaymentMethod).map(([method, amount]) => (
+                  <div
+                    key={method}
+                    className="flex items-center justify-between border-b pb-2"
+                  >
+                    <span className="flex items-center gap-2 font-medium">
+                      <CreditCard className="h-4 w-4" />
+                      {PAYMENT_METHOD_LABEL[method] ?? method}
+                    </span>
+                    <span className="text-lg font-bold">R$ {amount.toFixed(2)}</span>
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>
@@ -876,15 +899,13 @@ export default function Cashier() {
           <Card>
             <CardHeader>
               <CardTitle>Movimentação por Categoria</CardTitle>
-              <CardDescription>
-                Distribuição de entradas e saídas por categoria
-              </CardDescription>
+              <CardDescription>Distribuição por categoria</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
                 {Object.entries(summary.byCategory).length === 0 && (
                   <p className="text-muted-foreground text-center py-8">
-                    Nenhuma transação categorizada no período.
+                    Nenhuma transação categorizada.
                   </p>
                 )}
                 {Object.entries(summary.byCategory)
@@ -895,9 +916,7 @@ export default function Cashier() {
                       className="flex items-center justify-between border-b pb-2"
                     >
                       <span className="font-medium">{category}</span>
-                      <span className="text-lg font-bold">
-                        R$ {amount.toFixed(2)}
-                      </span>
+                      <span className="text-lg font-bold">R$ {amount.toFixed(2)}</span>
                     </div>
                   ))}
               </div>

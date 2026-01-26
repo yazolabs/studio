@@ -14,6 +14,7 @@ class Commission extends Model
         'professional_id',
         'appointment_id',
         'service_id',
+        'appointment_service_id',
         'customer_id',
         'date',
         'service_price',
@@ -54,10 +55,15 @@ class Commission extends Model
         return $this->belongsTo(Customer::class);
     }
 
+    public function appointmentService()
+    {
+        return $this->belongsTo(AppointmentService::class, 'appointment_service_id');
+    }
+
     public function accountPayable()
     {
-        return $this->hasOne(AccountPayable::class, 'appointment_id', 'appointment_id')
-                    ->where('professional_id', $this->professional_id);
+        return $this->hasOne(AccountPayable::class, 'origin_id', 'id')
+            ->where('origin_type', 'commission');
     }
 
     public function isPaid(): bool
