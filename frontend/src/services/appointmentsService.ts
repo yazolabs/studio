@@ -1,18 +1,17 @@
 import { api } from "./api";
-import type { Paginated } from "../types/pagination";
 import type { Appointment, AppointmentPaymentMethod, CreateAppointmentDto, UpdateAppointmentDto } from "../types/appointment";
 
 const basePath = "/appointments";
 
 type AppointmentQueryParams = {
-  page?: number;
-  perPage?: number;
   search?: string;
   status?: string;
+  payment_status?: string;
   professional_id?: number;
   customer_id?: number;
   start_date?: string;
   end_date?: string;
+  date?: string;
 };
 
 export type CheckoutPaymentDto = {
@@ -27,32 +26,61 @@ export type CheckoutPaymentDto = {
   notes?: string | null;
 };
 
+export type CheckoutAppointmentServicePromotionDto = {
+  id?: number | null;
+  promotion_id?: number | null;
+  sort_order?: number | null;
+};
+
+export type CheckoutAppointmentServiceDto = {
+  id: number;
+  promotions?: CheckoutAppointmentServicePromotionDto[] | null;
+};
+
 export type CheckoutAppointmentDto = {
   discount_type?: "percentage" | "fixed" | null;
   discount_amount?: number | null;
-  promotion_id?: number | null;
+  appointment_services?: CheckoutAppointmentServiceDto[];
+  services_to_add?: CheckoutServiceToAddDto[];
+  items?: CheckoutItemDto[];
   payments: CheckoutPaymentDto[];
-  services?: Array<{
-    id: number;
-    professional_id?: number | null;
-    service_price: string;
-    commission_type?: "percentage" | "fixed" | string | null;
-    commission_value?: string;
-  }>;
-  items?: Array<{
-    id: number;
-    price: string;
-    quantity: number;
-  }>;
 };
 
 export type PrepayAppointmentDto = {
   received_date?: string | null;
+  discount_type?: "percentage" | "fixed" | null;
+  discount_amount?: number | null;
+  appointment_services?: CheckoutAppointmentServiceDto[];
+  services_to_add?: CheckoutServiceToAddDto[];
+  items?: CheckoutItemDto[];
   payments: CheckoutPaymentDto[];
 };
 
+export type CheckoutServiceToAddDto = {
+  service_id: number;
+  professional_id?: number | null;
+  service_price: number | string;
+  commission_type?: "percentage" | "fixed" | string | null;
+  commission_value?: number | string | null;
+  promotion_ids?: number[] | null;
+};
+
+export type CheckoutItemDto = {
+  id?: number;
+  item_id?: number;
+  price: number | string;
+  quantity: number;
+};
+
+function unwrapResource<T>(payload: any): T {
+  if (payload && typeof payload === "object" && "data" in payload) {
+    return payload.data as T;
+  }
+  return payload as T;
+}
+
 function mapPayload(payload: CreateAppointmentDto | UpdateAppointmentDto) {
-  const body = {
+  const body: any = {
     customer_id: payload.customer_id,
     date: payload.date,
     start_time: payload.start_time,
@@ -64,10 +92,7 @@ function mapPayload(payload: CreateAppointmentDto | UpdateAppointmentDto) {
     discount_type: payload.discount_type,
     discount_amount: payload.discount_amount,
     final_price: payload.final_price,
-    payment_method: payload.payment_method,
-    card_brand: payload.card_brand,
-    installments: payload.installments,
-    installment_fee: payload.installment_fee,
+    // remover mais tarde
     promotion_id: payload.promotion_id,
     notes: payload.notes,
     services: payload.services?.map((s) => ({
@@ -78,6 +103,10 @@ function mapPayload(payload: CreateAppointmentDto | UpdateAppointmentDto) {
       professional_id: s.professional_id,
       starts_at: s.starts_at,
       ends_at: s.ends_at,
+      promotions: (s.promotions ?? []).map((p, idx) => ({
+        promotion_id: p.promotion_id ?? p.id ?? undefined,
+        sort_order: p.sort_order ?? idx,
+      })),
     })),
     items: payload.items?.map((i) => ({
       item_id: i.id,
@@ -90,23 +119,25 @@ function mapPayload(payload: CreateAppointmentDto | UpdateAppointmentDto) {
 }
 
 export async function listAppointments(params?: AppointmentQueryParams) {
-  const { data } = await api.get<Paginated<Appointment>>(basePath, { params });
-  return data;
+  const { data } = await api.get<any>(basePath, { params });
+
+  if (data?.data && Array.isArray(data.data)) return data.data as Appointment[];
+  return data as Appointment[];
 }
 
 export async function getAppointment(id: number) {
-  const { data } = await api.get<{ data: Appointment }>(`${basePath}/${id}`);
-  return data.data;
+  const { data } = await api.get<any>(`${basePath}/${id}`);
+  return unwrapResource<Appointment>(data);
 }
 
 export async function createAppointment(payload: CreateAppointmentDto) {
-  const { data } = await api.post<Appointment>(basePath, mapPayload(payload));
-  return data;
+  const { data } = await api.post<any>(basePath, mapPayload(payload));
+  return unwrapResource<Appointment>(data);
 }
 
 export async function updateAppointment(id: number, payload: UpdateAppointmentDto) {
-  const { data } = await api.put<Appointment>(`${basePath}/${id}`, mapPayload(payload));
-  return data;
+  const { data } = await api.put<any>(`${basePath}/${id}`, mapPayload(payload));
+  return unwrapResource<Appointment>(data);
 }
 
 export async function removeAppointment(id: number) {
@@ -118,8 +149,9 @@ export async function listAppointmentsCalendar(params?: {
   end_date?: string;
   professional_id?: number;
 }) {
-  const { data } = await api.get<Appointment[]>(`${basePath}/calendar`, { params });
-  return data;
+  const { data } = await api.get<any>(`${basePath}/calendar`, { params });
+  if (data?.data && Array.isArray(data.data)) return data.data as Appointment[];
+  return data as Appointment[];
 }
 
 function normalizePayments(payments: CheckoutPaymentDto[] = []) {
@@ -134,44 +166,86 @@ function normalizePayments(payments: CheckoutPaymentDto[] = []) {
   }));
 }
 
-function normalizeCheckoutPayload(payload: CheckoutAppointmentDto): CheckoutAppointmentDto {
-  return {
-    ...payload,
-    payments: normalizePayments(payload.payments ?? []),
-  };
+function normalizeAppointmentServices(rows: CheckoutAppointmentServiceDto[] | undefined) {
+  if (!rows) return undefined;
+
+  return rows.map((r) => ({
+    id: r.id,
+    promotions: (r.promotions ?? []).map((p, idx) => ({
+      promotion_id: p.promotion_id ?? p.id ?? undefined,
+      sort_order: p.sort_order ?? idx,
+    })),
+  }));
+}
+
+function normalizeServicesToAdd(rows: CheckoutServiceToAddDto[] | undefined) {
+  if (!rows) return undefined;
+
+  return rows.map((r) => ({
+    service_id: Number(r.service_id),
+    professional_id: r.professional_id ?? null,
+    service_price: typeof r.service_price === "string" ? Number(r.service_price) : r.service_price,
+    commission_type: r.commission_type ?? null,
+    commission_value:
+      r.commission_value == null
+        ? null
+        : typeof r.commission_value === "string"
+        ? Number(r.commission_value)
+        : r.commission_value,
+    promotion_ids: (r.promotion_ids ?? []).map((x) => Number(x)),
+  }));
+}
+
+function normalizeItems(rows: CheckoutItemDto[] | undefined) {
+  if (!rows) return undefined;
+
+  return rows.map((r) => ({
+    id: r.id ?? undefined,
+    item_id: r.item_id ?? undefined,
+    price: typeof r.price === "string" ? Number(r.price) : r.price,
+    quantity: Number(r.quantity ?? 1),
+  }));
 }
 
 export async function checkoutAppointment(id: number, payload: CheckoutAppointmentDto) {
-  const normalized = normalizeCheckoutPayload(payload);
+  const normalized = {
+    discount_type: payload.discount_type ?? null,
+    discount_amount: payload.discount_amount ?? null,
 
-  console.log("CHECKOUT PAYLOAD (normalized)", normalized);
+    appointment_services: normalizeAppointmentServices(payload.appointment_services),
 
-  const { data } = await api.patch<Appointment>(`${basePath}/${id}/checkout`, normalized, {
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    transformRequest: [(data) => JSON.stringify(data)],
+    services_to_add: normalizeServicesToAdd(payload.services_to_add),
+    items: normalizeItems(payload.items),
+
+    payments: normalizePayments(payload.payments ?? []),
+  };
+
+  const { data } = await api.patch<any>(`${basePath}/${id}/checkout`, normalized, {
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    transformRequest: [(d) => JSON.stringify(d)],
   });
 
-  return data;
+  return unwrapResource<Appointment>(data);
 }
 
 export async function prepayAppointment(id: number, payload: PrepayAppointmentDto) {
   const normalized = {
     received_date: payload.received_date ?? null,
+    discount_type: payload.discount_type ?? null,
+    discount_amount: payload.discount_amount ?? null,
+
+    appointment_services: normalizeAppointmentServices(payload.appointment_services),
+
+    services_to_add: normalizeServicesToAdd(payload.services_to_add),
+    items: normalizeItems(payload.items),
+
     payments: normalizePayments(payload.payments ?? []),
   };
 
-  console.log("PREPAY PAYLOAD (normalized)", normalized);
-
-  const { data } = await api.patch<Appointment>(`${basePath}/${id}/prepay`, normalized, {
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    transformRequest: [(data) => JSON.stringify(data)],
+  const { data } = await api.patch<any>(`${basePath}/${id}/prepay`, normalized, {
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    transformRequest: [(d) => JSON.stringify(d)],
   });
 
-  return data;
+  return unwrapResource<Appointment>(data);
 }

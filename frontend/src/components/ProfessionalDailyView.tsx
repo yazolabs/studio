@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { format, isToday, addDays, subDays } from "date-fns";
+import { format, isToday, addDays, subDays, parseISO, isValid } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Clock, User, Scissors, Phone, DollarSign, Edit, Trash2, Printer, ChevronDown, ChevronUp, Calendar, Users, ChevronLeft, ChevronRight, GripVertical, AlertCircle } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -347,6 +347,117 @@ export function ProfessionalDailyView({
     return Math.max(30, maxEnd - minStart);
   };
 
+  const getServicesForProfessional = (apt: Appointment, professionalId: number) => {
+    const services: any[] = Array.isArray(apt.services) ? (apt.services as any[]) : [];
+    return services.filter((s) => Number(s?.professional_id) === Number(professionalId));
+  };
+
+  const minutesToHHmmLocal = (min: number) => {
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  };
+
+  const getServiceInterval = (apt: Appointment, s: any) => {
+    const startMin =
+      timeStringToMinutes(s?.starts_at) ?? timeStringToMinutes(apt.start_time);
+
+    let endMin = timeStringToMinutes(s?.ends_at);
+
+    if (startMin != null && (endMin == null || endMin <= startMin)) {
+      const sd = Number(s?.duration ?? 0);
+      const d = sd > 0 ? sd : Number(apt.duration ?? 0) || 30;
+      endMin = startMin + d;
+    }
+
+    if (startMin == null || endMin == null || endMin <= startMin) return null;
+    return { start: startMin, end: endMin };
+  };
+
+  const getAppointmentSliceForProfessional = (apt: Appointment, professionalId: number) => {
+    const svc = getServicesForProfessional(apt, professionalId);
+
+    const servicesLabelForProf =
+      svc.map((s) => s?.name).filter(Boolean).join(", ") || "Serviço";
+
+    const intervals = svc
+      .map((s) => getServiceInterval(apt, s))
+      .filter(Boolean) as Array<{ start: number; end: number }>;
+
+    const startMin =
+      intervals.length > 0
+        ? Math.min(...intervals.map((i) => i.start))
+        : timeStringToMinutes(apt.start_time);
+
+    const endMin =
+      intervals.length > 0
+        ? Math.max(...intervals.map((i) => i.end))
+        : startMin != null
+          ? startMin + (Number(apt.duration ?? 0) || 30)
+          : null;
+
+    const durationMin =
+      startMin != null && endMin != null ? Math.max(30, endMin - startMin) : 30;
+
+    const timeHHmm =
+      startMin != null ? minutesToHHmmLocal(startMin) : (toHHmm(apt.start_time) || "--:--");
+
+    const profPrice = svc.reduce((sum: number, s: any) => {
+      const v = moneyToNumber(String(s?.service_price ?? s?.price ?? "0"));
+      return sum + (v || 0);
+    }, 0);
+
+    const price = profPrice > 0 ? profPrice : appointmentPrice(apt);
+
+    return {
+      startMin: startMin ?? 0,
+      timeHHmm,
+      durationMin,
+      servicesLabelForProf,
+      price,
+    };
+  };
+
+  const extractHHmm = (value?: string | null): string | null => {
+    if (!value) return null;
+    const v = value.trim();
+    if (!v) return null;
+
+    if (/^\d{2}:\d{2}(:\d{2})?$/.test(v)) return v.slice(0, 5);
+
+    if (v.includes("T")) {
+      const d = parseISO(v);
+      if (isValid(d)) return format(d, "HH:mm");
+      return v.split("T")[1]?.slice(0, 5) ?? null;
+    }
+
+    if (v.includes(" ")) {
+      const [datePart, timePart] = v.split(" ");
+      if (datePart && timePart) {
+        const isoLike = `${datePart}T${timePart}`;
+        const d = parseISO(isoLike);
+        if (isValid(d)) return format(d, "HH:mm");
+        return timePart.slice(0, 5);
+      }
+    }
+
+    return v.slice(0, 5);
+  };
+
+  const timeStringToMinutes = (value?: string | null): number | null => {
+    const hhmm = extractHHmm(value);
+    if (!hhmm) return null;
+
+    const [hStr, mStr] = hhmm.split(":");
+    const h = Number(hStr);
+    const m = Number(mStr);
+
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+    if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+
+    return h * 60 + m;
+  };
+
   const getBusyIntervalsForProfessional = (
     professionalId: number,
     excludeAppointmentId?: number
@@ -443,7 +554,11 @@ export function ProfessionalDailyView({
   const getProfessionalAppointments = (professionalId: number) => {
     return dayAppointments
       .filter((apt) => appointmentHasProfessional(apt, professionalId))
-      .sort((a, b) => toHHmm(a.start_time).localeCompare(toHHmm(b.start_time)));
+      .sort((a, b) => {
+        const aStart = getAppointmentSliceForProfessional(a, professionalId).startMin;
+        const bStart = getAppointmentSliceForProfessional(b, professionalId).startMin;
+        return aStart - bStart;
+      });
   };
 
   const getProfessionalStats = (professionalId: number) => {
@@ -1097,7 +1212,7 @@ export function ProfessionalDailyView({
                         <div className="text-left">
                           <h3 className="font-semibold">{professional.name}</h3>
                           <p className="text-sm text-muted-foreground">
-                            {stats.totalAppointments} agendamento{stats.totalAppointments !== 1 ? "s" : ""} hoje
+                            {stats.totalAppointments} atendimento{stats.totalAppointments !== 1 ? "s" : ""} hoje
                           </p>
                         </div>
                       </div>
@@ -1173,10 +1288,12 @@ export function ProfessionalDailyView({
                       <ScrollArea className="h-[60vh] md:h-[65vh] lg:h-[70vh] pr-5">
                         <div className="space-y-3">
                           {profAppointments.map((appointment) => {
-                            const time = toHHmm(appointment.start_time);
-                            const dur = appointmentDuration(appointment);
-                            const price = appointmentPrice(appointment);
-                            const service = servicesLabel(appointment);
+                            const slice = getAppointmentSliceForProfessional(appointment, profId);
+
+                            const time = slice.timeHHmm;
+                            const dur = slice.durationMin;
+                            const price = slice.price;
+                            const service = slice.servicesLabelForProf;
                             const phone = customerPhone(appointment);
                             const canDrag = !!(canEdit && onReassignProfessional && !isDragBlockedByStatus(appointment.status));
 
@@ -1201,6 +1318,13 @@ export function ProfessionalDailyView({
                                         {canDrag && (
                                           <GripVertical className="h-4 w-4 text-muted-foreground/50" />
                                         )}
+                                        <Badge
+                                          variant="outline"
+                                          className="h-5 px-1.5 py-0 text-[12px] font-medium text-muted-foreground border-muted/60 bg-transparent"
+                                          title={`Agendamento #${appointment.id}`}
+                                        >
+                                          #{appointment.id}
+                                        </Badge>
 
                                         {onQuickTimeChange && canEdit ? (
                                           <Popover>

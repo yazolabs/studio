@@ -53,4 +53,21 @@ class Promotion extends Model
     {
         return $this->belongsToMany(Item::class, 'promotion_item');
     }
+
+    public function appointmentServices()
+    {
+        return $this->belongsToMany(AppointmentService::class, 'appointment_service_promotion')
+            ->withPivot([
+                'id',
+                'sort_order',
+                'applied_value',
+                'applied_percent',
+                'discount_amount',
+                'applied_by_user_id',
+                'created_at',
+                'updated_at',
+            ])
+            ->withTimestamps()
+            ->orderByPivot('sort_order');
+    }
 }

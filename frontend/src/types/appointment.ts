@@ -19,22 +19,14 @@ export type AppointmentPayment = {
   updated_at: string | null;
 };
 
+export type AppointmentPaymentSummary = {
+  method: AppointmentPaymentMethod | string;
+  amount: string;
+};
+
 export type AppointmentServiceProfessional = {
   id: number;
   name: string | null;
-};
-
-export type AppointmentServiceItem = {
-  id: number;
-  name: string;
-  service_price: string;
-  commission_type: "percentage" | "fixed" | null;
-  commission_value: string;
-  professional_id: number | null;
-  professional?: AppointmentServiceProfessional | null;
-  duration?: number | null;
-  starts_at?: string | null;
-  ends_at?: string | null;
 };
 
 export type AppointmentItem = {
@@ -44,6 +36,56 @@ export type AppointmentItem = {
   quantity: number;
 };
 
+export type AppointmentServicePromotionPivot = {
+  id: number | null;
+  sort_order: number;
+  applied_value: number | string | null;
+  applied_percent: number | string | null;
+  discount_amount: number | string | null;
+  applied_by_user_id: number | null;
+};
+
+export type AppointmentServicePromotion = {
+  id: number;
+  name: string;
+  discount_type: "percentage" | "fixed" | string;
+  discount_value: number | string;
+  pivot: AppointmentServicePromotionPivot;
+};
+
+export type AppointmentServiceRow = {
+  id: number;
+  appointment_id: number;
+  service_id: number;
+  service: {
+    id: number;
+    name: string;
+    duration: number | null;
+  } | null;
+  service_price: string;
+  commission_type: "percentage" | "fixed" | string | null;
+  commission_value: string;
+  professional_id: number | null;
+  professional?: AppointmentServiceProfessional | null;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  promotions?: AppointmentServicePromotion[];
+};
+
+export type AppointmentServiceItem = {
+  id: number;
+  name: string | null;
+  service_price: string;
+  commission_type: "percentage" | "fixed" | string | null;
+  commission_value: string;
+  professional_id: number | null;
+  professional?: AppointmentServiceProfessional | null;
+  duration?: number | null;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  appointment_service_id?: number;
+};
+
 export type AppointmentPaymentStatus = "unpaid" | "prepaid" | "paid";
 
 export type Appointment = {
@@ -51,7 +93,9 @@ export type Appointment = {
   customer: { id: number; name: string } | null;
   professionals?: { id: number; name: string | null }[] | null;
   services?: AppointmentServiceItem[] | null;
+  appointment_services?: AppointmentServiceRow[] | null;
   items?: AppointmentItem[] | null;
+  // remover mais tarde
   promotion_id?: number | null;
   promotion?: { id: number; name: string } | null;
   date: string | null;
@@ -67,10 +111,11 @@ export type Appointment = {
     | "rescheduled";
   payment_status: AppointmentPaymentStatus;
   total_price: string;
-  discount_type: "percentage" | "fixed" | null;
+  discount_type: "percentage" | "fixed" | string | null;
   discount_amount: string;
   final_price: string;
   payments?: AppointmentPayment[] | null;
+  payment_summary?: AppointmentPaymentSummary[] | null;
   notes: string | null;
   created_at: string | null;
   updated_at: string | null;
@@ -83,20 +128,14 @@ export type CreateAppointmentDto = {
   end_time?: string | null;
   duration?: number | null;
   status: Appointment["status"];
-
   payment_status?: AppointmentPaymentStatus;
-
   total_price: string;
-  discount_type?: "percentage" | "fixed" | null;
+  discount_type?: "percentage" | "fixed" | string | null;
   discount_amount: string;
   final_price: string;
-  payment_method?: string | null;
-  card_brand?: string | null;
-  installments?: number | null;
-  installment_fee?: string | null;
+  // remover mais tarde
   promotion_id?: number | null;
   notes?: string | null;
-
   services?: Array<{
     id: number;
     service_price: string;
@@ -105,8 +144,12 @@ export type CreateAppointmentDto = {
     professional_id?: number | null;
     starts_at?: string | null;
     ends_at?: string | null;
+    promotions?: Array<{
+      id?: number;
+      promotion_id?: number;
+      sort_order?: number;
+    }>;
   }>;
-
   items?: Array<{
     id: number;
     price: string;

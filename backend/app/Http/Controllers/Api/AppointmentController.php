@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Enums\{CommissionStatus, AccountPayableStatus, AppointmentPaymentStatus, TransactionType};
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AppointmentResource;
-use App\Models\{AccountPayable, Appointment, AppointmentPayment, CashierTransaction, Commission, Service, Professional, ProfessionalOpenWindow, Promotion};
+use App\Models\{AccountPayable, Appointment, AppointmentService, CashierTransaction, Commission, Service, Professional, ProfessionalOpenWindow, Promotion};
 use App\Services\PromotionApplicabilityService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -23,12 +23,48 @@ class AppointmentController extends Controller
 
     public function index(Request $request)
     {
-        $appointments = Appointment::with(['customer', 'services', 'items', 'promotion', 'payments'])
+        $query = Appointment::query()
+            ->with([
+                'customer',
+                'services',
+                'items',
+                'payments',
+                'appointmentServices.service',
+                'appointmentServices.promotions',
+            ])
             ->orderBy('date', 'desc')
-            ->orderBy('start_time', 'desc')
-            ->get();
+            ->orderBy('start_time', 'desc');
 
-        return AppointmentResource::collection($appointments);
+        if ($search = trim((string) $request->get('search', ''))) {
+            $query->where(function ($q) use ($search) {
+                if (ctype_digit($search)) {
+                    $q->orWhere('id', (int) $search);
+                }
+
+                $q->orWhereHas('customer', function ($cq) use ($search) {
+                    $cq->where('name', 'like', "%{$search}%");
+                });
+            });
+        }
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+        if ($request->filled('payment_status')) {
+            $query->where('payment_status', $request->payment_status);
+        }
+        if ($request->filled('date')) {
+            $query->whereDate('date', $request->date);
+        }
+        if ($request->filled('start_date') && $request->filled('end_date')) {
+            $query->whereBetween('date', [$request->start_date, $request->end_date]);
+        }
+        if ($request->filled('professional_id')) {
+            $pid = (int) $request->professional_id;
+            $query->whereHas('appointmentServices', fn ($q) => $q->where('professional_id', $pid));
+        }
+
+        return AppointmentResource::collection($query->get());
     }
 
     public function store(Request $request)
@@ -46,23 +82,21 @@ class AppointmentController extends Controller
                 'discount_amount',
                 'discount_type',
                 'final_price',
-                'promotion_id',
                 'notes',
             ]);
 
-            $services = $request->input('services', []);
+            $services = (array) $request->input('services', []);
             $date     = $payload['date'] ?? $request->input('date');
 
             $this->validateServicesTimeSlots($date, $services, null);
 
-            $items = $request->input('items', []);
+            $appliedOn = $date
+                ? Carbon::parse($date)->toDateString()
+                : now()->toDateString();
 
-            $this->assertPromotionApplicableOrFail(
-                $payload['promotion_id'] ?? null,
-                $date,
-                $services,
-                $items
-            );
+            $this->assertServicePromotionsApplicableOrFail($services, $appliedOn);
+
+            $items = (array) $request->input('items', []);
 
             $appointment = Appointment::create($payload);
 
@@ -72,7 +106,14 @@ class AppointmentController extends Controller
             $this->recalculateAppointmentTiming($appointment);
 
             return (new AppointmentResource(
-                $appointment->load(['customer', 'services', 'items', 'promotion', 'payments'])
+                $appointment->load([
+                    'customer',
+                    'services',
+                    'items',
+                    'payments',
+                    'appointmentServices.service',
+                    'appointmentServices.promotions',
+                ])
             ))
                 ->response()
                 ->setStatusCode(Response::HTTP_CREATED);
@@ -81,7 +122,14 @@ class AppointmentController extends Controller
 
     public function show(Appointment $appointment)
     {
-        $appointment->load(['customer', 'services', 'items', 'promotion', 'payments']);
+        $appointment->load([
+            'customer',
+            'services',
+            'items',
+            'payments',
+            'appointmentServices.service',
+            'appointmentServices.promotions',
+        ]);
 
         return new AppointmentResource($appointment);
     }
@@ -101,40 +149,13 @@ class AppointmentController extends Controller
                 'discount_amount',
                 'discount_type',
                 'final_price',
-                'payment_method',
-                'card_brand',
-                'installments',
-                'installment_fee',
-                'promotion_id',
                 'notes',
             ]);
-
-            $effectivePromotionId = array_key_exists('promotion_id', $payload)
-                ? $payload['promotion_id']
-                : $appointment->promotion_id;
-
-            $effectiveDate = $payload['date']
-                ?? optional($appointment->date)->format('Y-m-d');
-
-            $effectiveServicesPayload = $request->has('services')
-                ? (array) $request->input('services', [])
-                : $appointment->services()->get(['services.id'])->map(fn($s) => ['id' => $s->id])->toArray();
-
-            $effectiveItemsPayload = $request->has('items')
-                ? (array) $request->input('items', [])
-                : $appointment->items()->get(['items.id'])->map(fn($i) => ['id' => $i->id])->toArray();
-
-            $this->assertPromotionApplicableOrFail(
-                $effectivePromotionId ? (int) $effectivePromotionId : null,
-                $effectiveDate,
-                $effectiveServicesPayload,
-                $effectiveItemsPayload
-            );
 
             $appointment->update($payload);
 
             $services = $request->has('services')
-                ? $request->input('services', [])
+                ? (array) $request->input('services', [])
                 : null;
 
             if (!is_null($services)) {
@@ -143,17 +164,30 @@ class AppointmentController extends Controller
 
                 $this->validateServicesTimeSlots($date, $services, $appointment->id);
 
+                $appliedOn = $date
+                    ? Carbon::parse($date)->toDateString()
+                    : now()->toDateString();
+
+                $this->assertServicePromotionsApplicableOrFail($services, $appliedOn);
+
                 $this->syncServices($appointment, $services);
             }
 
             if ($request->has('items')) {
-                $this->syncItems($appointment, $request->input('items', []));
+                $this->syncItems($appointment, (array) $request->input('items', []));
             }
 
             $this->recalculateAppointmentTiming($appointment);
 
             return new AppointmentResource(
-                $appointment->load(['customer', 'services', 'items', 'promotion'])
+                $appointment->load([
+                    'customer',
+                    'services',
+                    'items',
+                    'payments',
+                    'appointmentServices.service',
+                    'appointmentServices.promotions',
+                ])
             );
         });
     }
@@ -166,18 +200,50 @@ class AppointmentController extends Controller
             ], 422);
         }
 
-        $appointment->services()->detach();
-        $appointment->items()->detach();
-        $appointment->delete();
+        DB::transaction(function () use ($appointment) {
+            CashierTransaction::where('reference', "APP-{$appointment->id}-CHECKOUT")->delete();
+            CashierTransaction::where('reference', "APP-{$appointment->id}-PREPAY")->delete();
+            Commission::where('appointment_id', $appointment->id)->delete();
+            AccountPayable::where('appointment_id', $appointment->id)->delete();
+            $appointment->payments()->delete();
+            AppointmentService::where('appointment_id', $appointment->id)->delete();
+            $appointment->items()->detach();
+            $appointment->delete();
+        });
 
         return response()->noContent();
     }
 
     private function syncServices(Appointment $appointment, $services): void
     {
-        $appointment->services()->detach();
-
         $services = (array) $services;
+
+        $existing = AppointmentService::query()
+            ->with(['promotions'])
+            ->where('appointment_id', $appointment->id)
+            ->get();
+
+        $existingPromosByKey = [];
+        foreach ($existing as $row) {
+            $key = implode('|', [
+                (int) $row->service_id,
+                (int) ($row->professional_id ?? 0),
+                $row->starts_at ? Carbon::parse($row->starts_at)->toDateTimeString() : '',
+            ]);
+
+            $existingPromosByKey[$key] = $row->promotions->map(function ($p) {
+                return [
+                    'id' => (int) $p->id,
+                    'sort_order' => (int) ($p->pivot->sort_order ?? 0),
+                    'applied_value' => $p->pivot->applied_value,
+                    'applied_percent' => $p->pivot->applied_percent,
+                    'discount_amount' => $p->pivot->discount_amount,
+                    'applied_by_user_id' => $p->pivot->applied_by_user_id,
+                ];
+            })->values()->all();
+        }
+
+        AppointmentService::where('appointment_id', $appointment->id)->delete();
 
         if (empty($services)) {
             return;
@@ -185,9 +251,7 @@ class AppointmentController extends Controller
 
         foreach ($services as $service) {
             $serviceId = $service['service_id'] ?? $service['id'] ?? null;
-            if (!$serviceId) {
-                continue;
-            }
+            if (!$serviceId) continue;
 
             $serviceModel = Service::find($serviceId);
 
@@ -196,27 +260,64 @@ class AppointmentController extends Controller
                 : ($serviceModel?->commission_type ?? 'percentage');
 
             $commissionValue =
-                isset($service['commission_value']) &&
-                $service['commission_value'] !== null &&
-                $service['commission_value'] !== ''
-                ? $service['commission_value']
-                : ($serviceModel?->commission_value ?? 0);
+                isset($service['commission_value']) && $service['commission_value'] !== '' && $service['commission_value'] !== null
+                    ? $service['commission_value']
+                    : ($serviceModel?->commission_value ?? 0);
 
             $servicePrice =
-                isset($service['service_price']) &&
-                $service['service_price'] !== null &&
-                $service['service_price'] !== ''
-                ? $service['service_price']
-                : ($serviceModel?->price ?? 0);
+                isset($service['service_price']) && $service['service_price'] !== '' && $service['service_price'] !== null
+                    ? $service['service_price']
+                    : ($serviceModel?->price ?? 0);
 
-            $appointment->services()->attach($serviceId, [
-                'service_price'    => $servicePrice,
-                'commission_type'  => $commissionType,
-                'commission_value' => $commissionValue,
-                'professional_id'  => $service['professional_id'] ?? null,
-                'starts_at'        => $service['starts_at'] ?? null,
-                'ends_at'          => $service['ends_at'] ?? null,
+            $startsAt = $service['starts_at'] ?? null;
+
+            $aps = AppointmentService::create([
+                'appointment_id'    => $appointment->id,
+                'service_id'        => (int) $serviceId,
+                'professional_id'   => $service['professional_id'] ?? null,
+                'service_price'     => $servicePrice,
+                'commission_type'   => $commissionType,
+                'commission_value'  => $commissionValue,
+                'starts_at'         => $startsAt,
+                'ends_at'           => $service['ends_at'] ?? null,
             ]);
+
+            $hasPromotionsKey = array_key_exists('promotions', $service);
+
+            $promos = $hasPromotionsKey
+                ? (array) ($service['promotions'] ?? [])
+                : null;
+
+            if (!$hasPromotionsKey) {
+                $key = implode('|', [
+                    (int) $serviceId,
+                    (int) (($service['professional_id'] ?? 0) ?: 0),
+                    $startsAt ? Carbon::parse($startsAt)->toDateTimeString() : '',
+                ]);
+
+                $promos = $existingPromosByKey[$key] ?? [];
+            }
+
+            if (!empty($promos)) {
+                $sync = [];
+
+                foreach ($promos as $idx => $p) {
+                    $pid = $p['promotion_id'] ?? $p['id'] ?? null;
+                    if (!$pid) continue;
+
+                    $sync[(int) $pid] = [
+                        'sort_order'         => (int) ($p['sort_order'] ?? $idx),
+                        'applied_value'      => $p['applied_value'] ?? null,
+                        'applied_percent'    => $p['applied_percent'] ?? null,
+                        'discount_amount'    => $p['discount_amount'] ?? null,
+                        'applied_by_user_id' => $p['applied_by_user_id'] ?? Auth::id(),
+                    ];
+                }
+
+                if (!empty($sync)) {
+                    $aps->promotions()->sync($sync);
+                }
+            }
         }
     }
 
@@ -587,9 +688,15 @@ class AppointmentController extends Controller
 
     public function calendar(Request $request)
     {
-        $query = Appointment::with(['customer', 'services', 'payments'])
+        $query = Appointment::with([
+                'customer',
+                'services',
+                'payments',
+                'appointmentServices.service',
+                'appointmentServices.promotions',
+            ])
             ->when($request->filled('professional_id'), function ($q) use ($request) {
-                $q->whereHas('services', fn($sub) => $sub->where('professional_id', $request->professional_id));
+                $q->whereHas('appointmentServices', fn($sub) => $sub->where('professional_id', (int) $request->professional_id));
             })
             ->when($request->filled('status'), fn($q) => $q->where('status', $request->status))
             ->when(
@@ -611,7 +718,20 @@ class AppointmentController extends Controller
         $data = $request->validate([
             'discount_type'           => ['nullable', 'in:percentage,fixed'],
             'discount_amount'         => ['nullable', 'numeric', 'min:0'],
-            'promotion_id'            => ['nullable', 'exists:promotions,id'],
+            'appointment_services'                              => ['sometimes', 'array'],
+            'appointment_services.*.id'                         => ['required_with:appointment_services', 'integer', 'exists:appointment_service,id'],
+            'appointment_services.*.promotions'                 => ['nullable', 'array'],
+            'appointment_services.*.promotions.*.id'            => ['nullable', 'integer'],
+            'appointment_services.*.promotions.*.promotion_id'  => ['nullable', 'integer', 'exists:promotions,id'],
+            'appointment_services.*.promotions.*.sort_order'    => ['nullable', 'integer', 'min:0'],
+            'services_to_add'                       => ['sometimes', 'array'],
+            'services_to_add.*.service_id'          => ['required_with:services_to_add', 'integer', 'exists:services,id'],
+            'services_to_add.*.professional_id'     => ['nullable', 'integer', 'exists:professionals,id'],
+            'services_to_add.*.service_price'       => ['required_with:services_to_add', 'numeric', 'min:0'],
+            'services_to_add.*.commission_type'     => ['nullable', 'in:percentage,fixed'],
+            'services_to_add.*.commission_value'    => ['nullable', 'numeric', 'min:0'],
+            'services_to_add.*.promotion_ids'       => ['nullable', 'array'],
+            'services_to_add.*.promotion_ids.*'     => ['integer', 'exists:promotions,id'],
             'payments'                => ['required', 'array', 'min:1'],
             'payments.*.method'       => ['required', 'string', 'max:50'],
             'payments.*.amount'       => ['required', 'numeric', 'min:0.01'],
@@ -622,82 +742,164 @@ class AppointmentController extends Controller
             'payments.*.notes'        => ['nullable', 'string', 'max:255'],
         ]);
 
+        $toCents = fn ($v) => (int) round(((float) $v) * 100);
+
         try {
-            DB::transaction(function () use ($data, $appointment) {
-                $appointment->loadMissing(['customer', 'services', 'items']);
+            DB::transaction(function () use ($appointment, $data, $toCents) {
+                $appointment->loadMissing([
+                    'customer',
+                    'items',
+                    'appointmentServices.service',
+                    'appointmentServices.promotions',
+                ]);
 
                 $wasPrepaid = $appointment->payment_status === AppointmentPaymentStatus::Prepaid->value;
 
-                $appointment->fill(Arr::only($data, [
-                    'discount_type',
-                    'discount_amount',
-                    'promotion_id',
-                ]));
+                if (!empty($data['services_to_add']) && is_array($data['services_to_add'])) {
+                    foreach ($data['services_to_add'] as $row) {
+                        $aps = $appointment->appointmentServices()->create([
+                            'service_id'        => (int) $row['service_id'],
+                            'professional_id'   => !empty($row['professional_id']) ? (int) $row['professional_id'] : null,
+                            'service_price'     => number_format((float) $row['service_price'], 2, '.', ''),
+                            'commission_type'   => $row['commission_type'] ?? 'percentage',
+                            'commission_value'  => isset($row['commission_value'])
+                                ? number_format((float) $row['commission_value'], 2, '.', '')
+                                : '0.00',
+                        ]);
 
-                $promoId = $appointment->promotion_id ? (int) $appointment->promotion_id : null;
+                        $promoIds = isset($row['promotion_ids']) && is_array($row['promotion_ids'])
+                            ? array_values(array_filter(array_map('intval', $row['promotion_ids'])))
+                            : [];
 
-                if ($promoId) {
-                    $servicesPayload = $appointment->services->map(fn($s) => ['id' => $s->id])->toArray();
-                    $itemsPayload    = $appointment->items->map(fn($i) => ['id' => $i->id])->toArray();
+                        if (!empty($promoIds)) {
+                            $sync = [];
+                            foreach ($promoIds as $idx => $pid) {
+                                $sync[$pid] = [
+                                    'sort_order' => $idx,
+                                    'applied_by_user_id' => Auth::id(),
+                                ];
+                            }
+                            $aps->promotions()->sync($sync);
+                        }
+                    }
 
-                    $this->assertPromotionApplicableOrFail(
-                        $promoId,
-                        optional($appointment->date)->format('Y-m-d') ?? now()->toDateString(),
-                        $servicesPayload,
-                        $itemsPayload
-                    );
+                    $appointment->unsetRelation('appointmentServices');
+                    $appointment->loadMissing(['appointmentServices.service', 'appointmentServices.promotions']);
                 }
 
-                if (!$appointment->end_time) {
-                    $appointment->end_time = now();
-                }
-                if ($appointment->status !== 'completed') {
-                    $appointment->status = 'completed';
+                if (!empty($data['appointment_services'])) {
+                    $byId = $appointment->appointmentServices->keyBy('id');
+
+                    foreach ($data['appointment_services'] as $row) {
+                        $apsId = (int) ($row['id'] ?? 0);
+                        if (!$apsId || !$byId->has($apsId)) {
+                            throw ValidationException::withMessages([
+                                'appointment_services' => 'Um ou mais appointment_services não pertencem a este agendamento.',
+                            ]);
+                        }
+
+                        if (!array_key_exists('promotions', $row)) continue;
+
+                        $aps = $byId->get($apsId);
+
+                        $promos = (array) ($row['promotions'] ?? []);
+                        $sync = [];
+
+                        foreach ($promos as $idx => $p) {
+                            $pid = $p['promotion_id'] ?? $p['id'] ?? null;
+                            if (!$pid) continue;
+
+                            $sync[(int) $pid] = [
+                                'sort_order' => (int) ($p['sort_order'] ?? $idx),
+                                'applied_by_user_id' => Auth::id(),
+                            ];
+                        }
+
+                        $aps->promotions()->sync($sync);
+                    }
+
+                    $appointment->unsetRelation('appointmentServices');
+                    $appointment->loadMissing(['appointmentServices.service', 'appointmentServices.promotions']);
                 }
 
-                $servicesTotal = $appointment->services->sum(fn($s) => (float) $s->pivot->service_price);
-                $productsTotal = $appointment->items->sum(fn($i) => (float) $i->pivot->price * (int) $i->pivot->quantity);
-                $subtotal      = $servicesTotal + $productsTotal;
+                $appointment->end_time = now()->format('H:i:s');
+                if ($appointment->status !== 'completed') $appointment->status = 'completed';
 
-                $promo = null;
-                if ($appointment->promotion_id) {
-                    $promo = Promotion::query()
-                        ->with(['services:id', 'items:id'])
-                        ->find((int) $appointment->promotion_id);
-                }
+                $servicesTotal = $appointment->appointmentServices->sum(fn ($aps) => (float) $aps->service_price);
+                $productsTotal = $appointment->items->sum(fn ($i) => (float) $i->pivot->price * (int) $i->pivot->quantity);
+                $subtotal      = (float) $servicesTotal + (float) $productsTotal;
 
-                if ($promo) {
-                    if ($promo->min_purchase_amount !== null && (float) $subtotal < (float) $promo->min_purchase_amount) {
-                        throw ValidationException::withMessages([
-                            'promotion_id' => 'Esta promoção exige um valor mínimo de compra.',
+                $promoDiscountTotal = 0.0;
+
+                $dateYmd = optional($appointment->date)->format('Y-m-d') ?? now()->toDateString();
+                $dateObj = Carbon::parse($dateYmd);
+
+                $itemIds = $appointment->items->pluck('id')->map(fn($id) => (int) $id)->values()->all();
+
+                foreach ($appointment->appointmentServices as $aps) {
+                    $serviceBase = round((float) $aps->service_price, 2);
+                    $remaining   = $serviceBase;
+
+                    $promos = $aps->promotions
+                        ->sortBy(fn ($p) => (int) ($p->pivot->sort_order ?? 0))
+                        ->values();
+
+                    foreach ($promos as $promo) {
+                        if (!$this->promotionApplicability->isApplicable($promo, $dateObj, [(int) $aps->service_id], $itemIds)) {
+                            throw ValidationException::withMessages([
+                                'appointment_services' => "Promoção '{$promo->name}' não é aplicável para este serviço/data/itens.",
+                            ]);
+                        }
+
+                        if ($promo->min_purchase_amount !== null && $subtotal < (float) $promo->min_purchase_amount) {
+                            throw ValidationException::withMessages([
+                                'appointment_services' => "Promoção '{$promo->name}' exige valor mínimo de compra.",
+                            ]);
+                        }
+
+                        $discountType = $promo->discount_type?->value ?? (string) $promo->discount_type;
+                        $discountRaw  = (float) $promo->discount_value;
+
+                        $discount = 0.0;
+
+                        if ($remaining > 0) {
+                            if ($discountType === 'percentage') $discount = round($remaining * ($discountRaw / 100), 2);
+                            else $discount = round(min($discountRaw, $remaining), 2);
+
+                            if ($promo->max_discount !== null) $discount = min($discount, (float) $promo->max_discount);
+                            $discount = max(0.0, min($discount, $remaining));
+                        }
+
+                        $remaining -= $discount;
+                        $promoDiscountTotal += $discount;
+
+                        $aps->promotions()->updateExistingPivot($promo->id, [
+                            'applied_percent' => $discountType === 'percentage' ? $discountRaw : null,
+                            'applied_value'   => $discountType === 'fixed' ? $discountRaw : null,
+                            'discount_amount' => $discount,
+                            'applied_by_user_id' => Auth::id(),
                         ]);
                     }
-
-                    $discountType = $promo->discount_type?->value ?? (string) $promo->discount_type;
-                    $discountRaw  = (float) $promo->discount_value;
-
-                    $discountValue = $discountType === 'percentage'
-                        ? $subtotal * ($discountRaw / 100)
-                        : min($discountRaw, $subtotal);
-
-                    if ($promo->max_discount !== null) {
-                        $discountValue = min($discountValue, (float) $promo->max_discount);
-                    }
-
-                    $appointment->discount_type   = $discountType;
-                    $appointment->discount_amount = $discountRaw;
-                } else {
-                    $discountType = $appointment->discount_type ?: 'percentage';
-                    $discountRaw  = (float) ($appointment->discount_amount ?? 0);
-
-                    $discountValue = $discountType === 'percentage'
-                        ? $subtotal * ($discountRaw / 100)
-                        : min($discountRaw, $subtotal);
                 }
 
-                $totalAfterDiscount = $subtotal - $discountValue;
+                $afterPromos = max(0.0, round($subtotal - $promoDiscountTotal, 2));
 
-                $toCents = fn($v) => (int) round(((float) $v) * 100);
+                if (array_key_exists('discount_type', $data) || array_key_exists('discount_amount', $data)) {
+                    $appointment->discount_type   = $data['discount_type'] ?? $appointment->discount_type;
+                    $appointment->discount_amount = $data['discount_amount'] ?? $appointment->discount_amount;
+                }
+
+                $manualType = $appointment->discount_type ?: 'percentage';
+                $manualRaw  = (float) ($appointment->discount_amount ?? 0);
+
+                $manualDiscount = 0.0;
+                if ($manualRaw > 0) {
+                    $manualDiscount = $manualType === 'percentage'
+                        ? round($afterPromos * ($manualRaw / 100), 2)
+                        : round(min($manualRaw, $afterPromos), 2);
+                }
+
+                $totalAfterDiscount = max(0.0, round($afterPromos - $manualDiscount, 2));
                 $expectedBaseCents = $toCents($totalAfterDiscount);
 
                 $appointment->payments()->delete();
@@ -752,9 +954,12 @@ class AppointmentController extends Controller
                     ]);
                 }
 
-                if ($sumBaseCents !== $expectedBaseCents) {
+                $diff = abs($sumBaseCents - $expectedBaseCents);
+                if ($diff > 1) {
+                    $got = number_format($sumBaseCents / 100, 2, ',', '.');
+                    $exp = number_format($expectedBaseCents / 100, 2, ',', '.');
                     throw ValidationException::withMessages([
-                        'payments' => 'A soma dos pagamentos (sem taxa) deve ser igual ao valor após desconto.',
+                        'payments' => "A soma dos pagamentos (sem taxa) deve ser igual ao valor líquido (após promoções e descontos). Informado: R$ {$got} • Esperado: R$ {$exp}.",
                     ]);
                 }
 
@@ -791,18 +996,25 @@ class AppointmentController extends Controller
                     }
                 }
 
-                $appointment->loadMissing(['services', 'items', 'customer']);
+                $appointment->loadMissing(['appointmentServices.service', 'customer']);
 
-                foreach ($appointment->services as $service) {
-                    $professionalId  = $service->pivot->professional_id;
-                    $commissionType  = $service->pivot->commission_type;
-                    $commissionValue = $service->pivot->commission_value;
-                    $servicePrice    = $service->pivot->service_price;
+                Commission::where('appointment_id', $appointment->id)->delete();
+                AccountPayable::where('appointment_id', $appointment->id)
+                    ->where('category', 'Comissões')
+                    ->where('reference', 'like', "APP-{$appointment->id}-%")
+                    ->delete();
+
+                foreach ($appointment->appointmentServices as $aps) {
+                    $professionalId  = $aps->professional_id;
+                    $commissionType  = $aps->commission_type;
+                    $commissionValue = $aps->commission_value;
+                    $servicePrice    = (float) $aps->service_price;
 
                     if (!$professionalId) {
                         Log::warning('SERVICE WITHOUT PROFESSIONAL ON CHECKOUT', [
                             'appointment_id' => $appointment->id,
-                            'service_id'     => $service->id,
+                            'appointment_service_id' => $aps->id,
+                            'service_id'     => $aps->service_id,
                         ]);
                         continue;
                     }
@@ -814,7 +1026,7 @@ class AppointmentController extends Controller
                     Commission::create([
                         'professional_id'   => $professionalId,
                         'appointment_id'    => $appointment->id,
-                        'service_id'        => $service->id,
+                        'service_id'        => $aps->service_id,
                         'customer_id'       => $appointment->customer_id,
                         'date'              => now()->toDateString(),
                         'service_price'     => $servicePrice,
@@ -824,15 +1036,17 @@ class AppointmentController extends Controller
                         'status'            => CommissionStatus::Pending,
                     ]);
 
+                    $serviceName = $aps->relationLoaded('service') && $aps->service ? $aps->service->name : "Serviço #{$aps->service_id}";
+
                     AccountPayable::create([
-                        'description'     => "Comissão: {$service->name}",
+                        'description'     => "Comissão: {$serviceName}",
                         'amount'          => $commissionAmount,
                         'due_date'        => now()->addDays(7)->toDateString(),
                         'status'          => AccountPayableStatus::Pending,
                         'category'        => 'Comissões',
                         'professional_id' => $professionalId,
                         'appointment_id'  => $appointment->id,
-                        'reference'       => "APP-{$appointment->id}-SRV-{$service->id}",
+                        'reference'       => "APP-{$appointment->id}-APS-{$aps->id}",
                     ]);
                 }
             });
@@ -843,12 +1057,17 @@ class AppointmentController extends Controller
                 'file'           => $e->getFile(),
                 'line'           => $e->getLine(),
             ]);
-
             throw $e;
         }
 
         return (new AppointmentResource(
-            $appointment->load(['customer', 'services', 'items', 'promotion', 'payments'])
+            $appointment->load([
+                'customer',
+                'items',
+                'payments',
+                'appointmentServices.service',
+                'appointmentServices.promotions',
+            ])
         ))
             ->response()
             ->setStatusCode(Response::HTTP_OK);
@@ -858,6 +1077,14 @@ class AppointmentController extends Controller
     {
         $data = $request->validate([
             'received_date'           => ['nullable', 'date'],
+            'discount_type'           => ['nullable', 'in:percentage,fixed'],
+            'discount_amount'         => ['nullable', 'numeric', 'min:0'],
+            'appointment_services'                         => ['sometimes', 'array'],
+            'appointment_services.*.id'                    => ['required_with:appointment_services', 'integer', 'exists:appointment_service,id'],
+            'appointment_services.*.promotions'            => ['nullable', 'array'],
+            'appointment_services.*.promotions.*.id'       => ['nullable', 'integer', 'exists:promotions,id'],
+            'appointment_services.*.promotions.*.promotion_id' => ['nullable', 'integer', 'exists:promotions,id'],
+            'appointment_services.*.promotions.*.sort_order'   => ['nullable', 'integer', 'min:0'],
             'payments'                => ['required', 'array', 'min:1'],
             'payments.*.method'       => ['required', 'string', 'max:50'],
             'payments.*.amount'       => ['required', 'numeric', 'min:0.01'],
@@ -868,24 +1095,135 @@ class AppointmentController extends Controller
             'payments.*.notes'        => ['nullable', 'string', 'max:255'],
         ]);
 
+        $toCents = fn ($v) => (int) round(((float) $v) * 100);
+
         try {
-            DB::transaction(function () use ($appointment, $data) {
-                $appointment->loadMissing(['customer', 'services', 'items']);
+            DB::transaction(function () use ($appointment, $data, $toCents) {
+                $appointment->loadMissing([
+                    'customer',
+                    'items',
+                    'appointmentServices.service',
+                    'appointmentServices.promotions',
+                ]);
 
-                $servicesTotal = $appointment->services->sum(fn($s) => (float) $s->pivot->service_price);
-                $productsTotal = $appointment->items->sum(fn($i) => (float) $i->pivot->price * (int) $i->pivot->quantity);
-                $subtotal      = $servicesTotal + $productsTotal;
+                if (!empty($data['appointment_services'])) {
+                    $byId = $appointment->appointmentServices->keyBy('id');
 
-                $discountType = $appointment->discount_type ?: 'percentage';
-                $discountRaw  = (float) ($appointment->discount_amount ?? 0);
+                    foreach ($data['appointment_services'] as $row) {
+                        $apsId = (int) ($row['id'] ?? 0);
+                        if (!$apsId || !$byId->has($apsId)) {
+                            throw ValidationException::withMessages([
+                                'appointment_services' => 'Um ou mais appointment_services não pertencem a este agendamento.',
+                            ]);
+                        }
 
-                $discountValue = $discountType === 'percentage'
-                    ? $subtotal * ($discountRaw / 100)
-                    : min($discountRaw, $subtotal);
+                        if (!array_key_exists('promotions', $row)) {
+                            continue;
+                        }
 
-                $totalAfterDiscount = $subtotal - $discountValue;
+                        $aps = $byId->get($apsId);
 
-                $toCents = fn($v) => (int) round(((float) $v) * 100);
+                        $promos = (array) ($row['promotions'] ?? []);
+                        $sync = [];
+
+                        foreach ($promos as $idx => $p) {
+                            $pid = $p['promotion_id'] ?? $p['id'] ?? null;
+                            if (!$pid) continue;
+
+                            $sync[(int) $pid] = [
+                                'sort_order' => (int) ($p['sort_order'] ?? $idx),
+                                'applied_by_user_id' => Auth::id(),
+                            ];
+                        }
+
+                        $aps->promotions()->sync($sync);
+                    }
+
+                    $appointment->unsetRelation('appointmentServices');
+                    $appointment->loadMissing(['appointmentServices.service', 'appointmentServices.promotions']);
+                }
+
+                $servicesTotal = $appointment->appointmentServices->sum(fn ($aps) => (float) $aps->service_price);
+                $productsTotal = $appointment->items->sum(fn ($i) => (float) $i->pivot->price * (int) $i->pivot->quantity);
+                $subtotal      = (float) $servicesTotal + (float) $productsTotal;
+
+                $promoDiscountTotal = 0.0;
+
+                $dateYmd = optional($appointment->date)->format('Y-m-d') ?? now()->toDateString();
+                $dateObj = Carbon::parse($dateYmd);
+
+                $itemIds = $appointment->items->pluck('id')->map(fn($id) => (int) $id)->values()->all();
+
+                foreach ($appointment->appointmentServices as $aps) {
+                    $serviceBase = round((float) $aps->service_price, 2);
+                    $remaining   = $serviceBase;
+
+                    $promos = $aps->promotions
+                        ->sortBy(fn ($p) => (int) ($p->pivot->sort_order ?? 0))
+                        ->values();
+
+                    foreach ($promos as $promo) {
+                        if (!$this->promotionApplicability->isApplicable($promo, $dateObj, [(int) $aps->service_id], $itemIds)) {
+                            throw ValidationException::withMessages([
+                                'appointment_services' => "Promoção '{$promo->name}' não é aplicável para este serviço/data/itens.",
+                            ]);
+                        }
+
+                        if ($promo->min_purchase_amount !== null && $subtotal < (float) $promo->min_purchase_amount) {
+                            throw ValidationException::withMessages([
+                                'appointment_services' => "Promoção '{$promo->name}' exige valor mínimo de compra.",
+                            ]);
+                        }
+
+                        $discountType = $promo->discount_type?->value ?? (string) $promo->discount_type;
+                        $discountRaw  = (float) $promo->discount_value;
+
+                        $discount = 0.0;
+
+                        if ($remaining > 0) {
+                            if ($discountType === 'percentage') {
+                                $discount = round($remaining * ($discountRaw / 100), 2);
+                            } else {
+                                $discount = round(min($discountRaw, $remaining), 2);
+                            }
+
+                            if ($promo->max_discount !== null) {
+                                $discount = min($discount, (float) $promo->max_discount);
+                            }
+
+                            $discount = max(0.0, min($discount, $remaining));
+                        }
+
+                        $remaining -= $discount;
+                        $promoDiscountTotal += $discount;
+
+                        $aps->promotions()->updateExistingPivot($promo->id, [
+                            'applied_percent' => $discountType === 'percentage' ? $discountRaw : null,
+                            'applied_value'   => $discountType === 'fixed' ? $discountRaw : null,
+                            'discount_amount' => $discount,
+                            'applied_by_user_id' => Auth::id(),
+                        ]);
+                    }
+                }
+
+                $afterPromos = max(0.0, round($subtotal - $promoDiscountTotal, 2));
+
+                if (array_key_exists('discount_type', $data) || array_key_exists('discount_amount', $data)) {
+                    $appointment->discount_type   = $data['discount_type'] ?? $appointment->discount_type;
+                    $appointment->discount_amount = $data['discount_amount'] ?? $appointment->discount_amount;
+                }
+
+                $manualType = $appointment->discount_type ?: 'percentage';
+                $manualRaw  = (float) ($appointment->discount_amount ?? 0);
+
+                $manualDiscount = 0.0;
+                if ($manualRaw > 0) {
+                    $manualDiscount = $manualType === 'percentage'
+                        ? round($afterPromos * ($manualRaw / 100), 2)
+                        : round(min($manualRaw, $afterPromos), 2);
+                }
+
+                $totalAfterDiscount = max(0.0, round($afterPromos - $manualDiscount, 2));
                 $expectedBaseCents = $toCents($totalAfterDiscount);
 
                 $appointment->payments()->delete();
@@ -940,9 +1278,14 @@ class AppointmentController extends Controller
                     ]);
                 }
 
-                if ($sumBaseCents !== $expectedBaseCents) {
+                $diff = abs($sumBaseCents - $expectedBaseCents);
+
+                if ($diff > 1) {
+                    $got = number_format($sumBaseCents / 100, 2, ',', '.');
+                    $exp = number_format($expectedBaseCents / 100, 2, ',', '.');
+
                     throw ValidationException::withMessages([
-                        'payments' => 'A soma dos pagamentos (sem taxa) deve ser igual ao valor após desconto.',
+                        'payments' => "A soma dos pagamentos (sem taxa) deve ser igual ao valor líquido (após promoções e descontos). Informado: R$ {$got} • Esperado: R$ {$exp}.",
                     ]);
                 }
 
@@ -1000,7 +1343,13 @@ class AppointmentController extends Controller
         }
 
         return (new AppointmentResource(
-            $appointment->load(['customer', 'services', 'items', 'promotion', 'payments'])
+            $appointment->load([
+                'customer',
+                'items',
+                'payments',
+                'appointmentServices.service',
+                'appointmentServices.promotions',
+            ])
         ))
             ->response()
             ->setStatusCode(Response::HTTP_OK);
@@ -1243,5 +1592,58 @@ class AppointmentController extends Controller
             if ($id) $ids[] = (int) $id;
         }
         return array_values(array_unique($ids));
+    }
+
+    private function assertServicePromotionsApplicableOrFail(array $servicesPayload, ?string $appliedOnYmd = null): void
+    {
+        $appliedOnYmd = $appliedOnYmd ?: now()->toDateString();
+        $date = Carbon::parse($appliedOnYmd);
+
+        $errors = [];
+
+        foreach ($servicesPayload as $sIndex => $service) {
+            $serviceId = $service['service_id'] ?? $service['id'] ?? null;
+            if (!$serviceId) continue;
+
+            if (!array_key_exists('promotions', $service)) {
+                continue;
+            }
+
+            $promos = (array) ($service['promotions'] ?? []);
+            if (empty($promos)) continue;
+
+            $seen = [];
+            foreach ($promos as $pIndex => $p) {
+                $pid = $p['promotion_id'] ?? $p['id'] ?? null;
+                if (!$pid) continue;
+
+                $pid = (int) $pid;
+                if (isset($seen[$pid])) {
+                    $errors["services.$sIndex.promotions"][] = 'Promoção duplicada no mesmo serviço.';
+                    continue;
+                }
+                $seen[$pid] = true;
+
+                $promo = Promotion::query()
+                    ->with(['services:id', 'items:id'])
+                    ->find($pid);
+
+                if (!$promo) {
+                    $errors["services.$sIndex.promotions.$pIndex.id"][] = 'Promoção não encontrada.';
+                    continue;
+                }
+
+                $ok = $this->promotionApplicability->isApplicable($promo, $date, [(int) $serviceId], []);
+
+                if (!$ok) {
+                    $errors["services.$sIndex.promotions.$pIndex.id"][] =
+                        'Esta promoção não é aplicável para este serviço (na data de aplicação).';
+                }
+            }
+        }
+
+        if (!empty($errors)) {
+            throw ValidationException::withMessages($errors);
+        }
     }
 }

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useForm, useFieldArray } from "react-hook-form";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useForm, useFieldArray, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -20,55 +20,82 @@ type PrepayPaymentOut = {
   fee_percent: number;
   card_brand: string | null;
   installments: number | null;
-  meta: any | null;
+  meta: Record<string, any> | null;
   notes: string | null;
 };
 
-const paymentSchema = z.object({
-  payment_method: z.string().min(1, "Forma de pagamento é obrigatória"),
-  amount: z.number().min(0, "Informe um valor válido"),
-  card_brand: z.string().optional().nullable(),
-  installments: z.number().min(1).optional().nullable(),
-  installment_fee: z.number().min(0).optional().nullable(),
-  notes: z.string().optional().nullable(),
-});
+function safeNumber(v: any, fallback = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
 
-const prepaySchema = z
+const paymentSchema = z
   .object({
-    payments: z.array(paymentSchema).min(1, "Adicione pelo menos 1 pagamento"),
+    method: z.string().min(1, "Forma de pagamento é obrigatória"),
+    amount: z.number().min(0, "Informe um valor válido"),
+    card_brand: z.string().optional().nullable(),
+    installments: z.number().min(1).optional().nullable(),
+    fee_percent: z.number().min(0).optional().nullable(),
+    notes: z.string().optional().nullable(),
   })
-  .superRefine((val, ctx) => {
-    val.payments.forEach((p, idx) => {
-      if (p.payment_method === "credit") {
-        if (!p.installments || p.installments < 1) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["payments", idx, "installments"],
-            message: "Parcelas obrigatórias no crédito",
-          });
-        }
-        if (p.installment_fee != null && p.installment_fee < 0) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["payments", idx, "installment_fee"],
-            message: "Taxa inválida",
-          });
-        }
+  .superRefine((p, ctx) => {
+    const method = String(p.method || "").trim();
+
+    const needsCardBrand = method === "debit" || method === "credit" || method === "credit_link";
+    const isCredit = method === "credit";
+    const isCreditLike = method === "credit" || method === "credit_link";
+
+    if (needsCardBrand) {
+      const brand = String(p.card_brand ?? "").trim();
+      if (!brand) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["card_brand"],
+          message: "Bandeira é obrigatória para pagamentos com cartão",
+        });
       }
-    });
+    }
+
+    if (isCredit) {
+      if (!p.installments || p.installments < 1) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["installments"],
+          message: "Parcelas obrigatórias no crédito",
+        });
+      }
+    }
+
+    if (isCreditLike) {
+      if (p.fee_percent != null && p.fee_percent < 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["fee_percent"],
+          message: "Taxa inválida",
+        });
+      }
+    }
   });
+
+const prepaySchema = z.object({
+  payments: z.array(paymentSchema).min(1, "Adicione pelo menos 1 pagamento"),
+});
 
 interface AppointmentPrepayDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   totalAmount: number;
+  grossAmount?: number;
+  discountLines?: Array<{ label: string; amount: number }>;
   defaultPayments?: Array<{
-    payment_method: string;
+    method?: string;
     amount: number;
+    notes?: string | null;
     card_brand?: string | null;
     installments?: number | null;
+    fee_percent?: number | null;
     installment_fee?: number | null;
-    notes?: string | null;
+    meta?: Record<string, any> | null;
   }>;
   onConfirm: (payments: PrepayPaymentOut[]) => void;
   onCancel: () => void;
@@ -80,6 +107,8 @@ export function AppointmentPrepayDialog({
   open,
   onOpenChange,
   totalAmount,
+  grossAmount,
+  discountLines,
   defaultPayments,
   onConfirm,
   onCancel,
@@ -87,6 +116,7 @@ export function AppointmentPrepayDialog({
   description = "Informe a forma de pagamento para registrar no caixa.",
 }: AppointmentPrepayDialogProps) {
   const isMobile = useIsMobile();
+  const didConfirmRef = useRef(false);
 
   const [paymentAmountDisplay, setPaymentAmountDisplay] = useState<Record<number, string>>({});
   const [paymentFeeDisplay, setPaymentFeeDisplay] = useState<Record<number, string>>({});
@@ -96,11 +126,11 @@ export function AppointmentPrepayDialog({
     defaultValues: {
       payments: [
         {
-          payment_method: "",
+          method: "",
           amount: 0,
           card_brand: null,
           installments: 1,
-          installment_fee: 0,
+          fee_percent: 0,
           notes: null,
         },
       ],
@@ -112,28 +142,53 @@ export function AppointmentPrepayDialog({
     name: "payments",
   });
 
+  function parseNumberBR(v: any, fallback = 0) {
+    if (v == null) return fallback;
+    if (typeof v === "number") return Number.isFinite(v) ? v : fallback;
+
+    const s = String(v).trim();
+    if (!s) return fallback;
+
+    const cleaned = s.replace(/[^\d.,-]/g, "");
+
+    if (cleaned.includes(",")) {
+      const normalized = cleaned.replace(/\./g, "").replace(",", ".");
+      const n = Number(normalized);
+      return Number.isFinite(n) ? n : fallback;
+    }
+
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
   useEffect(() => {
     if (!open) return;
 
-    const fromApi = (defaultPayments ?? []).map((p) => ({
-      payment_method: p.payment_method ?? "",
-      amount: Number(p.amount ?? 0),
+    const fromApi = (defaultPayments ?? []).map((p) => {
+    const method = String(p.method ?? "").trim();
+
+    const feeRaw = p.fee_percent ?? p.installment_fee ?? 0;
+
+    return {
+      method,
+      amount: parseNumberBR(p.amount, 0),
       card_brand: p.card_brand ?? null,
       installments: p.installments ?? 1,
-      installment_fee: Number(p.installment_fee ?? 0),
+      fee_percent: parseNumberBR(feeRaw, 0),
       notes: p.notes ?? null,
-    }));
+    };
+  });
 
     const nextPayments =
       fromApi.length > 0
         ? fromApi
         : [
             {
-              payment_method: "",
+              method: "",
               amount: 0,
               card_brand: null,
               installments: 1,
-              installment_fee: 0,
+              fee_percent: 0,
               notes: null,
             },
           ];
@@ -145,34 +200,62 @@ export function AppointmentPrepayDialog({
 
     nextPayments.forEach((p, i) => {
       amountDisplayMap[i] = p.amount ? displayCurrency(Number(p.amount)) : "";
-      feeDisplayMap[i] = p.installment_fee ? displayPercentage(Number(p.installment_fee)) : "";
+      feeDisplayMap[i] = p.fee_percent ? displayPercentage(Number(p.fee_percent)) : "";
     });
 
     setPaymentAmountDisplay(amountDisplayMap);
     setPaymentFeeDisplay(feeDisplayMap);
   }, [open, defaultPayments, form]);
 
-  const paymentsWatch = form.watch("payments") ?? [];
+  const paymentsWatch = useWatch({ control: form.control, name: "payments" }) ?? [];
+
   const baseTotal = Number(Number(totalAmount ?? 0).toFixed(2));
+
+  const grossAmountSafe = Number(Number((grossAmount ?? baseTotal) ?? 0).toFixed(2));
+
+  const discountTotal = Number(Math.max(0, grossAmountSafe - baseTotal).toFixed(2));
+
   const paidBaseTotal = Number(
     paymentsWatch.reduce((sum, p) => sum + (Number(p.amount) || 0), 0).toFixed(2)
   );
+
   const remaining = Number((baseTotal - paidBaseTotal).toFixed(2));
 
-  const feeTotal = useMemo(() => {
-    return Number(
-      paymentsWatch
-        .reduce((sum, p) => {
-          const method = String(p.payment_method || "").trim();
-          if (method !== "credit" && method !== "credit_link") return sum;
+  const feeTotal = Number(
+    (paymentsWatch ?? [])
+      .reduce((sum, p) => {
+        const method = String(p?.method || "").trim();
+        if (method !== "credit" && method !== "credit_link") return sum;
 
-          const base = Number(p.amount || 0);
-          const fee = Number(p.installment_fee || 0);
-          return sum + (base * fee) / 100;
-        }, 0)
-        .toFixed(2)
-    );
-  }, [paymentsWatch]);
+        const base = safeNumber(p?.amount, 0);
+        const feePercent = safeNumber(p?.fee_percent, 0);
+
+        return sum + (base * feePercent) / 100;
+      }, 0)
+      .toFixed(2)
+  );
+
+  const feeLines =
+    (paymentsWatch ?? [])
+      .map((p, idx) => {
+        const method = String(p?.method || "").trim();
+        if (method !== "credit" && method !== "credit_link") return null;
+
+        const base = safeNumber(p?.amount, 0);
+        const feePercent = safeNumber(p?.fee_percent, 0);
+        if (base <= 0 || feePercent <= 0) return null;
+
+        const fee = Number(((base * feePercent) / 100).toFixed(2));
+        if (fee <= 0) return null;
+
+        const label =
+          method === "credit_link"
+            ? `Taxa (Link) • ${feePercent.toFixed(2)}%`
+            : `Taxa (Crédito) • ${feePercent.toFixed(2)}%`;
+
+        return { label: `${label} (pagamento ${idx + 1})`, amount: fee };
+      })
+      .filter(Boolean) as Array<{ label: string; amount: number }>;
 
   const fillRemainingOnRow = (index: number) => {
     const current = Number(form.getValues(`payments.${index}.amount`) || 0);
@@ -193,13 +276,19 @@ export function AppointmentPrepayDialog({
 
   const handleClose = (nextOpen: boolean) => {
     onOpenChange(nextOpen);
+
     if (!nextOpen) {
+      if (didConfirmRef.current) {
+        didConfirmRef.current = false;
+        return;
+      }
       onCancel();
     }
   };
 
   const onSubmit = async (data: z.infer<typeof prepaySchema>) => {
     const expectedBase = baseTotal;
+
     const paidBase = Number(
       (data.payments ?? []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0).toFixed(2)
     );
@@ -217,21 +306,22 @@ export function AppointmentPrepayDialog({
     }
 
     const payments: PrepayPaymentOut[] = (data.payments ?? []).map((p) => {
-      const method = String(p.payment_method || "").trim();
+      const method = String(p.method || "").trim();
       const isCreditLike = method === "credit" || method === "credit_link";
       const isCard = isCreditLike || method === "debit";
 
       return {
         method,
         amount: Number(Number(p.amount || 0).toFixed(2)),
-        fee_percent: isCreditLike ? Number(Number(p.installment_fee ?? 0).toFixed(2)) : 0,
-        card_brand: isCard ? (p.card_brand ?? null) : null,
+        fee_percent: isCreditLike ? Number(Number(p.fee_percent ?? 0).toFixed(2)) : 0,
+        card_brand: isCard ? (String(p.card_brand ?? "").trim() || null) : null,
         installments: method === "credit" ? (p.installments ?? 1) : null,
         meta: null,
         notes: p.notes ?? null,
       };
     });
 
+    didConfirmRef.current = true;
     onConfirm(payments);
     onOpenChange(false);
   };
@@ -252,18 +342,58 @@ export function AppointmentPrepayDialog({
             <span>R$ {baseTotal.toFixed(2)}</span>
           </div>
 
+          <div className="flex justify-between text-sm">
+            <span>Total antes do desconto:</span>
+            <span>R$ {grossAmountSafe.toFixed(2)}</span>
+          </div>
+
+          {discountTotal > 0 && (
+            <>
+              <div className="flex justify-between text-sm text-emerald-600">
+                <span>Descontos:</span>
+                <span>- R$ {discountTotal.toFixed(2)}</span>
+              </div>
+
+              {!!discountLines?.length && (
+                <div className="mt-1 space-y-1">
+                  {discountLines.map((d, i) => (
+                    <div key={i} className="flex justify-between text-xs text-muted-foreground">
+                      <span>{d.label}</span>
+                      <span>- R$ {Number(d.amount || 0).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
           {feeTotal > 0 && (
-            <div className="flex justify-between text-sm text-primary">
-              <span>Taxas de crédito (informativo):</span>
-              <span>+ R$ {feeTotal.toFixed(2)}</span>
-            </div>
+            <>
+              <div className="flex justify-between text-sm text-primary">
+                <span>Acréscimo (taxas da máquina):</span>
+                <span>+ R$ {feeTotal.toFixed(2)}</span>
+              </div>
+
+              {!!feeLines.length && (
+                <div className="mt-1 space-y-1">
+                  {feeLines.map((f, i) => (
+                    <div key={i} className="flex justify-between text-xs text-muted-foreground">
+                      <span>{f.label}</span>
+                      <span>+ R$ {Number(f.amount || 0).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
 
           <Separator className="my-1" />
 
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>Total base pago:</span>
-            <span>R$ {paidBaseTotal.toFixed(2)} • Restante: R$ {Math.max(0, remaining).toFixed(2)}</span>
+            <span>
+              R$ {paidBaseTotal.toFixed(2)} • Restante: R$ {Math.max(0, remaining).toFixed(2)}
+            </span>
           </div>
         </div>
 
@@ -272,16 +402,17 @@ export function AppointmentPrepayDialog({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold">Métodos de Pagamento</h3>
+
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => {
                     append({
-                      payment_method: "",
+                      method: "",
                       amount: 0,
                       card_brand: null,
                       installments: 1,
-                      installment_fee: 0,
+                      fee_percent: 0,
                       notes: null,
                     });
 
@@ -295,15 +426,19 @@ export function AppointmentPrepayDialog({
               </div>
 
               {fields.map((f, idx) => {
-                const method = form.watch(`payments.${idx}.payment_method`);
+                const method = String(form.watch(`payments.${idx}.method`) || "").trim();
                 const amountValue = form.watch(`payments.${idx}.amount`) || 0;
+
+                const isCredit = method === "credit";
+                const isCreditLike = method === "credit" || method === "credit_link";
+                const isCard = isCreditLike || method === "debit";
 
                 return (
                   <div key={f.id} className="rounded-lg border p-3 space-y-3">
                     <div className="grid grid-cols-3 gap-3">
                       <FormField
                         control={form.control}
-                        name={`payments.${idx}.payment_method`}
+                        name={`payments.${idx}.method`}
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Método</FormLabel>
@@ -342,8 +477,10 @@ export function AppointmentPrepayDialog({
                                   const formatted = formatCurrencyInput(e.target.value);
                                   setPaymentAmountDisplay((prev) => ({ ...prev, [idx]: formatted }));
 
-                                  const numeric = parseFloat(formatted.replace(/[^\d,]/g, "").replace(",", "."));
-                                  field.onChange(isNaN(numeric) ? 0 : numeric);
+                                  const numeric = parseFloat(
+                                    formatted.replace(/[^\d,]/g, "").replace(",", ".")
+                                  );
+                                  field.onChange(Number.isNaN(numeric) ? 0 : numeric);
                                 }}
                               />
                             </FormControl>
@@ -398,8 +535,8 @@ export function AppointmentPrepayDialog({
                       </div>
                     </div>
 
-                    {(method === "credit" || method === "debit" || method === "credit_link") && (
-                      <div className="grid grid-cols-2 gap-3">
+                    {(isCard || isCreditLike) && (
+                      <div className={cn("grid gap-3", isCredit ? "grid-cols-2" : "grid-cols-2")}>
                         <FormField
                           control={form.control}
                           name={`payments.${idx}.card_brand`}
@@ -418,7 +555,7 @@ export function AppointmentPrepayDialog({
                           )}
                         />
 
-                        {method === "credit" ? (
+                        {isCredit ? (
                           <div className="grid grid-cols-2 gap-3">
                             <FormField
                               control={form.control}
@@ -426,7 +563,10 @@ export function AppointmentPrepayDialog({
                               render={({ field }) => (
                                 <FormItem>
                                   <FormLabel>Parcelas</FormLabel>
-                                  <Select onValueChange={(v) => field.onChange(Number(v))} value={String(field.value ?? 1)}>
+                                  <Select
+                                    onValueChange={(v) => field.onChange(Number(v))}
+                                    value={String(field.value ?? 1)}
+                                  >
                                     <FormControl>
                                       <SelectTrigger>
                                         <SelectValue placeholder="1x" />
@@ -447,7 +587,7 @@ export function AppointmentPrepayDialog({
 
                             <FormField
                               control={form.control}
-                              name={`payments.${idx}.installment_fee`}
+                              name={`payments.${idx}.fee_percent`}
                               render={({ field }) => (
                                 <FormItem className="min-w-0">
                                   <FormLabel>Taxa (%)</FormLabel>
@@ -462,7 +602,7 @@ export function AppointmentPrepayDialog({
                                         setPaymentFeeDisplay((prev) => ({ ...prev, [idx]: formatted }));
 
                                         const numeric = parseFloat(formatted.replace(/\./g, "").replace(",", "."));
-                                        field.onChange(isNaN(numeric) ? 0 : numeric);
+                                        field.onChange(Number.isNaN(numeric) ? 0 : numeric);
                                       }}
                                     />
                                   </FormControl>
@@ -471,16 +611,61 @@ export function AppointmentPrepayDialog({
                               )}
                             />
                           </div>
+                        ) : isCreditLike ? (
+                          <FormField
+                            control={form.control}
+                            name={`payments.${idx}.fee_percent`}
+                            render={({ field }) => (
+                              <FormItem className="min-w-0">
+                                <FormLabel>Taxa (%)</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    type="text"
+                                    inputMode="decimal"
+                                    placeholder="0,00"
+                                    value={paymentFeeDisplay[idx] ?? ""}
+                                    onChange={(e) => {
+                                      const formatted = formatPercentageInput(e.target.value);
+                                      setPaymentFeeDisplay((prev) => ({ ...prev, [idx]: formatted }));
+
+                                      const numeric = parseFloat(formatted.replace(/\./g, "").replace(",", "."));
+                                      field.onChange(Number.isNaN(numeric) ? 0 : numeric);
+                                    }}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
                         ) : (
                           <div />
                         )}
                       </div>
                     )}
 
+                    <FormField
+                      control={form.control}
+                      name={`payments.${idx}.notes`}
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Observações (opcional)</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder="Ex: comprovante, detalhes..."
+                              value={field.value ?? ""}
+                              onChange={(e) => field.onChange(e.target.value)}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
                     <div className="text-xs text-muted-foreground flex justify-between">
                       <span>Pago nesta linha (base): R$ {Number(amountValue).toFixed(2)}</span>
                       <span>
-                        Total pago: R$ {paidBaseTotal.toFixed(2)} • Restante: R$ {Math.max(0, remaining).toFixed(2)}
+                        Total base pago: R$ {paidBaseTotal.toFixed(2)} • Restante: R${" "}
+                        {Math.max(0, remaining).toFixed(2)}
                       </span>
                     </div>
                   </div>
@@ -500,9 +685,7 @@ export function AppointmentPrepayDialog({
                 Cancelar
               </Button>
 
-              <Button type="submit">
-                Confirmar Pagamento
-              </Button>
+              <Button type="submit">Confirmar Pagamento</Button>
             </DialogFooter>
           </form>
         </Form>

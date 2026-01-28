@@ -22,7 +22,7 @@ class Appointment extends Model
         'discount_amount',
         'discount_type',
         'final_price',
-        'promotion_id',
+        'promotion_id', // remover mais tarde
         'notes',
     ];
 
@@ -44,15 +44,22 @@ class Appointment extends Model
         return $this->belongsTo(Customer::class);
     }
 
+    // remover mais tarde
     public function promotion()
     {
         return $this->belongsTo(Promotion::class);
+    }
+
+    public function appointmentServices()
+    {
+        return $this->hasMany(AppointmentService::class);
     }
 
     public function services()
     {
         return $this->belongsToMany(Service::class, 'appointment_service')
             ->withPivot([
+                'id',
                 'service_price',
                 'commission_type',
                 'commission_value',

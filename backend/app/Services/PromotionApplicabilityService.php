@@ -72,10 +72,21 @@ class PromotionApplicabilityService
     private function getRelatedIds(Promotion $promo, string $relation): Collection
     {
         if ($promo->relationLoaded($relation)) {
-            return $promo->{$relation}->pluck('id')->map(fn($v) => (int) $v)->values();
+            return $promo->{$relation}->pluck('id')->map(fn ($v) => (int) $v)->values();
         }
 
-        return $promo->{$relation}()->pluck('id')->map(fn($v) => (int) $v)->values();
+        $qualifiedId = match ($relation) {
+            'services' => 'services.id',
+            'items'    => 'items.id',
+            default    => 'id',
+        };
+
+        return $promo->{$relation}()
+            ->select($qualifiedId)
+            ->distinct()
+            ->pluck($qualifiedId)
+            ->map(fn ($v) => (int) $v)
+            ->values();
     }
 
     private function getWeekOfMonthForWeekday(Carbon $date): ?int

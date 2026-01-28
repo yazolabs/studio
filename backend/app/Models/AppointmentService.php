@@ -52,4 +52,21 @@ class AppointmentService extends Model
     {
         return $query->whereHas('appointment', fn ($q) => $q->whereNull('deleted_at'));
     }
+
+    public function promotions()
+    {
+        return $this->belongsToMany(Promotion::class, 'appointment_service_promotion')
+            ->withPivot([
+                'id',
+                'sort_order',
+                'applied_value',
+                'applied_percent',
+                'discount_amount',
+                'applied_by_user_id',
+                'created_at',
+                'updated_at',
+            ])
+            ->withTimestamps()
+            ->orderByPivot('sort_order');
+    }
 }
