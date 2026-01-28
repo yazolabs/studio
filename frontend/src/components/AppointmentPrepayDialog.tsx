@@ -211,9 +211,19 @@ export function AppointmentPrepayDialog({
 
   const baseTotal = Number(Number(totalAmount ?? 0).toFixed(2));
 
-  const grossAmountSafe = Number(Number((grossAmount ?? baseTotal) ?? 0).toFixed(2));
+  const safeDiscountLines = (discountLines ?? []).filter((l) => safeNumber(l.amount, 0) > 0);
 
-  const discountTotal = Number(Math.max(0, grossAmountSafe - baseTotal).toFixed(2));
+  const discountTotalFromLines = Number(
+    safeDiscountLines.reduce((sum, l) => sum + safeNumber(l.amount, 0), 0).toFixed(2)
+  );
+
+  const grossAmountSafe = Number(
+    Number((grossAmount ?? (baseTotal + discountTotalFromLines)) ?? 0).toFixed(2)
+  );
+
+  const discountTotal = Number(
+    Math.max(0, grossAmountSafe - baseTotal, discountTotalFromLines).toFixed(2)
+  );
 
   const paidBaseTotal = Number(
     paymentsWatch.reduce((sum, p) => sum + (Number(p.amount) || 0), 0).toFixed(2)
@@ -293,7 +303,7 @@ export function AppointmentPrepayDialog({
       (data.payments ?? []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0).toFixed(2)
     );
 
-    if (expectedBase <= 0) {
+    if (expectedBase < 0) {
       toast.error("Valor total inválido para pagamento antecipado.");
       return;
     }
@@ -347,17 +357,17 @@ export function AppointmentPrepayDialog({
             <span>R$ {grossAmountSafe.toFixed(2)}</span>
           </div>
 
-          {discountTotal > 0 && (
+          {(discountTotal > 0 || safeDiscountLines.length > 0) && (
             <>
               <div className="flex justify-between text-sm text-emerald-600">
                 <span>Descontos:</span>
                 <span>- R$ {discountTotal.toFixed(2)}</span>
               </div>
 
-              {!!discountLines?.length && (
+              {!!safeDiscountLines.length && (
                 <div className="mt-1 space-y-1">
-                  {discountLines.map((d, i) => (
-                    <div key={i} className="flex justify-between text-xs text-muted-foreground">
+                  {safeDiscountLines.map((d, i) => (
+                    <div key={`${d.label}-${i}`} className="flex justify-between text-xs text-muted-foreground">
                       <span>{d.label}</span>
                       <span>- R$ {Number(d.amount || 0).toFixed(2)}</span>
                     </div>
@@ -398,7 +408,7 @@ export function AppointmentPrepayDialog({
         </div>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 mt-4">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold">Métodos de Pagamento</h3>

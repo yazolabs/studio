@@ -1745,37 +1745,46 @@ export default function Appointments() {
   const getPromotionDiscountFromPromo = (promo: any, base: number) => {
     if (!promo || base <= 0) return 0;
 
-    const type = String(
+    const typeRaw = String(
       promo.discount_type ?? promo.type ?? promo.kind ?? promo.mode ?? ""
     ).toLowerCase();
+
+    const isPercent =
+      typeRaw.includes("percent") || typeRaw.includes("percentage") || typeRaw === "%";
+
+    const discountValue = safeNumber(promo.discount_value, NaN);
 
     const percent = safeNumber(
       promo.percent ??
         promo.percentage ??
         promo.discount_percent ??
         promo.discount_percentage ??
-        promo.value_percent,
+        promo.value_percent ??
+        (isPercent ? discountValue : NaN),
       NaN
     );
 
     const fixed = safeNumber(
-      promo.amount ?? promo.discount_amount ?? promo.value ?? promo.discount_value,
+      promo.amount ??
+        promo.discount_amount ??
+        promo.amount_value ??
+        promo.discount_amount_value ??
+        promo.value ??
+        promo.discount_value_amount ??
+        (!isPercent ? discountValue : NaN),
       NaN
     );
 
     let discount = 0;
 
-    if (type.includes("percent") || type === "percentage") {
+    if (isPercent) {
       discount = Number.isFinite(percent) ? (base * percent) / 100 : 0;
-    } else if (type.includes("fixed") || type.includes("amount") || type === "fixed") {
-      discount = Number.isFinite(fixed) ? fixed : 0;
     } else {
-      if (Number.isFinite(percent)) discount = (base * percent) / 100;
-      else if (Number.isFinite(fixed)) discount = fixed;
+      discount = Number.isFinite(fixed) ? fixed : 0;
     }
 
     if (!Number.isFinite(discount) || discount < 0) return 0;
-    return Math.min(base, discount);
+    return Math.min(base, Number(discount.toFixed(2)));
   };
 
   const computePrepayNetTotalFromForm = (values: FormValues) => {

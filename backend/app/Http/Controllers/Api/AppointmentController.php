@@ -732,9 +732,9 @@ class AppointmentController extends Controller
             'services_to_add.*.commission_value'    => ['nullable', 'numeric', 'min:0'],
             'services_to_add.*.promotion_ids'       => ['nullable', 'array'],
             'services_to_add.*.promotion_ids.*'     => ['integer', 'exists:promotions,id'],
-            'payments'                => ['required', 'array', 'min:1'],
-            'payments.*.method'       => ['required', 'string', 'max:50'],
-            'payments.*.amount'       => ['required', 'numeric', 'min:0.01'],
+            'payments'                => ['nullable', 'array'],
+            'payments.*.method'       => ['required_with:payments', 'string', 'max:50'],
+            'payments.*.amount'       => ['required_with:payments', 'numeric', 'min:0'],
             'payments.*.fee_percent'  => ['nullable', 'numeric', 'min:0'],
             'payments.*.card_brand'   => ['nullable', 'string', 'max:50'],
             'payments.*.installments' => ['nullable', 'integer', 'min:1'],
@@ -902,12 +902,40 @@ class AppointmentController extends Controller
                 $totalAfterDiscount = max(0.0, round($afterPromos - $manualDiscount, 2));
                 $expectedBaseCents = $toCents($totalAfterDiscount);
 
+                $payments = $data['payments'] ?? [];
+
+                if ($expectedBaseCents > 0) {
+                    if (empty($payments)) {
+                        throw ValidationException::withMessages([
+                            'payments' => 'Informe ao menos um pagamento.',
+                        ]);
+                    }
+
+                    foreach ($payments as $idx => $p) {
+                        $amt = round((float) ($p['amount'] ?? 0), 2);
+                        if ($amt <= 0) {
+                            throw ValidationException::withMessages([
+                                "payments.$idx.amount" => 'O valor do pagamento deve ser maior que zero.',
+                            ]);
+                        }
+                    }
+                } else {
+                    foreach ($payments as $idx => $p) {
+                        $amt = round((float) ($p['amount'] ?? 0), 2);
+                        if ($amt != 0.0) {
+                            throw ValidationException::withMessages([
+                                "payments.$idx.amount" => 'Quando o valor final é R$ 0,00, os pagamentos devem ser R$ 0,00.',
+                            ]);
+                        }
+                    }
+                }
+
                 $appointment->payments()->delete();
 
                 $sumBaseCents   = 0;
                 $sumAmountCents = 0;
 
-                foreach ($data['payments'] as $p) {
+                foreach (($data['payments'] ?? []) as $p) {
                     $method     = (string) $p['method'];
                     $baseAmount = round((float) $p['amount'], 2);
 
@@ -1085,9 +1113,9 @@ class AppointmentController extends Controller
             'appointment_services.*.promotions.*.id'       => ['nullable', 'integer', 'exists:promotions,id'],
             'appointment_services.*.promotions.*.promotion_id' => ['nullable', 'integer', 'exists:promotions,id'],
             'appointment_services.*.promotions.*.sort_order'   => ['nullable', 'integer', 'min:0'],
-            'payments'                => ['required', 'array', 'min:1'],
-            'payments.*.method'       => ['required', 'string', 'max:50'],
-            'payments.*.amount'       => ['required', 'numeric', 'min:0.01'],
+            'payments'                => ['nullable', 'array'],
+            'payments.*.method'       => ['required_with:payments', 'string', 'max:50'],
+            'payments.*.amount'       => ['required_with:payments', 'numeric', 'min:0'],
             'payments.*.fee_percent'  => ['nullable', 'numeric', 'min:0'],
             'payments.*.card_brand'   => ['nullable', 'string', 'max:50'],
             'payments.*.installments' => ['nullable', 'integer', 'min:1'],
@@ -1226,12 +1254,40 @@ class AppointmentController extends Controller
                 $totalAfterDiscount = max(0.0, round($afterPromos - $manualDiscount, 2));
                 $expectedBaseCents = $toCents($totalAfterDiscount);
 
+                $payments = $data['payments'] ?? [];
+
+                if ($expectedBaseCents > 0) {
+                    if (empty($payments)) {
+                        throw ValidationException::withMessages([
+                            'payments' => 'Informe ao menos um pagamento.',
+                        ]);
+                    }
+
+                    foreach ($payments as $idx => $p) {
+                        $amt = round((float) ($p['amount'] ?? 0), 2);
+                        if ($amt <= 0) {
+                            throw ValidationException::withMessages([
+                                "payments.$idx.amount" => 'O valor do pagamento deve ser maior que zero.',
+                            ]);
+                        }
+                    }
+                } else {
+                    foreach ($payments as $idx => $p) {
+                        $amt = round((float) ($p['amount'] ?? 0), 2);
+                        if ($amt != 0.0) {
+                            throw ValidationException::withMessages([
+                                "payments.$idx.amount" => 'Quando o valor final é R$ 0,00, os pagamentos devem ser R$ 0,00.',
+                            ]);
+                        }
+                    }
+                }
+
                 $appointment->payments()->delete();
 
                 $sumBaseCents   = 0;
                 $sumAmountCents = 0;
 
-                foreach ($data['payments'] as $p) {
+                foreach (($data['payments'] ?? []) as $p) {
                     $method     = (string) $p['method'];
                     $baseAmount = round((float) $p['amount'], 2);
 
