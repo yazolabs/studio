@@ -768,11 +768,11 @@ class AppointmentController extends Controller
                 if (!empty($data['services_to_add']) && is_array($data['services_to_add'])) {
                     foreach ($data['services_to_add'] as $row) {
                         $aps = $appointment->appointmentServices()->create([
-                            'service_id'        => (int) $row['service_id'],
-                            'professional_id'   => !empty($row['professional_id']) ? (int) $row['professional_id'] : null,
-                            'service_price'     => number_format((float) $row['service_price'], 2, '.', ''),
-                            'commission_type'   => $row['commission_type'] ?? 'percentage',
-                            'commission_value'  => isset($row['commission_value'])
+                            'service_id'       => (int) $row['service_id'],
+                            'professional_id'  => !empty($row['professional_id']) ? (int) $row['professional_id'] : null,
+                            'service_price'    => number_format((float) $row['service_price'], 2, '.', ''),
+                            'commission_type'  => $row['commission_type'] ?? 'percentage',
+                            'commission_value' => isset($row['commission_value'])
                                 ? number_format((float) $row['commission_value'], 2, '.', '')
                                 : '0.00',
                         ]);
@@ -785,7 +785,7 @@ class AppointmentController extends Controller
                             $sync = [];
                             foreach ($promoIds as $idx => $pid) {
                                 $sync[$pid] = [
-                                    'sort_order' => $idx,
+                                    'sort_order'         => $idx,
                                     'applied_by_user_id' => Auth::id(),
                                 ];
                             }
@@ -820,7 +820,7 @@ class AppointmentController extends Controller
                             if (!$pid) continue;
 
                             $sync[(int) $pid] = [
-                                'sort_order' => (int) ($p['sort_order'] ?? $idx),
+                                'sort_order'         => (int) ($p['sort_order'] ?? $idx),
                                 'applied_by_user_id' => Auth::id(),
                             ];
                         }
@@ -914,6 +914,8 @@ class AppointmentController extends Controller
 
                 $existingBaseCents = $appointment->payments->sum(fn ($pay) => $toCents((float) $pay->base_amount));
                 $existingAmountCents = $appointment->payments->sum(fn ($pay) => $toCents((float) $pay->amount));
+
+                $alreadyPaidBaseCentsForDeltaCashier = (int) $existingBaseCents;
 
                 $alreadyFullyPaid = ($expectedBaseCents > 0)
                     ? (($existingBaseCents + 1) >= $expectedBaseCents)
@@ -1040,16 +1042,40 @@ class AppointmentController extends Controller
                     ->delete();
 
                 if (!$ignoreIncomingPayments) {
+                    $remainingAlreadyPaidBaseCents = (int) $alreadyPaidBaseCentsForDeltaCashier;
+
                     foreach ($appointment->payments as $pay) {
-                        if ((float) $pay->amount <= 0) continue;
+                        $baseCents = $toCents((float) $pay->base_amount);
+                        if ($baseCents <= 0) continue;
+
+                        $coveredCents = 0;
+                        if ($remainingAlreadyPaidBaseCents > 0) {
+                            $coveredCents = min($baseCents, $remainingAlreadyPaidBaseCents);
+                            $remainingAlreadyPaidBaseCents -= $coveredCents;
+                        }
+
+                        $newBaseCents = $baseCents - $coveredCents;
+                        if ($newBaseCents <= 0) continue;
+
+                        $newBase = $newBaseCents / 100;
+
+                        $method     = (string) $pay->method;
+                        $feePercent = (float) ($pay->fee_percent ?? 0);
+                        $isCreditLike = in_array($method, ['credit', 'credit_link'], true);
+
+                        $grossNew = ($isCreditLike && $feePercent > 0)
+                            ? round($newBase * (1 + ($feePercent / 100)), 2)
+                            : round($newBase, 2);
+
+                        if ($grossNew <= 0) continue;
 
                         CashierTransaction::create([
                             'date'           => $cashierDate,
                             'type'           => TransactionType::Income,
                             'category'       => 'Atendimentos',
                             'description'    => "Checkout agendamento #{$appointment->id} - {$customerName}",
-                            'amount'         => $pay->amount,
-                            'payment_method' => $pay->method,
+                            'amount'         => number_format($grossNew, 2, '.', ''),
+                            'payment_method' => $method,
                             'reference'      => $refCheckout,
                             'user_id'        => Auth::id(),
                             'notes'          => null,

@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { formatCurrencyInput, displayCurrency, formatPercentageInput, displayPercentage } from "@/utils/formatters";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { CARD_BRANDS_BR } from "@/constants/cardBrands";
 
 type PrepayPaymentOut = {
   method: string;
@@ -623,13 +624,23 @@ export function AppointmentPrepayDialog({
                             render={({ field }) => (
                               <FormItem>
                                 <FormLabel>Bandeira</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    placeholder="Ex: Visa / Master..."
-                                    value={field.value ?? ""}
-                                    onChange={(e) => field.onChange(e.target.value)}
-                                  />
-                                </FormControl>
+                                <Select
+                                  value={field.value ?? ""}
+                                  onValueChange={(v) => field.onChange(v || null)}
+                                >
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Selecione a bandeira" />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    {CARD_BRANDS_BR.map((b) => (
+                                      <SelectItem key={b.value} value={b.label}>
+                                        {b.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
                                 <FormMessage />
                               </FormItem>
                             )}

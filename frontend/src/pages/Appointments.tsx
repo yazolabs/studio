@@ -3057,7 +3057,6 @@ export default function Appointments() {
             <Printer className="h-4 w-4" />
           </Button>
           {(apt.status === "scheduled" || apt.status === "confirmed") &&
-            apt.payment_status !== "paid" &&
             can("appointments", "update") && (
               <Button
                 variant="ghost"
