@@ -83,20 +83,21 @@ export type AppointmentServiceItem = {
   duration?: number | null;
   starts_at?: string | null;
   ends_at?: string | null;
+  promotions?: AppointmentServicePromotion[] | null;
   appointment_service_id?: number;
 };
 
-export type AppointmentPaymentStatus = "unpaid" | "prepaid" | "paid";
+export type AppointmentPaymentStatus = "unpaid" | "partial" | "paid";
 
 export type Appointment = {
   id: number;
+  group_id?: string | null;
+  group_sequence?: number | null;
   customer: { id: number; name: string } | null;
   professionals?: { id: number; name: string | null }[] | null;
   services?: AppointmentServiceItem[] | null;
   appointment_services?: AppointmentServiceRow[] | null;
   items?: AppointmentItem[] | null;
-  // remover mais tarde
-  promotion_id?: number | null;
   promotion?: { id: number; name: string } | null;
   date: string | null;
   start_time: string | null;
@@ -123,6 +124,8 @@ export type Appointment = {
 
 export type CreateAppointmentDto = {
   customer_id: number;
+  group_id?: string | null;
+  group_sequence?: number | null;
   date: string;
   start_time: string;
   end_time?: string | null;
@@ -133,7 +136,6 @@ export type CreateAppointmentDto = {
   discount_type?: "percentage" | "fixed" | string | null;
   discount_amount: string;
   final_price: string;
-  // remover mais tarde
   promotion_id?: number | null;
   notes?: string | null;
   services?: Array<{
@@ -158,3 +160,5 @@ export type CreateAppointmentDto = {
 };
 
 export type UpdateAppointmentDto = Partial<CreateAppointmentDto>;
+
+export type AppointmentGroupKey = string;

@@ -16,7 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select,  SelectContent,  SelectItem,  SelectTrigger,  SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useAppointmentsQuery, useCreateAppointment, useDeleteAppointment, useAppointmentQuery, useAppointmentPrepay } from "@/hooks/appointments";
+import { useAppointmentsQuery, useCreateAppointment, useDeleteAppointment, useAppointmentQuery, useAppointmentPrepay, useAppointmentPrepayGroup } from "@/hooks/appointments";
 import { useCustomersQuery } from "@/hooks/customers";
 import { useProfessionalsQuery } from "@/hooks/professionals";
 import { usePromotionsQuery } from "@/hooks/promotions";
@@ -29,16 +29,17 @@ import { ProfessionalOpenWindow } from "@/types/professional-open-window";
 import { Promotion } from "@/types/promotion";
 import { format, parseISO, isValid } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Plus, Pencil, Trash2, DollarSign, Calendar as CalendarIcon, Printer, Table, List, Check, X, Filter, ChevronDown, ChevronUp, Users, TestTube } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
+import { Plus, Pencil, Trash2, DollarSign, Calendar as CalendarIcon, Printer, Table, List, Check, X, Filter, ChevronDown, ChevronUp, Users, Minus } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useForm, useFieldArray } from "react-hook-form";
 import * as z from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import type { Appointment as AppointmentBackend } from "@/types/appointment";
+import type { Appointment as AppointmentBackend, CreateAppointmentDto } from "@/types/appointment";
 import { PAPER_STEP_MIN, isLongFlexibleService, buildSlotsBetween, overlaps, minutesToHHmm, normalizeDurationForPaper, buildPaperSlotsForDay } from "@/lib/scheduling/paperSlots";
 import { getStatusBadgeClass, getStatusLabel } from "@/lib/appointments/statusUI";
 import { isPromotionApplicableOnDate } from "@/lib/promotions/applicability";
 import { AppointmentPrepayDialog } from "@/components/AppointmentPrepayDialog";
+import { PrepayAppointmentDto } from "@/services/appointmentsService";
 
 type ID = number | string;
 
@@ -52,7 +53,7 @@ type LegacyAppointment = {
   time: string;
   duration?: number;
   status: "scheduled" | "confirmed" | "completed" | "cancelled" | "no_show" | "rescheduled";
-  payment_status: "unpaid" | "prepaid" | "paid";
+  payment_status: "unpaid" | "partial" | "paid";
   notes?: string;
   price?: number;
 };
@@ -76,6 +77,11 @@ type WorkScheduleEntry = {
   lunchEnd?: string | null;
   isDayOff?: boolean;
   isWorkingDay?: boolean;
+};
+
+type CreateAppointmentWithGroupDto = CreateAppointmentDto & {
+  group_id?: string | null;
+  group_sequence?: number | null;
 };
 
 interface Professional {
@@ -139,8 +145,6 @@ const extractTimePart = (value?: string | null): string | null => {
   }
   return v.slice(0, 8);
 };
-
-const hasTzInfo = (v: string) => /Z$/i.test(v) || /[+-]\d{2}:\d{2}$/.test(v);
 
 const toHHmmDisplay = (value?: string | null) => {
   if (!value) return "";
@@ -248,31 +252,25 @@ const getWeekOfMonthForWeekday = (date: Date) => {
   return 1 + Math.floor((dayOfMonth - firstOccurrenceDay) / 7);
 };
 
-const appointmentSchema = z.object({
-  customer_id: z.union([z.number(), z.string()]).pipe(z.coerce.number()),
-  services: z
-    .array(
-      z.object({
-        service_id: z
-          .union([z.number(), z.string()])
-          .nullable()
-          .transform((val) => (val == null || val === "" ? null : Number(val))),
-        professional_id: z
-          .union([z.number(), z.string()])
-          .nullable()
-          .transform((val) => (val == null || val === "" ? null : Number(val))),
-        start_time: z
-          .string()
-          .min(1, "Horário é obrigatório para cada serviço"),
-        promotion_ids: z
-          .array(z.union([z.number(), z.string()]).pipe(z.coerce.number()))
-          .optional()
-          .default([]),
-        commission_type: z.string().optional(),
-        commission_value: z.string().optional(),
-      })
-    )
-    .min(1, "Selecione ao menos um serviço, profissional e horário"),
+const serviceRowSchema = z.object({
+  service_id: z
+    .union([z.number(), z.string()])
+    .nullable()
+    .transform((val) => (val == null || val === "" ? null : Number(val))),
+  professional_id: z
+    .union([z.number(), z.string()])
+    .nullable()
+    .transform((val) => (val == null || val === "" ? null : Number(val))),
+  start_time: z.string().min(1, "Horário é obrigatório para cada serviço"),
+  promotion_ids: z
+    .array(z.union([z.number(), z.string()]).pipe(z.coerce.number()))
+    .optional()
+    .default([]),
+  commission_type: z.string().optional(),
+  commission_value: z.string().optional(),
+});
+
+const sessionSchema = z.object({
   date: z.date({ required_error: "Data é obrigatória" }),
   status: z.enum([
     "scheduled",
@@ -282,11 +280,79 @@ const appointmentSchema = z.object({
     "no_show",
     "rescheduled",
   ]),
-  payment_status: z.enum(["unpaid", "prepaid", "paid"]).default("unpaid"),
+  payment_status: z.enum(["unpaid", "partial", "paid"]).default("unpaid"),
+  session_notes: z
+    .string()
+    .trim()
+    .max(500, "Observações da sessão muito longas")
+    .optional()
+    .default(""),
+  services: z.array(serviceRowSchema).min(1, "Adicione ao menos um serviço nesta data"),
+});
+
+const appointmentSchema = z.object({
+  customer_id: z.union([z.number(), z.string()]).pipe(z.coerce.number()),
+  sessions: z.array(sessionSchema).min(1, "Adicione ao menos uma data/sessão"),
   notes: z.string().trim().max(500, "Observações muito longas").optional(),
 });
 
+type PaymentLine = { method: string; amount: number; fee_percent?: number | null };
+
+const round2 = (n: number) => Number((Math.round((n + Number.EPSILON) * 100) / 100).toFixed(2));
+
+const splitPaymentsProportional = (payments: PaymentLine[], totals: number[]) => {
+  const grand = totals.reduce((a, b) => a + b, 0);
+  if (grand <= 0) return totals.map(() => [] as PaymentLine[]);
+
+  const perSession: PaymentLine[][] = totals.map(() => []);
+
+  payments.forEach((p) => {
+    const amt = round2(Number(p.amount || 0));
+    if (amt <= 0) return;
+
+    const rawShares = totals.map((t) => (t / grand) * amt);
+    const shares = rawShares.map(round2);
+
+    let diff = round2(amt - shares.reduce((a, b) => a + b, 0));
+    for (let i = 0; diff !== 0 && i < shares.length; i++) {
+      const step = diff > 0 ? 0.01 : -0.01;
+      shares[i] = round2(shares[i] + step);
+      diff = round2(diff - step);
+    }
+
+    shares.forEach((sAmt, idx) => {
+      if (sAmt <= 0) return;
+      perSession[idx].push({ ...p, amount: sAmt });
+    });
+  });
+
+  return perSession;
+};
+
+const splitPaymentsSequential = (payments: PaymentLine[], totals: number[]) => {
+  const perSession: PaymentLine[][] = totals.map(() => []);
+  const remaining = totals.map((t) => round2(t));
+
+  for (const p of payments) {
+    let amt = round2(Number(p.amount || 0));
+    if (amt <= 0) continue;
+
+    for (let i = 0; i < remaining.length && amt > 0; i++) {
+      const take = Math.min(amt, remaining[i]);
+      const take2 = round2(take);
+      if (take2 <= 0) continue;
+
+      perSession[i].push({ ...p, amount: take2 });
+      remaining[i] = round2(remaining[i] - take2);
+      amt = round2(amt - take2);
+    }
+  }
+
+  return perSession;
+};
+
 type FormValues = z.infer<typeof appointmentSchema>;
+type FormSession = FormValues["sessions"][number];
 
 type MultiSelectOption = { value: ID; label: string };
 
@@ -410,6 +476,7 @@ function FilterCombobox({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
+          type="button"
           variant="outline"
           role="combobox"
           className="w-full min-w-0 justify-between"
@@ -486,6 +553,9 @@ export default function Appointments() {
   const createAppointment = useCreateAppointment();
   const deleteAppointment = useDeleteAppointment();
   const prepayAppointment = useAppointmentPrepay();
+  const prepayGroup = useAppointmentPrepayGroup();
+
+  const formScrollRef = useRef<HTMLDivElement | null>(null);
 
   const [checkoutAppointmentId, setCheckoutAppointmentId] = useState<number | null>(null);
   const [checkoutDialogOpen, setCheckoutDialogOpen] = useState(false);
@@ -527,24 +597,96 @@ export default function Appointments() {
   type PrepayDraft = {
     mode: "create" | "edit";
     appointmentId?: number;
+    groupId?: string | null;
+    sessionIndex: number;
     payloadToSave: any;
+    pendingPayloads?: any[];
+    paymentIntent?: "paid" | "partial";
   };
 
   const [prepayDraft, setPrepayDraft] = useState<PrepayDraft | null>(null);
+  const [collapsedSessions, setCollapsedSessions] = useState<Record<string, boolean>>({});
+  const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
+
+  const toggleSessionCollapse = (fieldId: string) => {
+    setCollapsedSessions((prev) => ({ ...prev, [fieldId]: !prev[fieldId] }));
+  };
 
   const form = useForm<FormValues>({
     resolver: zodResolver(appointmentSchema),
     defaultValues: {
-      customer_id: undefined as unknown as number,
-      services: [],
-      status: "scheduled",
-      payment_status: "unpaid",
-      notes: "",
-    },
+    customer_id: undefined as unknown as number,
+    sessions: [
+      {
+        date: undefined as unknown as Date,
+        status: "scheduled",
+        payment_status: "unpaid",
+        session_notes: "",
+        services: [],
+      },
+    ],
+    notes: "",
+  },
   });
 
-  const watchedServices = form.watch("services") || [];
-  const selectedDate = form.watch("date");
+  const sessionsFA = useFieldArray({ control: form.control, name: "sessions" });
+
+  type AnyObj = Record<string, any>;
+
+  const findFirstErrorPath = (errors: AnyObj, base = ""): string | null => {
+    for (const key of Object.keys(errors || {})) {
+      const val = errors[key];
+      const nextBase = base ? `${base}.${key}` : key;
+
+      if (val?.message || val?.type) return nextBase;
+
+      if (Array.isArray(val)) {
+        for (let i = 0; i < val.length; i++) {
+          const child = val[i];
+          if (!child) continue;
+          const found = findFirstErrorPath(child, `${nextBase}.${i}`);
+          if (found) return found;
+        }
+        continue;
+      }
+
+      if (typeof val === "object") {
+        const found = findFirstErrorPath(val, nextBase);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  const makeSessionKeyFromPath = (path: string) => {
+    const m = path.match(/^sessions\.(\d+)\./);
+    return m ? Number(m[1]) : null;
+  };
+
+  const focusFieldByPath = (path: string) => {
+    const sessIdx = makeSessionKeyFromPath(path);
+
+    if (sessIdx != null) {
+      const fieldId = sessionsFA.fields?.[sessIdx]?.id;
+      if (fieldId && collapsedSessions[fieldId]) {
+        setCollapsedSessions((prev) => ({ ...prev, [fieldId]: false }));
+      }
+    }
+
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-field-path="${path}"]`) as HTMLElement | null;
+      if (!el) return;
+
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+
+      const focusable =
+        (el.querySelector("input, textarea, button, [role='combobox']") as HTMLElement | null);
+
+      focusable?.focus?.({ preventScroll: true } as any);
+    });
+  };
+  const watchedSessions = form.watch("sessions") ?? [];
+  const firstSession = watchedSessions[0];
 
   const appointments: AppointmentBackend[] = useMemo(() => {
     const maybe = (appointmentsResp as any)?.data ?? appointmentsResp ?? [];
@@ -630,14 +772,13 @@ export default function Appointments() {
     serviceFilter,
   ]);
   const selectedProfessionalIds = useMemo<number[]>(() => {
-    const ids = (watchedServices as Array<{ professional_id?: number | string | null }>)
-      .map((s) =>
-        s?.professional_id != null ? Number(s.professional_id) : NaN
-      )
+    const ids = (watchedSessions ?? [])
+      .flatMap((sess) => (sess?.services ?? []))
+      .map((s) => (s?.professional_id != null ? Number(s.professional_id) : NaN))
       .filter((n) => Number.isFinite(n)) as number[];
 
     return Array.from(new Set(ids));
-  }, [watchedServices]);
+  }, [watchedSessions]);
   const professionalOpenWindowsById = useMemo(
     () =>
       new Map<number, ProfessionalOpenWindow[]>(
@@ -671,52 +812,33 @@ export default function Appointments() {
     () => new Map(services.map((s) => [Number(s.id), s])),
     [services]
   );
-  const selectedServiceObjects = useMemo(() => {
-    return watchedServices
-      .map((s) => serviceById.get(Number(s.service_id)))
-      .filter(Boolean) as Service[];
-  }, [watchedServices, serviceById]);
-  const totalDuration = useMemo(
-    () =>
-      selectedServiceObjects.reduce(
-        (sum, s) => sum + Number(s.duration || 0),
-        0
-      ),
-    [selectedServiceObjects]
-  );
-  const totalPrice = useMemo(
-    () =>
-      selectedServiceObjects.reduce((sum, s) => sum + Number(s.price || 0), 0),
-    [selectedServiceObjects]
-  );
   const professionalDayAppointments = useMemo(() => {
     const dateStr = format(professionalViewDate, "yyyy-MM-dd");
     return filteredAppointments.filter((a) => a.date === dateStr);
   }, [filteredAppointments, professionalViewDate]);
-  const selectedServiceIds = useMemo(() => {
-    const ids = (watchedServices || [])
-      .map((s: any) => Number(s.service_id))
-      .filter((n: number) => Number.isFinite(n) && n > 0);
+  const { totalDuration, totalPrice } = useMemo(() => {
+    const sessions = form.watch("sessions") ?? [];
 
-    return Array.from(new Set(ids));
-  }, [watchedServices]);
-  const applicablePromotions = useMemo(() => {
-    if (!selectedDate) return [];
+    let dur = 0;
+    let price = 0;
 
-    return promotions.filter((p) => {
-      if (!isPromotionApplicableOnDate(p, selectedDate)) return false;
+    for (const sess of sessions) {
+      const rows = sess?.services ?? [];
+      for (const row of rows) {
+        const sid = row?.service_id != null ? Number(row.service_id) : null;
+        if (!sid) continue;
 
-      const promoServiceIds = Array.isArray((p as any).services)
-        ? (p as any).services.map((s: any) => Number(s.id)).filter(Boolean)
-        : [];
-
-      if (promoServiceIds.length > 0) {
-        return selectedServiceIds.some((id) => promoServiceIds.includes(id));
+        const svc = serviceById.get(sid);
+        dur += Number(svc?.duration || 0);
+        price += Number(svc?.price || 0);
       }
+    }
 
-      return true;
-    });
-  }, [promotions, selectedDate, selectedServiceIds]);
+    return {
+      totalDuration: dur,
+      totalPrice: Number(price.toFixed(2)),
+    };
+  }, [form, serviceById]);
 
   const getPromotionServiceIds = (p: Promotion): number[] => {
     const raw = (p as any).services;
@@ -771,35 +893,37 @@ export default function Appointments() {
   }, [viewMode]);
 
   useEffect(() => {
-    const date = form.getValues("date");
-    const rows = form.getValues("services") || [];
-
-    if (!date || !Array.isArray(rows) || rows.length === 0) return;
+    const sessions = form.getValues("sessions") || [];
+    if (!Array.isArray(sessions) || sessions.length === 0) return;
 
     let changed = false;
+    const next = sessions.map((sess: any) => {
+      const date = sess?.date;
+      const rows = Array.isArray(sess?.services) ? sess.services : [];
+      if (!date || rows.length === 0) return sess;
 
-    const nextRows = rows.map((r: any) => {
-      const sid = r?.service_id != null ? Number(r.service_id) : null;
-      const ids: number[] = Array.isArray(r?.promotion_ids) ? r.promotion_ids.map(Number) : [];
+      const nextRows = rows.map((r: any) => {
+        const sid = r?.service_id != null ? Number(r.service_id) : null;
+        const ids: number[] = Array.isArray(r?.promotion_ids) ? r.promotion_ids.map(Number) : [];
+        if (!sid || ids.length === 0) return r;
 
-      if (!sid || ids.length === 0) return r;
+        const allowed = promotions
+          .filter((p) => isPromoApplicableToServiceOnDate(p, date, sid))
+          .map((p) => Number(p.id));
 
-      const allowed = promotions
-        .filter((p) => isPromoApplicableToServiceOnDate(p, date, sid))
-        .map((p) => Number(p.id));
+        const filtered = ids.filter((id) => allowed.includes(Number(id)));
+        if (filtered.length !== ids.length) {
+          changed = true;
+          return { ...r, promotion_ids: filtered };
+        }
+        return r;
+      });
 
-      const filtered = ids.filter((id) => allowed.includes(Number(id)));
-
-      if (filtered.length !== ids.length) {
-        changed = true;
-        return { ...r, promotion_ids: filtered };
-      }
-
-      return r;
+      return nextRows === rows ? sess : { ...sess, services: nextRows };
     });
 
-    if (changed) form.setValue("services", nextRows, { shouldValidate: true, shouldDirty: true });
-  }, [promotions, form, selectedDate, watchedServices]);
+    if (changed) form.setValue("sessions", next, { shouldValidate: true, shouldDirty: true });
+  }, [promotions, form]);
 
   const hhmmToMinutes = (hhmm: string): number | null => {
     if (!hhmm) return null;
@@ -1706,20 +1830,30 @@ export default function Appointments() {
 
       form.reset({
         customer_id: Number(apt.customer?.id ?? 0),
-        services: defaultServices,
-        date: d as Date,
-        status: apt.status,
-        payment_status: apt.payment_status,
+        sessions: [
+        {
+          date: d as Date,
+          status: apt.status,
+          payment_status: apt.payment_status ?? "unpaid",
+          session_notes: "",
+          services: defaultServices,
+        },
+      ],
         notes: apt.notes ?? "",
       });
     } else {
       setEditingAppointment(null);
       form.reset({
         customer_id: undefined as unknown as number,
-        services: [],
-        date: prefilledDate as Date | undefined,
-        status: "scheduled",
-        payment_status: "unpaid",
+        sessions: [
+          {
+            date: prefilledDate as Date,
+            status: "scheduled",
+            payment_status: "unpaid",
+            session_notes: "",
+            services: [],
+          },
+        ],
         notes: "",
       });
     }
@@ -1734,7 +1868,13 @@ export default function Appointments() {
   const handleCloseDialog = () => {
     setIsDialogOpen(false);
     setEditingAppointment(null);
-    form.reset();
+    form.reset({
+      customer_id: undefined as unknown as number,
+      sessions: [
+        { date: undefined as unknown as Date, status: "scheduled", payment_status: "unpaid", session_notes: "", services: [] },
+      ],
+      notes: "",
+    });
   };
 
   const safeNumber = (v: any, fallback = 0) => {
@@ -1787,13 +1927,13 @@ export default function Appointments() {
     return Math.min(base, Number(discount.toFixed(2)));
   };
 
-  const computePrepayNetTotalFromForm = (values: FormValues) => {
-    const date = values.date;
+  const computePrepayNetTotalFromSession = (session: FormSession) => {
+    const date = session.date;
     if (!date) return 0;
 
     let total = 0;
 
-    for (const row of values.services ?? []) {
+    for (const row of session.services ?? []) {
       const serviceId = row?.service_id != null ? Number(row.service_id) : null;
       if (!serviceId) continue;
 
@@ -1801,7 +1941,7 @@ export default function Appointments() {
       const price = safeNumber(svc?.price, 0);
 
       const promoIds = Array.isArray((row as any).promotion_ids)
-        ? (row as any).promotion_ids.map(Number).filter((n: number) => Number.isFinite(n))
+        ? (row as any).promotion_ids.map(Number).filter(Number.isFinite)
         : [];
 
       let remaining = price;
@@ -1827,29 +1967,27 @@ export default function Appointments() {
 
   type DiscountLine = { label: string; amount: number };
 
-  const computePrepayGrossTotalFromForm = (values: FormValues) => {
+  const computePrepayGrossTotalFromSession = (session: FormSession) => {
     let total = 0;
 
-    for (const row of values.services ?? []) {
+    for (const row of session.services ?? []) {
       const serviceId = row?.service_id != null ? Number(row.service_id) : null;
       if (!serviceId) continue;
 
       const svc = serviceById.get(serviceId);
-      const price = safeNumber(svc?.price, 0);
-
-      total += Math.max(0, price);
+      total += Math.max(0, safeNumber(svc?.price, 0));
     }
 
     return Number(total.toFixed(2));
   };
 
-  const computeDiscountLinesFromForm = (values: FormValues): DiscountLine[] => {
-    const date = values.date;
+  const computeDiscountLinesFromSession = (session: FormSession): DiscountLine[] => {
+    const date = session.date;
     if (!date) return [];
 
     const lines: DiscountLine[] = [];
 
-    for (const row of values.services ?? []) {
+    for (const row of session.services ?? []) {
       const serviceId = row?.service_id != null ? Number(row.service_id) : null;
       if (!serviceId) continue;
 
@@ -1857,24 +1995,20 @@ export default function Appointments() {
       const basePrice = safeNumber(svc?.price, 0);
 
       const promoIds = Array.isArray((row as any).promotion_ids)
-        ? (row as any).promotion_ids.map(Number).filter((n: number) => Number.isFinite(n))
+        ? (row as any).promotion_ids.map(Number).filter(Number.isFinite)
         : [];
-
-      if (promoIds.length === 0 || basePrice <= 0) continue;
 
       let remaining = basePrice;
 
       for (const pid of promoIds) {
         const promo = promotions.find((p) => Number(p.id) === Number(pid));
         if (!promo) continue;
-
         if (!isPromoApplicableToServiceOnDate(promo, date, serviceId)) continue;
 
         const d = getPromotionDiscountFromPromo(promo as any, remaining);
         if (d <= 0) continue;
 
         remaining -= d;
-
         lines.push({
           label: `${promo.name}${svc?.name ? ` • ${svc.name}` : ""}`,
           amount: Number(d.toFixed(2)),
@@ -1885,9 +2019,7 @@ export default function Appointments() {
     }
 
     const grouped = new Map<string, number>();
-    for (const l of lines) {
-      grouped.set(l.label, Number(((grouped.get(l.label) ?? 0) + l.amount).toFixed(2)));
-    }
+    for (const l of lines) grouped.set(l.label, Number(((grouped.get(l.label) ?? 0) + l.amount).toFixed(2)));
 
     return Array.from(grouped.entries())
       .map(([label, amount]) => ({ label, amount }))
@@ -1895,10 +2027,26 @@ export default function Appointments() {
       .sort((a, b) => b.amount - a.amount);
   };
 
-  const buildPayload = (values: FormValues) => {
-    const dateStr = format(values.date, "yyyy-MM-dd");
+  const mergeNotes = (globalNote: string | undefined, sessionNote: string | undefined, dateStr: string) => {
+    const g = (globalNote ?? "").trim();
+    const s = (sessionNote ?? "").trim();
 
-    const serviceTimes: { start: number; end: number }[] = [];
+    if (!g && !s) return null;
+    if (g && !s) return g;
+    if (!g && s) return s;
+
+    return `${g}\n\n— Nota da sessão (${dateStr}) —\n${s}`;
+  };
+
+  const buildPayloadForSession = (values: FormValues, session: FormSession): CreateAppointmentDto => {
+    if (!session?.date) throw new Error("Sessão sem data.");
+
+    const customerId = Number((values as any)?.customer_id);
+    if (!Number.isFinite(customerId) || customerId <= 0) {
+      throw new Error("Cliente inválido.");
+    }
+
+    const dateStr = format(session.date, "yyyy-MM-dd");
 
     const toDateTimeString = (minutes: number) => {
       const h = Math.floor(minutes / 60);
@@ -1914,29 +2062,40 @@ export default function Appointments() {
       return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
     };
 
-    const servicesPayload = values.services.map((s) => {
-      const svc = serviceById.get(Number(s.service_id));
-      const svcDurationReal = Number(svc?.duration || 0);
+    const money2 = (v: any) => Number((Number(v || 0) || 0).toFixed(2)).toFixed(2);
 
+    const serviceTimes: Array<{ start: number; end: number }> = [];
+
+    const servicesPayload: CreateAppointmentDto["services"] = (session.services || []).map((s, idx) => {
+      const serviceId = s?.service_id != null ? Number(s.service_id) : null;
+      const professionalId = s?.professional_id != null ? Number(s.professional_id) : null;
+
+      if (!serviceId) throw new Error(`Serviço inválido na linha ${idx + 1}.`);
+      if (!professionalId) throw new Error(`Profissional inválido na linha ${idx + 1}.`);
+
+      const svc = serviceById.get(serviceId);
+      const svcDurationReal = Number(svc?.duration || 0) || 30;
       const svcDurationPaper = normalizeDurationForPaper(svcDurationReal);
 
-      const [startHour, startMinute] = String(s.start_time)
-        .split(":")
-        .map((n) => Number(n));
+      const parts = String(s.start_time || "").split(":");
+      const startHour = Number(parts[0]);
+      const startMinute = Number(parts[1]);
+
+      if (!Number.isFinite(startHour) || !Number.isFinite(startMinute)) {
+        throw new Error(`Horário inválido na linha ${idx + 1}.`);
+      }
+
       const serviceStartMinutes = startHour * 60 + startMinute;
 
       let lunchStartMin: number | null = null;
       let lunchEndMin: number | null = null;
 
-      const profSchedule =
-        professionalWorkScheduleById.get(Number(s.professional_id)) ?? [];
-      const weekdayLabel = getWeekdayLabel(values.date);
+      const profSchedule = professionalWorkScheduleById.get(professionalId) ?? [];
+      const weekdayLabel = getWeekdayLabel(session.date);
       const daySchedule = profSchedule.find((d) => d.day === weekdayLabel);
 
-      if (daySchedule?.lunchStart)
-        lunchStartMin = timeStringToMinutes(daySchedule.lunchStart);
-      if (daySchedule?.lunchEnd)
-        lunchEndMin = timeStringToMinutes(daySchedule.lunchEnd);
+      if (daySchedule?.lunchStart) lunchStartMin = timeStringToMinutes(daySchedule.lunchStart);
+      if (daySchedule?.lunchEnd) lunchEndMin = timeStringToMinutes(daySchedule.lunchEnd);
 
       if (lunchStartMin != null && lunchEndMin != null && lunchEndMin <= lunchStartMin) {
         lunchStartMin = null;
@@ -1944,160 +2103,469 @@ export default function Appointments() {
       }
 
       const rawEnd = serviceStartMinutes + svcDurationPaper;
-      const serviceEndMinutes = applyLunchBreakIfCrosses(
-        serviceStartMinutes,
-        rawEnd,
-        lunchStartMin,
-        lunchEndMin
-      );
+      const serviceEndMinutes = applyLunchBreakIfCrosses(serviceStartMinutes, rawEnd, lunchStartMin, lunchEndMin);
 
-      serviceTimes.push({
-        start: serviceStartMinutes,
-        end: serviceEndMinutes,
-      });
+      serviceTimes.push({ start: serviceStartMinutes, end: serviceEndMinutes });
 
       const promoIds = Array.isArray((s as any).promotion_ids)
-        ? (s as any).promotion_ids.map(Number).filter((n: number) => Number.isFinite(n))
+        ? (s as any).promotion_ids.map(Number).filter((n: number) => Number.isFinite(n) && n > 0)
         : [];
 
       return {
-        id: Number(s.service_id),
-        service_price: String(svc?.price ?? "0"),
-        commission_type: (svc?.commission_type ?? "percentage") as "percentage" | "fixed",
-        commission_value: String(svc?.commission_value ?? "0"),
-        professional_id: s.professional_id != null ? Number(s.professional_id) : null,
+        id: serviceId,
+        service_price: money2(svc?.price ?? 0),
+        commission_type: ((svc?.commission_type ?? "percentage") as "percentage" | "fixed") ?? "percentage",
+        commission_value: money2(svc?.commission_value ?? 0),
+        professional_id: professionalId,
         starts_at: toDateTimeString(serviceStartMinutes),
         ends_at: toDateTimeString(serviceEndMinutes),
-        promotions: promoIds.map((pid, idx) => ({
-          promotion_id: pid,
-          sort_order: idx,
-        })),
+        promotions: promoIds.map((pid, sort_order) => ({ promotion_id: pid, sort_order })),
       };
     });
 
+    if (!servicesPayload || servicesPayload.length === 0) {
+      throw new Error("Sessão sem serviços.");
+    }
+
     const minStart = Math.min(...serviceTimes.map((t) => t.start));
     const maxEnd = Math.max(...serviceTimes.map((t) => t.end));
-    const appointmentDuration = maxEnd - minStart;
 
+    const appointmentDuration = Math.max(30, maxEnd - minStart);
     const start_time = toTimeString(minStart);
+    const end_time = toTimeString(maxEnd);
 
-    const totalPriceNumber = servicesPayload.reduce(
-      (sum, s) => sum + Number(s.service_price || 0),
-      0
-    );
+    const totalPriceNumber = servicesPayload.reduce((sum, s) => sum + (Number((s as any).service_price) || 0), 0);
+    const totalPriceStr = money2(totalPriceNumber);
+
+    const status =
+      (session as any)?.status ??
+      "scheduled";
 
     return {
-      customer_id: Number(values.customer_id),
+      customer_id: customerId,
       date: dateStr,
       start_time,
+      end_time,
       duration: appointmentDuration,
-      status: values.status,
-      payment_status: values.payment_status,
-      notes: values.notes || null,
-      total_price: totalPriceNumber.toFixed(2),
+      status,
+      notes: mergeNotes(values.notes, (session as any)?.session_notes, dateStr),
+      total_price: totalPriceStr,
       discount_amount: "0.00",
-      final_price: totalPriceNumber.toFixed(2),
+      final_price: totalPriceStr,
       services: servicesPayload,
     };
   };
 
-  const onSubmit = async (values: FormValues) => {
-    if (!values.services || values.services.length === 0) {
-      toast({
-        title: "Selecione ao menos um serviço e profissional",
-        variant: "destructive",
-      });
+  const openPrepayForSession = (sessIdx: number) => {
+    const values = form.getValues();
+    const sessions = (values.sessions || []) as FormSession[];
+    const session = sessions[sessIdx];
+
+    if (!session?.date) {
+      toast({ title: "Selecione a data da sessão", variant: "destructive" });
       return;
     }
 
-    const hasIncomplete = values.services.some(
-      (s) => !s.service_id || !s.professional_id || !s.start_time
-    );
+    if (!Array.isArray(session.services) || session.services.length === 0) {
+      toast({ title: "Adicione ao menos um serviço nesta sessão", variant: "destructive" });
+      return;
+    }
 
+    const hasIncomplete = session.services.some((s: any) => !s?.service_id || !s?.professional_id || !s?.start_time);
     if (hasIncomplete) {
       toast({
         title: "Preencha todos os serviços",
-        description:
-          "Cada linha precisa de um serviço, um profissional e um horário selecionados.",
+        description: "Cada linha precisa de serviço, profissional e horário.",
         variant: "destructive",
       });
       return;
     }
 
-    if (values.date) {
-      const rows = values.services || [];
-      for (let i = 0; i < rows.length; i++) {
-        const sid = rows[i]?.service_id != null ? Number(rows[i].service_id) : null;
+    for (let r = 0; r < session.services.length; r++) {
+      const sid = session.services[r]?.service_id != null ? Number(session.services[r].service_id) : null;
+      const ids = Array.isArray((session.services[r] as any).promotion_ids)
+        ? (session.services[r] as any).promotion_ids.map(Number).filter(Number.isFinite)
+        : [];
 
-        const ids = Array.isArray((rows[i] as any).promotion_ids)
-          ? (rows[i] as any).promotion_ids.map(Number).filter(Number.isFinite)
-          : [];
+      if (!sid || ids.length === 0) continue;
 
-        if (!sid || ids.length === 0) continue;
+      const allowed = promotions
+        .filter((p) => isPromoApplicableToServiceOnDate(p, session.date, sid))
+        .map((p) => Number(p.id));
 
-        const allowed = promotions
-          .filter((p) => isPromoApplicableToServiceOnDate(p, values.date, sid))
-          .map((p) => Number(p.id));
+      const invalid = ids.filter((id: number) => !allowed.includes(id));
+      if (invalid.length > 0) {
+        toast({
+          title: "Promoção(ões) indisponível(is)",
+          description: "Algumas promoções não são válidas para a data/serviço.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
 
-        const invalid = ids.filter((id: number) => !allowed.includes(id));
-        if (invalid.length > 0) {
-          toast({
-            title: "Promoção(ões) indisponível(is)",
-            description:
-              "Algumas promoções selecionadas não são válidas para a data/serviço e foram removidas.",
-            variant: "destructive",
-          });
+    let payloads: any[] = [];
+    try {
+      payloads = sessions.map((s) => buildPayloadForSession(values, s));
+    } catch (e: any) {
+      toast({
+        title: "Erro ao preparar pagamento antecipado",
+        description: e?.message ?? "Verifique os dados das sessões.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-          const current = form.getValues("services") || [];
-          const next = [...current];
-          next[i] = {
-            ...next[i],
-            promotion_ids: ids.filter((id: number) => allowed.includes(id)),
-          };
-          form.setValue("services", next, { shouldValidate: true, shouldDirty: true });
+    const payloadToSave = payloads[sessIdx];
+
+    const net = computePrepayNetTotalFromSession(session);
+    const gross = computePrepayGrossTotalFromSession(session);
+    const lines = computeDiscountLinesFromSession(session);
+
+    setPrepayTotalAmount(net);
+    setPrepayGrossTotal(gross);
+    setPrepayDiscountLines(lines);
+
+    const mode: "create" | "edit" = editingAppointment && sessIdx === 0 ? "edit" : "create";
+
+    const pendingPayloads =
+      mode === "create" && payloads.length > 1
+        ? payloads.filter((_, idx) => idx !== sessIdx)
+        : [];
+
+    const groupId =
+      mode === "edit"
+        ? String((editingAppointment as any)?.group_id ?? "").trim() || undefined
+        : undefined;
+
+    setPrepayDraft({
+      mode,
+      appointmentId: mode === "edit" ? Number(editingAppointment?.id) : undefined,
+      groupId,
+      sessionIndex: sessIdx,
+      payloadToSave,
+      pendingPayloads,
+    });
+
+    setIsDialogOpen(false);
+    setPrepayDialogOpen(true);
+  };
+
+  const onSubmit = async (values: FormValues) => {
+    const fail = (path: string, title: string, description?: string) => {
+      form.setError(path as any, { type: "manual", message: description || title });
+
+      const m = path.match(/^sessions\.(\d+)\./);
+      if (m) {
+        const sessIdx = Number(m[1]);
+        const fieldId = sessionsFA.fields?.[sessIdx]?.id;
+        if (fieldId && collapsedSessions[fieldId]) {
+          setCollapsedSessions((prev) => ({ ...prev, [fieldId]: false }));
+        }
+      }
+
+      requestAnimationFrame(() => {
+        const el = document.querySelector(`[data-field-path="${path}"]`) as HTMLElement | null;
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          const focusable = el.querySelector("input, textarea, button, [role='combobox']") as HTMLElement | null;
+          focusable?.focus?.({ preventScroll: true } as any);
+        }
+      });
+
+      toast({ title, description, variant: "destructive" });
+    };
+
+    const getBackend422Message = (e: any) => {
+      const status = e?.response?.status;
+      const data = e?.response?.data;
+      if (status !== 422) return null;
+
+      const msg =
+        (typeof data?.message === "string" && data.message) ||
+        (data?.errors && typeof data.errors === "object"
+          ? data.errors[Object.keys(data.errors)[0]]?.[0]
+          : null);
+
+      return msg || "Dados inválidos. Verifique os campos e tente novamente.";
+    };
+
+    const round2 = (n: any) => Number((Number(n || 0) || 0).toFixed(2));
+
+    const ensureUuid = () => {
+      const g = globalThis as any;
+      if (g?.crypto?.randomUUID) return g.crypto.randomUUID();
+      const s4 = () => Math.floor((1 + Math.random()) * 0x10000).toString(16).substring(1);
+      return `${s4()}${s4()}-${s4()}-${s4()}-${s4()}-${s4()}${s4()}${s4()}`;
+    };
+
+    for (const [i, sess] of (values.sessions || []).entries()) {
+      if (!sess?.date) {
+        fail(`sessions.${i}.date`, `Sessão ${i + 1}: selecione a data`);
+        return;
+      }
+
+      if (!sess?.services?.length) {
+        fail(`sessions.${i}.services`, `Sessão ${i + 1}: adicione ao menos um serviço`);
+        return;
+      }
+
+      for (let r = 0; r < sess.services.length; r++) {
+        const row = sess.services[r] as any;
+
+        if (!row?.service_id) {
+          fail(`sessions.${i}.services.${r}.service_id`, `Sessão ${i + 1}: selecione o serviço (linha ${r + 1})`);
           return;
+        }
+
+        if (!row?.professional_id) {
+          fail(
+            `sessions.${i}.services.${r}.professional_id`,
+            `Sessão ${i + 1}: selecione o profissional (linha ${r + 1})`
+          );
+          return;
+        }
+
+        if (!row?.start_time) {
+          fail(`sessions.${i}.services.${r}.start_time`, `Sessão ${i + 1}: selecione o horário (linha ${r + 1})`);
+          return;
+        }
+
+        const sid = row?.service_id != null ? Number(row.service_id) : null;
+        const ids = Array.isArray(row?.promotion_ids) ? row.promotion_ids.map(Number).filter(Number.isFinite) : [];
+
+        if (sid && ids.length > 0) {
+          const allowed = promotions
+            .filter((p) => isPromoApplicableToServiceOnDate(p, sess.date, sid))
+            .map((p) => Number(p.id));
+
+          const invalid = ids.filter((id: number) => !allowed.includes(id));
+          if (invalid.length > 0) {
+            fail(
+              `sessions.${i}.services.${r}.promotion_ids`,
+              `Sessão ${i + 1}: promoção(ões) indisponível(is) (linha ${r + 1})`,
+              "Algumas promoções não são válidas para a data/serviço."
+            );
+            return;
+          }
         }
       }
     }
 
-    const payload = buildPayload(values);
+    const dateMap = new Map<string, number>();
+    for (let i = 0; i < (values.sessions || []).length; i++) {
+      const sess = values.sessions[i];
+      if (!sess?.date) continue;
 
-    const wantsPrepay = payload.payment_status === "prepaid";
-    const payloadToSave = wantsPrepay
-      ? { ...payload, payment_status: "unpaid" as const }
-      : payload;
+      const dateStr = format(sess.date, "yyyy-MM-dd");
+      const firstIdx = dateMap.get(dateStr);
 
-    if (wantsPrepay) {
-      const netTotal = computePrepayNetTotalFromForm(values);
-      const grossTotal = computePrepayGrossTotalFromForm(values);
-      const discountLines = computeDiscountLinesFromForm(values);
+      if (firstIdx != null) {
+        fail(
+          `sessions.${i}.date`,
+          `Sessão ${i + 1}: data repetida`,
+          `Você já selecionou ${format(sess.date, "P", { locale: ptBR })} na sessão ${firstIdx + 1}.`
+        );
 
-      setPrepayTotalAmount(netTotal);
-      setPrepayGrossTotal(grossTotal);
-      setPrepayDiscountLines(discountLines);
+        form.setError(`sessions.${firstIdx}.date` as any, {
+          type: "manual",
+          message: `Data repetida com a sessão ${i + 1}.`,
+        });
 
-      setPrepayDraft({
-        mode: editingAppointment ? "edit" : "create",
-        appointmentId: editingAppointment ? Number(editingAppointment.id) : undefined,
-        payloadToSave,
-      });
+        return;
+      }
 
-      setIsDialogOpen(false);
-      setPrepayDialogOpen(true);
-      return;
+      dateMap.set(dateStr, i);
     }
 
+    const createdIds: number[] = [];
+
+    const extractId = (resp: any) => {
+      const id = Number(resp?.id ?? resp?.data?.id);
+      return Number.isFinite(id) && id > 0 ? id : null;
+    };
+
     try {
+      const sessionsArr = values.sessions || [];
+
+      const built: Array<{
+        idx: number;
+        sess: FormSession;
+        payload: CreateAppointmentDto;
+        net: number;
+      }> = sessionsArr.map((sess, idx) => {
+        const payload = buildPayloadForSession(values, sess) as CreateAppointmentDto;
+        const net = computePrepayNetTotalFromSession(sess as any);
+        return { idx, sess, payload, net: round2(net) };
+      });
+
+      const isComposite = built.length > 1;
+
+      const existingGroupId =
+        editingAppointment && (editingAppointment as any)?.group_id
+          ? String((editingAppointment as any).group_id).trim()
+          : "";
+
+      const compositeGroupId = isComposite ? (existingGroupId || ensureUuid()) : null;
+
+      const withCompositeMeta: Array<{
+        idx: number;
+        sess: FormSession;
+        payload: CreateAppointmentWithGroupDto;
+        net: number;
+      }> = built.map((b) => {
+        if (!isComposite) {
+          return {
+            ...b,
+            payload: b.payload as CreateAppointmentWithGroupDto,
+          };
+        }
+
+        const seq = b.idx + 1;
+
+        const payload: CreateAppointmentWithGroupDto = {
+          ...b.payload,
+          group_id: compositeGroupId!,
+          group_sequence: seq,
+        };
+
+        return { ...b, payload };
+      });
+
+      const flagged = sessionsArr
+        .map((s, idx) => ({
+          idx,
+          status: String((s as any)?.payment_status || "").trim().toLowerCase(),
+        }))
+        .filter((x) => x.status === "paid" || x.status === "partial");
+
+      if (flagged.length > 1) {
+        fail(
+          `sessions.${flagged[1].idx}.payment_status`,
+          "Pagamento: selecione apenas uma sessão para pagamento (pago/parcial)",
+          "Marque como pago/parcial em apenas uma sessão por vez."
+        );
+        return;
+      }
+
+      const flaggedOne = flagged[0];
+
+      if (flaggedOne) {
+        const idx = flaggedOne.idx;
+        const intent = flaggedOne.status as "paid" | "partial";
+
+        if (withCompositeMeta.length > 1 && idx !== 0) {
+          fail(
+            `sessions.${idx}.payment_status`,
+            "Pagamento do pacote: marque como pago/parcial apenas na Sessão 1",
+            "Na Opção A, o pagamento do pacote fica vinculado ao 1º agendamento."
+          );
+          return;
+        }
+
+        let netTotalAll = 0;
+        let grossTotalAll = 0;
+        const discountLinesAll: Array<{ label: string; amount: number }> = [];
+
+        for (let i = 0; i < withCompositeMeta.length; i++) {
+          const b = withCompositeMeta[i];
+          const dateLabel = b?.sess?.date ? format(b.sess.date as Date, "P", { locale: ptBR }) : `Sessão ${i + 1}`;
+
+          const net = round2(computePrepayNetTotalFromSession(b.sess as any));
+          const gross = round2(computePrepayGrossTotalFromSession(b.sess as any));
+          const lines = computeDiscountLinesFromSession(b.sess as any);
+
+          netTotalAll += net;
+          grossTotalAll += gross;
+
+          for (const l of lines) {
+            discountLinesAll.push({
+              label: `${dateLabel} • ${l.label}`,
+              amount: round2(l.amount),
+            });
+          }
+        }
+
+        netTotalAll = round2(netTotalAll);
+        grossTotalAll = round2(grossTotalAll);
+
+        const grouped = new Map<string, number>();
+        for (const l of discountLinesAll) {
+          grouped.set(l.label, round2((grouped.get(l.label) ?? 0) + round2(l.amount)));
+        }
+        const mergedLines = Array.from(grouped.entries())
+          .map(([label, amount]) => ({ label, amount }))
+          .filter((x) => x.amount > 0)
+          .sort((a, b) => b.amount - a.amount);
+
+        setPrepayTotalAmount(netTotalAll);
+        setPrepayGrossTotal(grossTotalAll);
+        setPrepayDiscountLines(mergedLines);
+
+        const packagePaidNotes = (baseNotes: any, msg: string) => {
+          const s = String(baseNotes ?? "").trim();
+          return s ? `${s}\n${msg}` : msg;
+        };
+
+        const pendingPayloadsA: CreateAppointmentWithGroupDto[] = withCompositeMeta
+          .filter((b) => b.idx !== 0)
+          .map((b) => {
+            const net = round2(b.net);
+
+            return {
+              ...b.payload,
+              notes: packagePaidNotes(
+                (b.payload as any)?.notes,
+                "Sessão vinculada ao pacote (pré-pagamento no 1º agendamento)"
+              ),
+            };
+          });
+
+        const payloadFirst = withCompositeMeta[0]?.payload;
+
+        const mode: "create" | "edit" = editingAppointment ? "edit" : "create";
+
+        setPrepayDraft({
+          mode,
+          appointmentId: mode === "edit" ? Number(editingAppointment?.id) : undefined,
+          groupId: compositeGroupId ?? undefined,
+          sessionIndex: 0,
+          payloadToSave: payloadFirst,
+          pendingPayloads: pendingPayloadsA,
+          paymentIntent: intent,
+          allPayloads: withCompositeMeta.map((b) => b.payload),
+          paymentScope: "all_sessions",
+        } as any);
+
+        setIsDialogOpen(false);
+        setPrepayDialogOpen(true);
+        return;
+      }
+
+      const payloads: CreateAppointmentWithGroupDto[] = withCompositeMeta.map((b) => b.payload);
+
       if (editingAppointment) {
         const { updateAppointment: updateFn } = await import("@/services/appointmentsService");
-        await updateFn(Number(editingAppointment.id), payloadToSave);
+
+        await updateFn(Number(editingAppointment.id), payloads[0]);
+
+        for (let i = 1; i < payloads.length; i++) {
+          const resp = await createAppointment.mutateAsync(payloads[i]);
+          const id = extractId(resp);
+          if (id) createdIds.push(id);
+        }
 
         await refetchAppointments();
-        toast({ title: "Agendamento atualizado com sucesso." });
+        toast({ title: "Agendamentos atualizados/criados com sucesso." });
       } else {
-        await createAppointment.mutateAsync(payloadToSave);
+        for (const p of payloads) {
+          const resp = await createAppointment.mutateAsync(p);
+          const id = extractId(resp);
+          if (id) createdIds.push(id);
+        }
+
         await refetchAppointments();
-        toast({ title: "Agendamento criado com sucesso." });
+        toast({ title: "Agendamentos criados com sucesso." });
       }
 
       setIsDialogOpen(false);
@@ -2106,22 +2574,24 @@ export default function Appointments() {
     } catch (e: any) {
       console.error(e);
 
-      let description = e?.message ?? "Tente novamente.";
-      const data = e?.response?.data;
-
-      if (data) {
-        if (data.errors && typeof data.errors === "object") {
-          const firstKey = Object.keys(data.errors)[0];
-          const firstMessage = data.errors[firstKey]?.[0];
-          if (firstMessage) description = firstMessage;
-        } else if (typeof data.message === "string") {
-          description = data.message;
+      if (createdIds.length > 0) {
+        for (const id of createdIds) {
+          try {
+            await deleteAppointment.mutateAsync(Number(id));
+          } catch (err) {
+            console.error("Falha ao rollback do agendamento", id, err);
+          }
         }
+        try {
+          await refetchAppointments();
+        } catch {}
       }
 
+      const backendMsg = getBackend422Message(e);
+
       toast({
-        title: "Erro ao salvar agendamento",
-        description,
+        title: "Erro ao salvar agendamentos",
+        description: backendMsg ?? (e?.message ?? "Tente novamente."),
         variant: "destructive",
       });
     }
@@ -2478,28 +2948,24 @@ export default function Appointments() {
     );
   };
 
-  const getPaymentStatusLabel = (
-    status: AppointmentBackend["payment_status"]
-  ) => {
+  const getPaymentStatusLabel = (status: any) => {
     switch (status) {
       case "unpaid":
         return "Não pago";
-      case "prepaid":
-        return "Pago antecipado";
+      case "partial":
+        return "Parcial";
       case "paid":
         return "Pago";
       default:
-        return status;
+        return String(status ?? "");
     }
   };
 
-  const getPaymentStatusBadgeClasses = (
-    status: AppointmentBackend["payment_status"]
-  ) => {
+  const getPaymentStatusBadgeClasses = (status: any) => {
     switch (status) {
       case "unpaid":
         return "bg-rose-50 text-rose-700 border border-rose-200";
-      case "prepaid":
+      case "partial":
         return "bg-amber-50 text-amber-800 border border-amber-200";
       case "paid":
         return "bg-emerald-50 text-emerald-800 border border-emerald-200";
@@ -2591,6 +3057,7 @@ export default function Appointments() {
             <Printer className="h-4 w-4" />
           </Button>
           {(apt.status === "scheduled" || apt.status === "confirmed") &&
+            apt.payment_status !== "paid" &&
             can("appointments", "update") && (
               <Button
                 variant="ghost"
@@ -2803,6 +3270,7 @@ export default function Appointments() {
                     <Popover>
                       <PopoverTrigger asChild>
                         <Button
+                          type="button"
                           variant="outline"
                           className={cn(
                             "justify-between px-3 py-2 h-9 text-xs",
@@ -2833,6 +3301,7 @@ export default function Appointments() {
                     <Popover>
                       <PopoverTrigger asChild>
                         <Button
+                          type="button"
                           variant="outline"
                           className={cn(
                             "justify-between px-3 py-2 h-9 text-xs",
@@ -2901,7 +3370,7 @@ export default function Appointments() {
                       <SelectContent>
                         <SelectItem value="all">Todos</SelectItem>
                         <SelectItem value="unpaid">Não pago</SelectItem>
-                        <SelectItem value="prepaid">Pago antecipado</SelectItem>
+                        <SelectItem value="partial">Parcial</SelectItem>
                         <SelectItem value="paid">Pago</SelectItem>
                       </SelectContent>
                     </Select>
@@ -3024,468 +3493,650 @@ export default function Appointments() {
         )}
 
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent className={cn("max-h-[90vh] overflow-x-hidden", isMobile ? "max-w-[95vw]" : "max-w-5xl")}>
-            <DialogHeader>
-              <DialogTitle>
-                {editingAppointment ? "Editar Agendamento" : "Novo Agendamento"}
-              </DialogTitle>
-              <DialogDescription>
-                Preencha os dados do agendamento. Campos marcados são obrigatórios.
-              </DialogDescription>
-            </DialogHeader>
+          <DialogContent
+            className={cn(
+              "h-[90vh] max-h-[90vh] overflow-hidden p-0",
+              isMobile ? "max-w-[95vw]" : "max-w-5xl"
+            )}
+          >
+            <div className="flex h-full flex-col min-h-0">
+              <div className="shrink-0 px-6 border-b bg-background">
+                <DialogHeader>
+                  <DialogTitle>{editingAppointment ? "Editar Agendamento" : "Novo Agendamento"}</DialogTitle>
+                  <DialogDescription>
+                    Preencha os dados do agendamento. Campos marcados são obrigatórios.
+                  </DialogDescription>
+                </DialogHeader>
+              </div>
 
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 min-w-0">
-                <FormField
-                  control={form.control}
-                  name="customer_id"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        Cliente <span className="text-red-500">*</span>
-                      </FormLabel>
+              <div ref={formScrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 py-4">
+                <Form {...form}>
+                  <form className="space-y-4 min-w-0 pb-5" id="appointments-form"
+                    onSubmit={form.handleSubmit(onSubmit, (errors) => {
+                      const first = findFirstErrorPath(errors as any);
+                      if (first) focusFieldByPath(first);
+                    })}
+                  >
+                    <FormField
+                      control={form.control}
+                      name="customer_id"
+                      render={({ field }) => (
+                        <FormItem data-field-path="customer_id">
+                          <FormLabel>
+                            Cliente <span className="text-red-500">*</span>
+                          </FormLabel>
 
-                      <FormControl>
-                        <Combobox
-                          value={field.value ?? null}
-                          onChange={(val) => {
-                            field.onChange(val != null ? Number(val) : undefined);
+                          <FormControl>
+                            <Combobox
+                              value={field.value ?? null}
+                              onChange={(val) => {
+                                field.onChange(val != null ? Number(val) : undefined);
+                              }}
+                              options={customerOptions}
+                              placeholder="Selecione o cliente"
+                              searchPlaceholder="Buscar cliente..."
+                              emptyMessage="Nenhum cliente encontrado."
+                              scrollContainerRef={formScrollRef}
+                            />
+                          </FormControl>
+
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    {sessionsFA.fields.map((sessField, sessIdx) => {
+                      const session = form.watch(`sessions.${sessIdx}`) as FormSession | undefined;
+                      const sessionDate = session?.date;
+
+                      const sessionProfessionalIds = Array.from(
+                        new Set(
+                          ((session?.services ?? []) as any[])
+                            .map((s) => (s?.professional_id != null ? Number(s.professional_id) : NaN))
+                            .filter((n) => Number.isFinite(n))
+                        )
+                      );
+
+                      const sessionServiceObjs =
+                        (session?.services ?? [])
+                          .map((s) => serviceById.get(Number((s as any)?.service_id)))
+                          .filter(Boolean) as Service[];
+
+                      const sessionTotalDuration = sessionServiceObjs.reduce((sum, s) => sum + Number(s.duration || 0), 0);
+                      const sessionTotalPrice = sessionServiceObjs.reduce((sum, s) => sum + Number(s.price || 0), 0);
+
+                      const isCollapsed = !!collapsedSessions[sessField.id];
+
+                      return (
+                        <div
+                          key={sessField.id}
+                          onFocusCapture={() => setActiveSectionId(sessField.id)}
+                          onBlurCapture={(e) => {
+                            const next = e.relatedTarget as Node | null;
+                            if (next && e.currentTarget.contains(next)) return;
+                            setActiveSectionId((prev) => (prev === sessField.id ? null : prev));
                           }}
-                          options={customerOptions}
-                          placeholder="Selecione o cliente"
-                          searchPlaceholder="Buscar cliente..."
-                          emptyMessage="Nenhum cliente encontrado."
-                        />
-                      </FormControl>
+                          className={cn(
+                            "rounded-lg border p-4 space-y-4 transition-all",
+                            activeSectionId === sessField.id &&
+                              "border-primary/50 bg-primary/5 ring-2 ring-primary/30 shadow-md translate-y-[-1px]",
+                            activeSectionId != null &&
+                              activeSectionId !== sessField.id &&
+                              "opacity-70"
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="font-semibold">
+                              Agendamento {sessIdx + 1}
+                            </div>
 
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="date"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-col">
-                        <FormLabel>Data <span className="text-red-500">*</span></FormLabel>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <FormControl>
+                            <div className="flex items-center gap-1">
                               <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => toggleSessionCollapse(sessField.id)}
+                                title={isCollapsed ? "Expandir" : "Recolher"}
+                              >
+                                {isCollapsed ? (
+                                  <Plus className="h-4 w-4" />
+                                ) : (
+                                  <Minus className="h-4 w-4" />
+                                )}
+                              </Button>
+
+                              {!editingAppointment && sessionsFA.fields.length > 1 && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  className="text-destructive"
+                                  onClick={() => sessionsFA.remove(sessIdx)}
+                                  title="Remover data"
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+
+                          {isCollapsed && (
+                            <div className="text-xs text-muted-foreground flex flex-wrap gap-2">
+                              <span>
+                                {sessionDate ? format(sessionDate, "P", { locale: ptBR }) : "Sem data"}
+                              </span>
+
+                              <Badge
                                 variant="outline"
-                                className={cn(
-                                  "pl-3 text-left font-normal",
-                                  !field.value && "text-muted-foreground"
+                                className={getStatusBadgeClass(
+                                  (session?.status ?? "scheduled") as any,
+                                  "px-2 py-0.5 text-[11px] font-medium rounded-full"
                                 )}
                               >
-                                {field.value ? (
-                                  format(field.value, "P", { locale: ptBR })
-                                ) : (
-                                  <span>Selecione a data</span>
+                                {getStatusLabel((session?.status ?? "scheduled") as any)}
+                              </Badge>
+
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  "px-2 py-0.5 text-[11px] font-medium rounded-full",
+                                  getPaymentStatusBadgeClasses(
+                                    (session?.payment_status ?? "unpaid") as any
+                                  )
                                 )}
-                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                              </Button>
-                            </FormControl>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={field.value}
-                              onSelect={field.onChange}
-                              disabled={(date) => {
-                                const today = new Date(new Date().setHours(0, 0, 0, 0));
-                                if (date < today) return true;
+                              >
+                                {getPaymentStatusLabel((session?.payment_status ?? "unpaid") as any)}
+                              </Badge>
 
-                                if (selectedProfessionalIds.length === 0) {
-                                  return false;
-                                }
+                              <span>Serviços: {(session?.services ?? []).length}</span>
+                              <span>Total: R$ {Number(sessionTotalPrice || 0).toFixed(2)}</span>
+                            </div>
+                          )}
 
-                                const dateStr = format(date, "yyyy-MM-dd");
-                                const weekdayLabel = getWeekdayLabel(date);
+                          {!isCollapsed && (
+                            <>
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <FormField
+                                  control={form.control}
+                                  name={`sessions.${sessIdx}.date`}
+                                  render={({ field }) => (
+                                    <FormItem className="flex flex-col" data-field-path={`sessions.${sessIdx}.date`}>
+                                      <FormLabel>Data <span className="text-red-500">*</span></FormLabel>
+                                      <Popover>
+                                        <PopoverTrigger asChild>
+                                          <FormControl>
+                                            <Button
+                                              type="button"
+                                              variant="outline"
+                                              className={cn(
+                                                "pl-3 text-left font-normal",
+                                                !field.value && "text-muted-foreground"
+                                              )}
+                                            >
+                                              {field.value ? (
+                                                format(field.value, "P", { locale: ptBR })
+                                              ) : (
+                                                <span>Selecione a data</span>
+                                              )}
+                                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                            </Button>
+                                          </FormControl>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-auto p-0" align="start">
+                                          <Calendar
+                                            mode="single"
+                                            selected={field.value}
+                                            onSelect={field.onChange}
+                                            disabled={(date) => {
+                                              const today = new Date(new Date().setHours(0, 0, 0, 0));
+                                              if (date < today) return true;
 
-                                const algumProfIndisponivel = selectedProfessionalIds.some((profId) => {
-                                  const numId = Number(profId);
+                                              const dateStr = format(date, "yyyy-MM-dd");
 
-                                  const windows = professionalOpenWindowsById.get(numId) ?? [];
-                                  const windowsConfigured = windows.length > 0;
+                                              const allSessions = (form.getValues("sessions") || []) as any[];
+                                              const usedByAnother = allSessions.some((s, idx) => {
+                                                const d = s?.date;
+                                                if (!d) return false;
+                                                const sDateStr = format(d as Date, "yyyy-MM-dd");
 
-                                  let temJanelaNaData = true;
-                                  if (windowsConfigured) {
-                                    const openWindows = windows.filter((w) => w.status === "open");
-                                    temJanelaNaData = openWindows.some(
-                                      (w) => w.start_date <= dateStr && dateStr <= w.end_date
-                                    );
-                                  }
+                                                if (idx === sessIdx) return false;
 
-                                  const schedule = professionalWorkScheduleById.get(numId);
-                                  let podeTrabalharNesteDia = true;
+                                                return sDateStr === dateStr;
+                                              });
 
-                                  if (schedule && schedule.length > 0) {
-                                    const daySchedule = schedule.find((d) => d.day === weekdayLabel);
+                                              if (usedByAnother) return true;
 
-                                    if (!daySchedule || daySchedule.isDayOff || daySchedule.isWorkingDay === false) {
-                                      podeTrabalharNesteDia = false;
-                                    }
-                                  }
+                                              if (sessionProfessionalIds.length === 0) return false;
 
-                                  return !temJanelaNaData || !podeTrabalharNesteDia;
-                                });
+                                              const weekdayLabel = getWeekdayLabel(date);
 
-                                return algumProfIndisponivel;
-                              }}
-                              locale={ptBR}
-                              initialFocus
-                            />
-                          </PopoverContent>
-                        </Popover>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                                              const algumProfIndisponivel = sessionProfessionalIds.some((profId) => {
+                                                const numId = Number(profId);
 
-                  <FormField
-                    control={form.control}
-                    name="status"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-col">
-                        <FormLabel>Status <span className="text-red-500">*</span></FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="scheduled">Agendado</SelectItem>
-                            <SelectItem value="confirmed">Confirmado</SelectItem>
-                            <SelectItem value="completed">Concluído</SelectItem>
-                            <SelectItem value="cancelled">Cancelado</SelectItem>
-                            <SelectItem value="no_show">Não Compareceu</SelectItem>
-                            <SelectItem value="rescheduled">Reagendado</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                                                const windows = professionalOpenWindowsById.get(numId) ?? [];
+                                                const windowsConfigured = windows.length > 0;
 
-                  <FormField
-                    control={form.control}
-                    name="payment_status"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-col">
-                        <FormLabel>Status de pagamento <span className="text-red-500">*</span></FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="unpaid">Não pago</SelectItem>
-                            <SelectItem value="prepaid">Pago antecipado</SelectItem>
-                            <SelectItem value="paid" disabled>Pago</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
+                                                let temJanelaNaData = true;
+                                                if (windowsConfigured) {
+                                                  const openWindows = windows.filter((w) => w.status === "open");
+                                                  temJanelaNaData = openWindows.some(
+                                                    (w) => w.start_date <= dateStr && dateStr <= w.end_date
+                                                  );
+                                                }
 
-                <FormField
-                  control={form.control}
-                  name="services"
-                  render={({ field }) => {
-                    const servicesValue = (field.value || []) as any[];
-                    const selectedDate = form.watch("date");
+                                                const schedule = professionalWorkScheduleById.get(numId);
+                                                let podeTrabalharNesteDia = true;
 
-                    const updateServiceAtIndex = (index: number, patch: Record<string, any>) => {
-                      const updated = [...servicesValue];
-                      updated[index] = {
-                        ...updated[index],
-                        ...patch,
-                      };
-                      field.onChange(updated);
-                    };
+                                                if (schedule && schedule.length > 0) {
+                                                  const daySchedule = schedule.find((d) => d.day === weekdayLabel);
+                                                  if (!daySchedule || daySchedule.isDayOff || daySchedule.isWorkingDay === false) {
+                                                    podeTrabalharNesteDia = false;
+                                                  }
+                                                }
 
-                    const removeServiceAtIndex = (index: number) => {
-                      const updated = servicesValue.filter((_: any, i: number) => i !== index);
-                      field.onChange(updated);
-                    };
+                                                return !temJanelaNaData || !podeTrabalharNesteDia;
+                                              });
 
-                    return (
-                      <FormItem>
-                        <FormLabel>
-                          Serviços, Profissionais e Horários{" "}
-                          <span className="text-red-500">*</span>
-                        </FormLabel>
-                        <div className="space-y-3">
-                          {servicesValue.map((svc, idx) => {
-                            const serviceId = svc.service_id ?? null;
-                            const professionalId = svc.professional_id ?? null;
+                                              return algumProfIndisponivel;
+                                            }}
+                                            locale={ptBR}
+                                            initialFocus
+                                          />
+                                        </PopoverContent>
+                                      </Popover>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
 
-                            const serviceIdNum = serviceId != null ? Number(serviceId) : null;
+                                <FormField
+                                  control={form.control}
+                                  name={`sessions.${sessIdx}.status`}
+                                  render={({ field }) => (
+                                    <FormItem className="flex flex-col">
+                                      <FormLabel>Status <span className="text-red-500">*</span></FormLabel>
+                                      <Select onValueChange={field.onChange} value={field.value}>
+                                        <FormControl>
+                                          <SelectTrigger>
+                                            <SelectValue />
+                                          </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                          <SelectItem value="scheduled">Agendado</SelectItem>
+                                          <SelectItem value="confirmed">Confirmado</SelectItem>
+                                          <SelectItem value="completed">Concluído</SelectItem>
+                                          <SelectItem value="cancelled">Cancelado</SelectItem>
+                                          <SelectItem value="no_show">Não Compareceu</SelectItem>
+                                          <SelectItem value="rescheduled">Reagendado</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
 
-                            const applicablePromosForRow =
-                              selectedDate && serviceIdNum
-                                ? promotions.filter((p) =>
-                                    isPromoApplicableToServiceOnDate(p, selectedDate, serviceIdNum)
-                                  )
-                                : [];
+                                <FormField
+                                  control={form.control}
+                                  name={`sessions.${sessIdx}.payment_status`}
+                                  render={({ field }) => (
+                                    <FormItem className="flex flex-col">
+                                      <FormLabel>Status de pagamento <span className="text-red-500">*</span></FormLabel>
+                                      <Select onValueChange={field.onChange} value={field.value}>
+                                        <FormControl>
+                                          <SelectTrigger>
+                                            <SelectValue />
+                                          </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                          <SelectItem value="unpaid">Não pago</SelectItem>
+                                          <SelectItem value="partial">Parcial</SelectItem>
+                                          <SelectItem value="paid">Pago</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                              </div>
+                            
 
-                            const promoOptionsForRow = applicablePromosForRow.map((p) => ({
-                              value: p.id,
-                              label: p.name,
-                            }));
+                              <FormField
+                                control={form.control}
+                                name={`sessions.${sessIdx}.services`}
+                                render={({ field }) => {
+                                  const servicesValue = (field.value || []) as any[];
 
-                            const selectedPromoIds: ID[] = Array.isArray(svc.promotion_ids)
-                              ? svc.promotion_ids
-                              : [];
+                                  const updateServiceAtIndex = (index: number, patch: Record<string, any>) => {
+                                    const updated = [...servicesValue];
+                                    updated[index] = { ...updated[index], ...patch };
+                                    field.onChange(updated);
+                                  };
 
-                            const serviceEntity = serviceId ? serviceById.get(Number(serviceId)) : undefined;
-                            const serviceDuration = Number(serviceEntity?.duration || 0);
+                                  const removeServiceAtIndex = (index: number) => {
+                                    field.onChange(servicesValue.filter((_: any, i: number) => i !== index));
+                                  };
 
-                            const canSelectTime = selectedDate && professionalId && serviceId && serviceDuration > 0;
+                                  return (
+                                    <FormItem>
+                                      <FormLabel>
+                                        Serviços, Profissionais e Horários{" "}
+                                        <span className="text-red-500">*</span>
+                                      </FormLabel>
 
-                            const slots: TimeSlotWithStatus[] =
-                              canSelectTime && selectedDate
-                                ? getTimeSlotsForRow(
-                                    selectedDate,
-                                    professionalId,
-                                    serviceDuration,
-                                    idx,
-                                    servicesValue,
-                                    editingAppointment?.id
-                                  )
-                                : [];
+                                      <div className="space-y-3">
+                                        {servicesValue.map((svc, idx) => {
+                                          const serviceId = svc.service_id ?? null;
+                                          const professionalId = svc.professional_id ?? null;
 
-                            const hasAnySlots = slots.length > 0;
-                            const hasFreeSlots = slots.some((s) => s.isFree);
+                                          const serviceIdNum = serviceId != null ? Number(serviceId) : null;
 
-                            const timeOptions = slots.map((slot) => {
-                              let suffix = "";
-                              let variant: "default" | "success" | "danger" | "warning" | "muted" = "default";
-                              let optDisabled = false;
+                                          const applicablePromosForRow =
+                                            sessionDate && serviceIdNum
+                                              ? promotions.filter((p) => isPromoApplicableToServiceOnDate(p, sessionDate, serviceIdNum))
+                                              : [];
 
-                              if (slot.isFree) {
-                                variant = "success";
-                              } else {
-                                optDisabled = true;
+                                          const promoOptionsForRow = applicablePromosForRow.map((p) => ({ value: p.id, label: p.name }));
 
-                                if (slot.reason === "busy") {
-                                  suffix = " • ocupado";
-                                  variant = "danger";
-                                } else if (slot.reason === "lunch") {
-                                  suffix = " • intervalo";
-                                  variant = "warning";
-                                } else if (slot.reason === "outside-working-hours") {
-                                  suffix = " • fora da escala";
-                                  variant = "muted";
-                                }
-                              }
+                                          const selectedPromoIds: ID[] = Array.isArray(svc.promotion_ids) ? svc.promotion_ids : [];
 
-                              return {
-                                value: slot.time,
-                                label: slot.time + suffix,
-                                disabled: optDisabled,
-                                variant,
-                              };
-                            });
+                                          const serviceEntity = serviceId ? serviceById.get(Number(serviceId)) : undefined;
+                                          const serviceDuration = Number(serviceEntity?.duration || 0);
 
-                            const timePlaceholder = !canSelectTime
-                              ? "Selecione data, serviço e profissional"
-                              : !hasAnySlots
-                              ? "Nenhum horário disponível"
-                              : hasFreeSlots
-                              ? "Selecione o horário"
-                              : "Nenhum horário livre";
+                                          const canSelectTime = sessionDate && professionalId && serviceId && serviceDuration > 0;
 
-                            return (
-                              <div key={idx} className="space-y-2 rounded-md border p-3">
-                                <div className="grid grid-cols-1 md:grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,2fr)_auto] gap-2 items-end">
-                                  <FormItem>
-                                    <FormLabel className="text-xs text-muted-foreground">Serviço</FormLabel>
-                                    <FormControl>
-                                      <Combobox
-                                        value={serviceId}
-                                        onChange={(val) => {
-                                          updateServiceAtIndex(idx, {
-                                            service_id: val != null ? Number(val) : "",
-                                            start_time: "",
-                                            promotion_ids: [],
+                                          const slots: TimeSlotWithStatus[] =
+                                            canSelectTime && sessionDate
+                                              ? getTimeSlotsForRow(
+                                                  sessionDate,
+                                                  professionalId,
+                                                  serviceDuration,
+                                                  idx,
+                                                  servicesValue,
+                                                  editingAppointment?.id
+                                                )
+                                              : [];
+
+                                          const hasAnySlots = slots.length > 0;
+                                          const hasFreeSlots = slots.some((s) => s.isFree);
+
+                                          const timeOptions = slots.map((slot) => {
+                                            let suffix = "";
+                                            let variant: "default" | "success" | "danger" | "warning" | "muted" = "default";
+                                            let optDisabled = false;
+
+                                            if (slot.isFree) {
+                                              variant = "success";
+                                            } else {
+                                              optDisabled = true;
+
+                                              if (slot.reason === "busy") {
+                                                suffix = " • ocupado";
+                                                variant = "danger";
+                                              } else if (slot.reason === "lunch") {
+                                                suffix = " • intervalo";
+                                                variant = "warning";
+                                              } else if (slot.reason === "outside-working-hours") {
+                                                suffix = " • fora da escala";
+                                                variant = "muted";
+                                              }
+                                            }
+
+                                            return { value: slot.time, label: slot.time + suffix, disabled: optDisabled, variant };
                                           });
-                                        }}
-                                        options={serviceOptions}
-                                        placeholder="Selecione um serviço"
-                                        searchPlaceholder="Buscar serviço..."
-                                        emptyMessage="Nenhum serviço encontrado."
-                                      />
-                                    </FormControl>
-                                  </FormItem>
 
-                                  <FormItem>
-                                    <FormLabel className="text-xs text-muted-foreground">Profissional</FormLabel>
-                                    <FormControl>
-                                      <Combobox
-                                        value={professionalId}
-                                        onChange={(val) => {
-                                          updateServiceAtIndex(idx, {
-                                            professional_id: val != null ? Number(val) : "",
-                                            start_time: "",
-                                          });
-                                        }}
-                                        options={professionalOptions}
-                                        placeholder="Selecione um profissional"
-                                        searchPlaceholder="Buscar profissional..."
-                                        emptyMessage="Nenhum profissional encontrado."
-                                      />
-                                    </FormControl>
-                                  </FormItem>
+                                          const timePlaceholder = !canSelectTime
+                                            ? "Selecione data, serviço e profissional"
+                                            : !hasAnySlots
+                                            ? "Nenhum horário disponível"
+                                            : hasFreeSlots
+                                            ? "Selecione o horário"
+                                            : "Nenhum horário livre";
 
-                                  <FormItem>
-                                    <FormLabel className="text-xs text-muted-foreground">Horário</FormLabel>
-                                    <FormControl>
-                                      <Combobox
-                                        value={svc.start_time || null}
-                                        onChange={(val) => {
-                                          const chosen = slots.find((s) => s.time === val);
+                                          return (
+                                            <div key={idx} className="space-y-2 rounded-md border p-3">
+                                              <div className="grid grid-cols-1 md:grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,2fr)_auto] gap-2 items-end">
+                                                <FormItem data-field-path={`sessions.${sessIdx}.services.${idx}.service_id`}>
+                                                  <FormLabel className="text-xs text-muted-foreground">Serviço</FormLabel>
+                                                  <FormControl>
+                                                    <Combobox
+                                                      value={serviceId}
+                                                      onChange={(val) => {
+                                                        updateServiceAtIndex(idx, {
+                                                          service_id: val != null ? Number(val) : "",
+                                                          start_time: "",
+                                                          promotion_ids: [],
+                                                        });
+                                                      }}
+                                                      options={serviceOptions}
+                                                      placeholder="Selecione um serviço"
+                                                      searchPlaceholder="Buscar serviço..."
+                                                      emptyMessage="Nenhum serviço encontrado."
+                                                      scrollContainerRef={formScrollRef}
+                                                    />
+                                                  </FormControl>
+                                                </FormItem>
 
-                                          if (!chosen || !chosen.isFree) {
-                                            toast({
-                                              title: "Horário indisponível",
-                                              description: "Selecione um horário livre para este serviço.",
-                                              variant: "destructive",
-                                            });
-                                            return;
+                                                <FormItem data-field-path={`sessions.${sessIdx}.services.${idx}.professional_id`}>
+                                                  <FormLabel className="text-xs text-muted-foreground">Profissional</FormLabel>
+                                                  <FormControl>
+                                                    <Combobox
+                                                      value={professionalId}
+                                                      onChange={(val) => {
+                                                        updateServiceAtIndex(idx, {
+                                                          professional_id: val != null ? Number(val) : "",
+                                                          start_time: "",
+                                                        });
+                                                      }}
+                                                      options={professionalOptions}
+                                                      placeholder="Selecione um profissional"
+                                                      searchPlaceholder="Buscar profissional..."
+                                                      emptyMessage="Nenhum profissional encontrado."
+                                                      scrollContainerRef={formScrollRef}
+                                                    />
+                                                  </FormControl>
+                                                </FormItem>
+
+                                                <FormItem data-field-path={`sessions.${sessIdx}.services.${idx}.start_time`}>
+                                                  <FormLabel className="text-xs text-muted-foreground">Horário</FormLabel>
+                                                  <FormControl>
+                                                    <Combobox
+                                                      value={svc.start_time || null}
+                                                      onChange={(val) => {
+                                                        const chosen = slots.find((s) => s.time === val);
+
+                                                        if (!chosen || !chosen.isFree) {
+                                                          toast({
+                                                            title: "Horário indisponível",
+                                                            description: "Selecione um horário livre para este serviço.",
+                                                            variant: "destructive",
+                                                          });
+                                                          return;
+                                                        }
+
+                                                        updateServiceAtIndex(idx, { start_time: (val as string) || "" });
+                                                      }}
+                                                      options={timeOptions}
+                                                      placeholder={timePlaceholder}
+                                                      searchPlaceholder="Buscar horário..."
+                                                      emptyMessage="Nenhum horário disponível."
+                                                      disabled={!hasAnySlots}
+                                                      scrollContainerRef={formScrollRef}
+                                                    />
+                                                  </FormControl>
+                                                </FormItem>
+
+                                                <div className="flex md:justify-end">
+                                                  <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="text-destructive"
+                                                    onClick={() => removeServiceAtIndex(idx)}
+                                                    title="Remover serviço"
+                                                  >
+                                                    <Trash2 className="h-4 w-4" />
+                                                  </Button>
+                                                </div>
+                                              </div>
+
+                                              <div className="grid grid-cols-1">
+                                                <FormItem>
+                                                  <FormLabel className="text-xs text-muted-foreground">Promoções (opcional)</FormLabel>
+                                                  <FormControl>
+                                                    <MultiSelect
+                                                      value={selectedPromoIds}
+                                                      onChange={(next) => updateServiceAtIndex(idx, { promotion_ids: next })}
+                                                      options={promoOptionsForRow}
+                                                      placeholder={
+                                                        !sessionDate
+                                                          ? "Selecione a data"
+                                                          : !serviceIdNum
+                                                          ? "Selecione o serviço"
+                                                          : applicablePromosForRow.length === 0
+                                                          ? "Nenhuma promoção disponível"
+                                                          : "Selecionar promoções"
+                                                      }
+                                                      emptyLabel="Nenhuma promoção"
+                                                      searchPlaceholder="Buscar promoção..."
+                                                    />
+                                                  </FormControl>
+                                                </FormItem>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          onClick={() =>
+                                            field.onChange([
+                                              ...servicesValue,
+                                              { service_id: null, professional_id: null, start_time: "", promotion_ids: [] },
+                                            ])
                                           }
+                                        >
+                                          + Adicionar serviço
+                                        </Button>
+                                      </div>
 
-                                          updateServiceAtIndex(idx, { start_time: (val as string) || "" });
-                                        }}
-                                        options={timeOptions}
-                                        placeholder={timePlaceholder}
-                                        searchPlaceholder="Buscar horário..."
-                                        emptyMessage="Nenhum horário disponível."
-                                        disabled={!hasAnySlots}
-                                      />
-                                    </FormControl>
+                                      <FormMessage />
+                                    </FormItem>
+                                  );
+                                }}
+                              />
+
+                              <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                  <FormItem className="flex flex-col">
+                                    <FormLabel>Duração (min)</FormLabel>
+                                    <Input value={sessionTotalDuration} readOnly />
                                   </FormItem>
-
-                                  <div className="flex md:justify-end">
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="icon"
-                                      className="text-destructive"
-                                      onClick={() => removeServiceAtIndex(idx)}
-                                      title="Remover serviço"
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                  </div>
                                 </div>
-
-                                <div className="grid grid-cols-1">
-                                  <FormItem>
-                                    <FormLabel className="text-xs text-muted-foreground">Promoções (opcional)</FormLabel>
-                                    <FormControl>
-                                      <MultiSelect
-                                        value={selectedPromoIds}
-                                        onChange={(next) => updateServiceAtIndex(idx, { promotion_ids: next })}
-                                        options={promoOptionsForRow}
-                                        placeholder={
-                                          !selectedDate
-                                            ? "Selecione a data"
-                                            : !serviceIdNum
-                                            ? "Selecione o serviço"
-                                            : applicablePromosForRow.length === 0
-                                            ? "Nenhuma promoção disponível"
-                                            : "Selecionar promoções"
-                                        }
-                                        emptyLabel="Nenhuma promoção"
-                                        searchPlaceholder="Buscar promoção..."
-                                      />
-                                    </FormControl>
+                                <div>
+                                  <FormItem className="flex flex-col">
+                                    <FormLabel>Preço (R$)</FormLabel>
+                                    <Input value={sessionTotalPrice.toFixed(2)} readOnly />
                                   </FormItem>
                                 </div>
                               </div>
-                            );
-                          })}
 
-
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() =>
-                              field.onChange([
-                                ...servicesValue,
-                                {
-                                  service_id: null,
-                                  professional_id: null,
-                                  start_time: "",
-                                  promotion_ids: [],
-                                },
-                              ])
-                            }
-                          >
-                            + Adicionar serviço
-                          </Button>
+                              <FormField
+                                control={form.control}
+                                name={`sessions.${sessIdx}.session_notes`}
+                                render={({ field }) => (
+                                  <FormItem className="flex flex-col">
+                                    <FormLabel>Observações da sessão (opcional)</FormLabel>
+                                    <FormControl>
+                                      <Textarea
+                                        placeholder={`Observações específicas da sessão ${sessIdx + 1}`}
+                                        className="resize-none"
+                                        {...field}
+                                      />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </>
+                          )}
                         </div>
-                        <FormMessage />
-                      </FormItem>
-                    );
-                  }}
-                />
+                      );
+                    })}
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <FormItem className="flex flex-col">
-                      <FormLabel>Duração total (min)</FormLabel>
-                      <Input value={totalDuration} readOnly />
-                    </FormItem>
+                    {!editingAppointment && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() =>
+                          sessionsFA.append({
+                            date: undefined as unknown as Date,
+                            status: "scheduled",
+                            payment_status: "unpaid",
+                            session_notes: "",
+                            services: [],
+                          })
+                        }
+                        className={cn(
+                          "w-full h-11 justify-center gap-2",
+                          "border-dashed border-2",
+                          "bg-muted/30 hover:bg-muted/50",
+                          "shadow-sm hover:shadow-md transition-all",
+                          "text-sm font-semibold"
+                        )}
+                      >
+                        <Plus className="h-4 w-4" />
+                        Adicionar nova data
+                      </Button>
+                    )}
+
+                    <FormField
+                      control={form.control}
+                      name="notes"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-col">
+                          <FormLabel>Observações</FormLabel>
+                          <FormControl>
+                            <Textarea
+                              placeholder="Observações sobre o agendamento"
+                              className="resize-none"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </form>
+                </Form>
+              </div>
+
+              <div className="sticky bottom-0 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-6 py-3 pb-[calc(env(safe-area-inset-bottom)+12px)]">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs text-muted-foreground hidden md:block">
+                    {sessionsFA.fields.length} sessão(ões) • {totalDuration} min • R$ {totalPrice.toFixed(2)}
+                    {form.formState.isDirty ? " • alterações não salvas" : ""}
                   </div>
-                  <div>
-                    <FormItem className="flex flex-col">
-                      <FormLabel>Preço total (R$)</FormLabel>
-                      <Input value={totalPrice.toFixed(2)} readOnly />
-                    </FormItem>                      
+
+                  <div className="flex items-center gap-2 ml-auto">
+                    <Button type="button" variant="outline" onClick={handleCloseDialog}>
+                      Cancelar
+                    </Button>
+
+                    <Button
+                      type="submit"
+                      form="appointments-form"
+                      disabled={form.formState.isSubmitting || (editingAppointment ? !form.formState.isDirty : false)}
+                    >
+                      {form.formState.isSubmitting
+                        ? "Salvando..."
+                        : editingAppointment
+                        ? "Salvar"
+                        : "Criar"}
+                    </Button>
                   </div>
                 </div>
-
-                <FormField
-                  control={form.control}
-                  name="notes"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-col">
-                      <FormLabel>Observações</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          placeholder="Observações sobre o agendamento"
-                          className="resize-none"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <DialogFooter>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleCloseDialog}
-                  >
-                    Cancelar
-                  </Button>
-                  <Button type="submit">
-                    {editingAppointment ? "Salvar" : "Criar"}
-                  </Button>
-                </DialogFooter>
-              </form>
-            </Form>
+              </div>
+            </div>
           </DialogContent>
         </Dialog>
 
@@ -3530,6 +4181,7 @@ export default function Appointments() {
           totalAmount={prepayTotalAmount}
           grossAmount={prepayGrossTotal}
           discountLines={prepayDiscountLines}
+          intent={(prepayDraft as any)?.paymentIntent ?? "paid"}
           onCancel={() => {
             setPrepayDialogOpen(false);
             setPrepayTotalAmount(0);
@@ -3542,15 +4194,62 @@ export default function Appointments() {
             const draft = prepayDraft;
             if (!draft) return;
 
+            const createdPendingIds: number[] = [];
+
+            const extractId = (resp: any) => {
+              const id = Number(resp?.id ?? resp?.data?.id);
+              return Number.isFinite(id) && id > 0 ? id : null;
+            };
+
+            const mergeNotes = (base: any, extra: string) => {
+              const s = String(base ?? "").trim();
+              if (!extra) return s || null;
+              if (!s) return extra;
+              if (s.includes(extra)) return s;
+              return `${s}\n${extra}`;
+            };
+
+            const todayYmd = () => {
+              const d = new Date();
+              const yyyy = d.getFullYear();
+              const mm = String(d.getMonth() + 1).padStart(2, "0");
+              const dd = String(d.getDate()).padStart(2, "0");
+              return `${yyyy}-${mm}-${dd}`;
+            };
+
+            const ensureUuid = () => {
+              const g = globalThis as any;
+              if (g?.crypto?.randomUUID) return g.crypto.randomUUID();
+              const s4 = () => Math.floor((1 + Math.random()) * 0x10000).toString(16).substring(1);
+              return `${s4()}${s4()}-${s4()}-${s4()}-${s4()}-${s4()}${s4()}${s4()}`;
+            };
+
             try {
               let appointmentId: number;
 
+              const pending = Array.isArray((draft as any).pendingPayloads)
+                ? (draft as any).pendingPayloads
+                : [];
+
+              const isPackagePayment = pending.length > 0;
+
+              let groupId: string | null = draft.groupId ? String(draft.groupId).trim() : null;
+              if (isPackagePayment && !groupId) groupId = ensureUuid();
+
+              const firstPayloadToSave = isPackagePayment
+                ? {
+                    ...(draft.payloadToSave ?? {}),
+                    group_id: groupId,
+                    group_sequence: (draft.payloadToSave as any)?.group_sequence ?? 1,
+                  }
+                : (draft.payloadToSave ?? {});
+
               if (draft.mode === "edit") {
                 const { updateAppointment: updateFn } = await import("@/services/appointmentsService");
-                await updateFn(Number(draft.appointmentId), draft.payloadToSave);
+                await updateFn(Number(draft.appointmentId), firstPayloadToSave as any);
                 appointmentId = Number(draft.appointmentId);
               } else {
-                const created = await createAppointment.mutateAsync(draft.payloadToSave);
+                const created = await createAppointment.mutateAsync(firstPayloadToSave as any);
                 appointmentId = Number((created as any)?.id ?? (created as any)?.data?.id);
               }
 
@@ -3558,13 +4257,52 @@ export default function Appointments() {
                 throw new Error("Não foi possível obter o ID do agendamento.");
               }
 
-              await prepayAppointment.mutateAsync({
-                appointmentId,
-                payload: {
-                  received_date: null,
-                  payments,
-                },
-              });
+              const cleanPayments = Array.isArray(payments) ? payments : [];
+              const intent = (draft as any)?.paymentIntent as ("paid" | "partial" | undefined);
+
+              const prepayPayload: PrepayAppointmentDto & { intent?: "paid" | "partial" | null } = {
+                received_date: todayYmd(),
+                ...(cleanPayments.length > 0 ? { payments: cleanPayments } : {}),
+                intent: intent ?? null,
+              };
+
+              if (isPackagePayment) {
+                if (!groupId) {
+                  throw new Error("Não foi possível identificar o group_id do pacote. (Falha ao gerar no frontend)");
+                }
+
+                const packageLine = `Pago no pacote (recebido no agendamento #${appointmentId})`;
+
+                for (const [idx, p] of pending.entries()) {
+                  const payloadWithNote = {
+                    ...(p ?? {}),
+                    group_id: groupId,
+                    group_sequence: (p as any)?.group_sequence ?? (idx + 2),
+                    notes: mergeNotes((p as any)?.notes, packageLine),
+                  };
+
+                  const resp = await createAppointment.mutateAsync(payloadWithNote as any);
+                  const id = extractId(resp);
+                  if (id) createdPendingIds.push(id);
+                }
+
+                await prepayGroup.mutateAsync({
+                  groupId,
+                  payload: prepayPayload,
+                });
+              } else {
+                if (groupId) {
+                  await prepayGroup.mutateAsync({
+                    groupId,
+                    payload: prepayPayload,
+                  });
+                } else {
+                  await prepayAppointment.mutateAsync({
+                    appointmentId,
+                    payload: prepayPayload,
+                  });
+                }
+              }
 
               await refetchAppointments();
 
@@ -3578,6 +4316,20 @@ export default function Appointments() {
               form.reset();
             } catch (e: any) {
               console.error(e);
+
+              if (createdPendingIds.length > 0) {
+                for (const id of createdPendingIds) {
+                  try {
+                    await deleteAppointment.mutateAsync(Number(id));
+                  } catch (err) {
+                    console.error("Falha ao rollback do pending appointment", id, err);
+                  }
+                }
+                try {
+                  await refetchAppointments();
+                } catch {}
+              }
+
               toast({
                 title: "Erro ao registrar pagamento antecipado",
                 description: e?.message ?? "Tente novamente.",

@@ -22,8 +22,9 @@ class Appointment extends Model
         'discount_amount',
         'discount_type',
         'final_price',
-        'promotion_id', // remover mais tarde
         'notes',
+        'group_id',
+        'group_sequence',
     ];
 
     protected $casts = [
@@ -37,17 +38,13 @@ class Appointment extends Model
         'discount_amount' => 'decimal:2',
         'discount_type' => 'string',
         'final_price' => 'decimal:2',
+        'group_id' => 'string',
+        'group_sequence' => 'integer',
     ];
 
     public function customer()
     {
         return $this->belongsTo(Customer::class);
-    }
-
-    // remover mais tarde
-    public function promotion()
-    {
-        return $this->belongsTo(Promotion::class);
     }
 
     public function appointmentServices()

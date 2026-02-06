@@ -1,12 +1,12 @@
 import { api } from "./api";
-import type { Appointment, AppointmentPaymentMethod, CreateAppointmentDto, UpdateAppointmentDto } from "../types/appointment";
+import type { Appointment, AppointmentPaymentMethod, AppointmentPaymentStatus, CreateAppointmentDto, UpdateAppointmentDto } from "../types/appointment";
 
 const basePath = "/appointments";
 
 type AppointmentQueryParams = {
   search?: string;
   status?: string;
-  payment_status?: string;
+  payment_status?: AppointmentPaymentStatus | string;
   professional_id?: number;
   customer_id?: number;
   start_date?: string;
@@ -37,6 +37,22 @@ export type CheckoutAppointmentServiceDto = {
   promotions?: CheckoutAppointmentServicePromotionDto[] | null;
 };
 
+export type CheckoutServiceToAddDto = {
+  service_id: number;
+  professional_id?: number | null;
+  service_price: number | string;
+  commission_type?: "percentage" | "fixed" | string | null;
+  commission_value?: number | string | null;
+  promotion_ids?: number[] | null;
+};
+
+export type CheckoutItemDto = {
+  id?: number;
+  item_id?: number;
+  price: number | string;
+  quantity: number;
+};
+
 export type CheckoutAppointmentDto = {
   discount_type?: "percentage" | "fixed" | null;
   discount_amount?: number | null;
@@ -53,23 +69,7 @@ export type PrepayAppointmentDto = {
   appointment_services?: CheckoutAppointmentServiceDto[];
   services_to_add?: CheckoutServiceToAddDto[];
   items?: CheckoutItemDto[];
-  payments: CheckoutPaymentDto[];
-};
-
-export type CheckoutServiceToAddDto = {
-  service_id: number;
-  professional_id?: number | null;
-  service_price: number | string;
-  commission_type?: "percentage" | "fixed" | string | null;
-  commission_value?: number | string | null;
-  promotion_ids?: number[] | null;
-};
-
-export type CheckoutItemDto = {
-  id?: number;
-  item_id?: number;
-  price: number | string;
-  quantity: number;
+  payments?: CheckoutPaymentDto[];
 };
 
 function unwrapResource<T>(payload: any): T {
@@ -92,9 +92,9 @@ function mapPayload(payload: CreateAppointmentDto | UpdateAppointmentDto) {
     discount_type: payload.discount_type,
     discount_amount: payload.discount_amount,
     final_price: payload.final_price,
-    // remover mais tarde
-    promotion_id: payload.promotion_id,
     notes: payload.notes,
+    group_id: (payload as any).group_id,
+    group_sequence: (payload as any).group_sequence,
     services: payload.services?.map((s) => ({
       service_id: s.id,
       service_price: s.service_price,
@@ -211,9 +211,7 @@ export async function checkoutAppointment(id: number, payload: CheckoutAppointme
   const normalized = {
     discount_type: payload.discount_type ?? null,
     discount_amount: payload.discount_amount ?? null,
-
     appointment_services: normalizeAppointmentServices(payload.appointment_services),
-
     services_to_add: normalizeServicesToAdd(payload.services_to_add),
     items: normalizeItems(payload.items),
 
@@ -229,18 +227,18 @@ export async function checkoutAppointment(id: number, payload: CheckoutAppointme
 }
 
 export async function prepayAppointment(id: number, payload: PrepayAppointmentDto) {
-  const normalized = {
+  const paymentsArr = Array.isArray(payload.payments) ? payload.payments : [];
+
+  const normalized: any = {
     received_date: payload.received_date ?? null,
     discount_type: payload.discount_type ?? null,
     discount_amount: payload.discount_amount ?? null,
-
     appointment_services: normalizeAppointmentServices(payload.appointment_services),
-
     services_to_add: normalizeServicesToAdd(payload.services_to_add),
     items: normalizeItems(payload.items),
-
-    payments: normalizePayments(payload.payments ?? []),
   };
+
+  normalized.payments = normalizePayments(paymentsArr);
 
   const { data } = await api.patch<any>(`${basePath}/${id}/prepay`, normalized, {
     headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -248,4 +246,39 @@ export async function prepayAppointment(id: number, payload: PrepayAppointmentDt
   });
 
   return unwrapResource<Appointment>(data);
+}
+
+export type PrepayGroupDto = PrepayAppointmentDto & {
+  group_id: string;
+  intent?: "paid" | "partial" | null;
+};
+
+export async function prepayGroup(groupId: string, payload: PrepayAppointmentDto & { intent?: "paid" | "partial" | null }) {
+  const gid = String(groupId || "").trim();
+  if (!gid) throw new Error("Grupo inválido.");
+
+  const paymentsArr = Array.isArray(payload.payments) ? payload.payments : [];
+
+  const normalized: any = {
+    group_id: gid,
+    received_date: payload.received_date ?? null,
+    intent: (payload as any).intent ?? null,
+    discount_type: (payload as any).discount_type ?? null,
+    discount_amount: (payload as any).discount_amount ?? null,
+    appointment_services: normalizeAppointmentServices((payload as any).appointment_services),
+    services_to_add: normalizeServicesToAdd((payload as any).services_to_add),
+    items: normalizeItems((payload as any).items),
+    payments: normalizePayments(paymentsArr),
+  };
+
+  const { data } = await api.patch<any>(
+    `${basePath}/groups/${encodeURIComponent(gid)}/prepay`,
+    normalized,
+    {
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      transformRequest: [(d) => JSON.stringify(d)],
+    }
+  );
+
+  return data;
 }

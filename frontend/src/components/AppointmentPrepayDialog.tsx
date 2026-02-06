@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm, useFieldArray, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -97,6 +97,7 @@ interface AppointmentPrepayDialogProps {
     installment_fee?: number | null;
     meta?: Record<string, any> | null;
   }>;
+  intent?: "paid" | "partial";
   onConfirm: (payments: PrepayPaymentOut[]) => void;
   onCancel: () => void;
   title?: string;
@@ -110,13 +111,23 @@ export function AppointmentPrepayDialog({
   grossAmount,
   discountLines,
   defaultPayments,
+  intent = "paid",
   onConfirm,
   onCancel,
-  title = "Pagamento Antecipado",
-  description = "Informe a forma de pagamento para registrar no caixa.",
+  title,
+  description,
 }: AppointmentPrepayDialogProps) {
   const isMobile = useIsMobile();
   const didConfirmRef = useRef(false);
+
+  const resolvedTitle =
+    title ?? (intent === "partial" ? "Pagamento Parcial" : "Pagamento Antecipado");
+
+  const resolvedDescription =
+    description ??
+    (intent === "partial"
+      ? "Informe os pagamentos recebidos agora (valor menor que o total)."
+      : "Informe a forma de pagamento para registrar no caixa.");
 
   const [paymentAmountDisplay, setPaymentAmountDisplay] = useState<Record<number, string>>({});
   const [paymentFeeDisplay, setPaymentFeeDisplay] = useState<Record<number, string>>({});
@@ -165,19 +176,18 @@ export function AppointmentPrepayDialog({
     if (!open) return;
 
     const fromApi = (defaultPayments ?? []).map((p) => {
-    const method = String(p.method ?? "").trim();
+      const method = String(p.method ?? "").trim();
+      const feeRaw = p.fee_percent ?? p.installment_fee ?? 0;
 
-    const feeRaw = p.fee_percent ?? p.installment_fee ?? 0;
-
-    return {
-      method,
-      amount: parseNumberBR(p.amount, 0),
-      card_brand: p.card_brand ?? null,
-      installments: p.installments ?? 1,
-      fee_percent: parseNumberBR(feeRaw, 0),
-      notes: p.notes ?? null,
-    };
-  });
+      return {
+        method,
+        amount: parseNumberBR(p.amount, 0),
+        card_brand: p.card_brand ?? null,
+        installments: p.installments ?? 1,
+        fee_percent: parseNumberBR(feeRaw, 0),
+        notes: p.notes ?? null,
+      };
+    });
 
     const nextPayments =
       fromApi.length > 0
@@ -210,6 +220,7 @@ export function AppointmentPrepayDialog({
   const paymentsWatch = useWatch({ control: form.control, name: "payments" }) ?? [];
 
   const baseTotal = Number(Number(totalAmount ?? 0).toFixed(2));
+  const isZeroBase = Math.abs(baseTotal) <= 0.0001;
 
   const safeDiscountLines = (discountLines ?? []).filter((l) => safeNumber(l.amount, 0) > 0);
 
@@ -299,20 +310,40 @@ export function AppointmentPrepayDialog({
   const onSubmit = async (data: z.infer<typeof prepaySchema>) => {
     const expectedBase = baseTotal;
 
+    if (Math.abs(expectedBase) <= 0.0001) {
+      didConfirmRef.current = true;
+      onConfirm([]);
+      onOpenChange(false);
+      return;
+    }
+
     const paidBase = Number(
       (data.payments ?? []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0).toFixed(2)
     );
 
     if (expectedBase < 0) {
-      toast.error("Valor total inválido para pagamento antecipado.");
+      toast.error("Valor total inválido para pagamento.");
       return;
     }
 
-    if (Math.abs(paidBase - expectedBase) > 0.01) {
-      toast.error(
-        `A soma dos pagamentos (R$ ${paidBase.toFixed(2)}) deve ser igual ao total (R$ ${expectedBase.toFixed(2)}).`
-      );
-      return;
+    if (intent === "paid") {
+      if (Math.abs(paidBase - expectedBase) > 0.01) {
+        toast.error(
+          `A soma dos pagamentos (R$ ${paidBase.toFixed(2)}) deve ser igual ao total (R$ ${expectedBase.toFixed(2)}).`
+        );
+        return;
+      }
+    } else {
+      if (paidBase <= 0.009) {
+        toast.error("No pagamento parcial, informe um valor maior que zero.");
+        return;
+      }
+      if (paidBase >= expectedBase - 0.009) {
+        toast.error(
+          `No pagamento parcial, a soma dos pagamentos (R$ ${paidBase.toFixed(2)}) deve ser MENOR que o total (R$ ${expectedBase.toFixed(2)}).`
+        );
+        return;
+      }
     }
 
     const payments: PrepayPaymentOut[] = (data.payments ?? []).map((p) => {
@@ -342,8 +373,10 @@ export function AppointmentPrepayDialog({
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className={cn("max-h-[90vh]", isMobile ? "max-w-[95vw]" : "max-w-2xl")}>
         <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+          <DialogTitle>{resolvedTitle}</DialogTitle>
+          <DialogDescription>
+            {isZeroBase ? "Total final zerado. Você pode finalizar sem registrar pagamento no caixa." : resolvedDescription}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-2 p-4 bg-muted rounded-lg border border-border">
@@ -377,7 +410,7 @@ export function AppointmentPrepayDialog({
             </>
           )}
 
-          {feeTotal > 0 && (
+          {feeTotal > 0 && !isZeroBase && (
             <>
               <div className="flex justify-between text-sm text-primary">
                 <span>Acréscimo (taxas da máquina):</span>
@@ -399,165 +432,131 @@ export function AppointmentPrepayDialog({
 
           <Separator className="my-1" />
 
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>Total base pago:</span>
-            <span>
-              R$ {paidBaseTotal.toFixed(2)} • Restante: R$ {Math.max(0, remaining).toFixed(2)}
-            </span>
-          </div>
+          {!isZeroBase ? (
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Total base pago:</span>
+              <span>
+                R$ {paidBaseTotal.toFixed(2)} • Restante: R$ {Math.max(0, remaining).toFixed(2)}
+              </span>
+            </div>
+          ) : (
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Sem pagamento necessário.</span>
+              <span>Total base: R$ 0,00</span>
+            </div>
+          )}
         </div>
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 mt-4">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold">Métodos de Pagamento</h3>
+        {isZeroBase ? (
+          <DialogFooter className="flex-col sm:flex-row gap-2 mt-4">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                onOpenChange(false);
+                onCancel();
+              }}
+            >
+              Cancelar
+            </Button>
 
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    append({
-                      method: "",
-                      amount: 0,
-                      card_brand: null,
-                      installments: 1,
-                      fee_percent: 0,
-                      notes: null,
-                    });
+            <Button
+              type="button"
+              onClick={() => {
+                didConfirmRef.current = true;
+                onConfirm([]);
+                onOpenChange(false);
+              }}
+            >
+              Finalizar sem pagamento
+            </Button>
+          </DialogFooter>
+        ) : (
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 mt-4">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold">Métodos de Pagamento</h3>
 
-                    setPaymentAmountDisplay((prev) => ({ ...prev, [fields.length]: "" }));
-                    setPaymentFeeDisplay((prev) => ({ ...prev, [fields.length]: "" }));
-                  }}
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Adicionar pagamento
-                </Button>
-              </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      append({
+                        method: "",
+                        amount: 0,
+                        card_brand: null,
+                        installments: 1,
+                        fee_percent: 0,
+                        notes: null,
+                      });
 
-              {fields.map((f, idx) => {
-                const method = String(form.watch(`payments.${idx}.method`) || "").trim();
-                const amountValue = form.watch(`payments.${idx}.amount`) || 0;
+                      setPaymentAmountDisplay((prev) => ({ ...prev, [fields.length]: "" }));
+                      setPaymentFeeDisplay((prev) => ({ ...prev, [fields.length]: "" }));
+                    }}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Adicionar pagamento
+                  </Button>
+                </div>
 
-                const isCredit = method === "credit";
-                const isCreditLike = method === "credit" || method === "credit_link";
-                const isCard = isCreditLike || method === "debit";
+                {fields.map((f, idx) => {
+                  const method = String(form.watch(`payments.${idx}.method`) || "").trim();
+                  const amountValue = form.watch(`payments.${idx}.amount`) || 0;
 
-                return (
-                  <div key={f.id} className="rounded-lg border p-3 space-y-3">
-                    <div className="grid grid-cols-3 gap-3">
-                      <FormField
-                        control={form.control}
-                        name={`payments.${idx}.method`}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Método</FormLabel>
-                            <Select onValueChange={field.onChange} value={field.value}>
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Selecione" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                <SelectItem value="cash">Dinheiro</SelectItem>
-                                <SelectItem value="pix">PIX</SelectItem>
-                                <SelectItem value="debit">Débito</SelectItem>
-                                <SelectItem value="credit">Crédito</SelectItem>
-                                <SelectItem value="credit_link">Crédito (Link)</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                  const isCredit = method === "credit";
+                  const isCreditLike = method === "credit" || method === "credit_link";
+                  const isCard = isCreditLike || method === "debit";
 
-                      <FormField
-                        control={form.control}
-                        name={`payments.${idx}.amount`}
-                        render={({ field }) => (
-                          <FormItem className="min-w-0">
-                            <FormLabel>Valor (R$)</FormLabel>
-                            <FormControl>
-                              <Input
-                                type="text"
-                                inputMode="decimal"
-                                placeholder="R$ 0,00"
-                                value={paymentAmountDisplay[idx] ?? ""}
-                                onChange={(e) => {
-                                  const formatted = formatCurrencyInput(e.target.value);
-                                  setPaymentAmountDisplay((prev) => ({ ...prev, [idx]: formatted }));
-
-                                  const numeric = parseFloat(
-                                    formatted.replace(/[^\d,]/g, "").replace(",", ".")
-                                  );
-                                  field.onChange(Number.isNaN(numeric) ? 0 : numeric);
-                                }}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <div className="flex gap-2 items-end justify-end">
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          onClick={() => fillRemainingOnRow(idx)}
-                          disabled={remaining <= 0}
-                          title="Preencher com o valor restante"
-                        >
-                          Usar restante (R$ {Math.max(0, remaining).toFixed(2)})
-                        </Button>
-
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            remove(idx);
-
-                            setPaymentAmountDisplay((prev) => {
-                              const next: Record<number, string> = {};
-                              Object.keys(prev)
-                                .map(Number)
-                                .filter((k) => k !== idx)
-                                .sort((a, b) => a - b)
-                                .forEach((k, newIndex) => (next[newIndex] = prev[k]));
-                              return next;
-                            });
-
-                            setPaymentFeeDisplay((prev) => {
-                              const next: Record<number, string> = {};
-                              Object.keys(prev)
-                                .map(Number)
-                                .filter((k) => k !== idx)
-                                .sort((a, b) => a - b)
-                                .forEach((k, newIndex) => (next[newIndex] = prev[k]));
-                              return next;
-                            });
-                          }}
-                          disabled={fields.length === 1}
-                          title="Remover pagamento"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-
-                    {(isCard || isCreditLike) && (
-                      <div className={cn("grid gap-3", isCredit ? "grid-cols-2" : "grid-cols-2")}>
+                  return (
+                    <div key={f.id} className="rounded-lg border p-3 space-y-3">
+                      <div className="grid grid-cols-3 gap-3">
                         <FormField
                           control={form.control}
-                          name={`payments.${idx}.card_brand`}
+                          name={`payments.${idx}.method`}
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Bandeira</FormLabel>
+                              <FormLabel>Método</FormLabel>
+                              <Select onValueChange={field.onChange} value={field.value}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Selecione" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="cash">Dinheiro</SelectItem>
+                                  <SelectItem value="pix">PIX</SelectItem>
+                                  <SelectItem value="debit">Débito</SelectItem>
+                                  <SelectItem value="credit">Crédito</SelectItem>
+                                  <SelectItem value="credit_link">Crédito (Link)</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name={`payments.${idx}.amount`}
+                          render={({ field }) => (
+                            <FormItem className="min-w-0">
+                              <FormLabel>Valor (R$)</FormLabel>
                               <FormControl>
                                 <Input
-                                  placeholder="Ex: Visa / Master..."
-                                  value={field.value ?? ""}
-                                  onChange={(e) => field.onChange(e.target.value)}
+                                  type="text"
+                                  inputMode="decimal"
+                                  placeholder="R$ 0,00"
+                                  value={paymentAmountDisplay[idx] ?? ""}
+                                  onChange={(e) => {
+                                    const formatted = formatCurrencyInput(e.target.value);
+                                    setPaymentAmountDisplay((prev) => ({ ...prev, [idx]: formatted }));
+
+                                    const numeric = parseFloat(
+                                      formatted.replace(/[^\d,]/g, "").replace(",", ".")
+                                    );
+                                    field.onChange(Number.isNaN(numeric) ? 0 : numeric);
+                                  }}
                                 />
                               </FormControl>
                               <FormMessage />
@@ -565,36 +564,136 @@ export function AppointmentPrepayDialog({
                           )}
                         />
 
-                        {isCredit ? (
-                          <div className="grid grid-cols-2 gap-3">
-                            <FormField
-                              control={form.control}
-                              name={`payments.${idx}.installments`}
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>Parcelas</FormLabel>
-                                  <Select
-                                    onValueChange={(v) => field.onChange(Number(v))}
-                                    value={String(field.value ?? 1)}
-                                  >
-                                    <FormControl>
-                                      <SelectTrigger>
-                                        <SelectValue placeholder="1x" />
-                                      </SelectTrigger>
-                                    </FormControl>
-                                    <SelectContent>
-                                      {[...Array(12)].map((_, i) => (
-                                        <SelectItem key={i + 1} value={String(i + 1)}>
-                                          {i + 1}x
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
+                        <div className="flex gap-2 items-end justify-end">
+                          {/* Usar restante só faz sentido no PAID */}
+                          {intent === "paid" ? (
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              onClick={() => fillRemainingOnRow(idx)}
+                              disabled={remaining <= 0}
+                              title="Preencher com o valor restante"
+                            >
+                              Usar restante (R$ {Math.max(0, remaining).toFixed(2)})
+                            </Button>
+                          ) : (
+                            <div />
+                          )}
 
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              remove(idx);
+
+                              setPaymentAmountDisplay((prev) => {
+                                const next: Record<number, string> = {};
+                                Object.keys(prev)
+                                  .map(Number)
+                                  .filter((k) => k !== idx)
+                                  .sort((a, b) => a - b)
+                                  .forEach((k, newIndex) => (next[newIndex] = prev[k]));
+                                return next;
+                              });
+
+                              setPaymentFeeDisplay((prev) => {
+                                const next: Record<number, string> = {};
+                                Object.keys(prev)
+                                  .map(Number)
+                                  .filter((k) => k !== idx)
+                                  .sort((a, b) => a - b)
+                                  .forEach((k, newIndex) => (next[newIndex] = prev[k]));
+                                return next;
+                              });
+                            }}
+                            disabled={fields.length === 1}
+                            title="Remover pagamento"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+
+                      {(isCard || isCreditLike) && (
+                        <div className={cn("grid gap-3", isCredit ? "grid-cols-2" : "grid-cols-2")}>
+                          <FormField
+                            control={form.control}
+                            name={`payments.${idx}.card_brand`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Bandeira</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    placeholder="Ex: Visa / Master..."
+                                    value={field.value ?? ""}
+                                    onChange={(e) => field.onChange(e.target.value)}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          {isCredit ? (
+                            <div className="grid grid-cols-2 gap-3">
+                              <FormField
+                                control={form.control}
+                                name={`payments.${idx}.installments`}
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>Parcelas</FormLabel>
+                                    <Select
+                                      onValueChange={(v) => field.onChange(Number(v))}
+                                      value={String(field.value ?? 1)}
+                                    >
+                                      <FormControl>
+                                        <SelectTrigger>
+                                          <SelectValue placeholder="1x" />
+                                        </SelectTrigger>
+                                      </FormControl>
+                                      <SelectContent>
+                                        {[...Array(12)].map((_, i) => (
+                                          <SelectItem key={i + 1} value={String(i + 1)}>
+                                            {i + 1}x
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+
+                              <FormField
+                                control={form.control}
+                                name={`payments.${idx}.fee_percent`}
+                                render={({ field }) => (
+                                  <FormItem className="min-w-0">
+                                    <FormLabel>Taxa (%)</FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        type="text"
+                                        inputMode="decimal"
+                                        placeholder="0,00"
+                                        value={paymentFeeDisplay[idx] ?? ""}
+                                        onChange={(e) => {
+                                          const formatted = formatPercentageInput(e.target.value);
+                                          setPaymentFeeDisplay((prev) => ({ ...prev, [idx]: formatted }));
+
+                                          const numeric = parseFloat(
+                                            formatted.replace(/\./g, "").replace(",", ".")
+                                          );
+                                          field.onChange(Number.isNaN(numeric) ? 0 : numeric);
+                                        }}
+                                      />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+                          ) : isCreditLike ? (
                             <FormField
                               control={form.control}
                               name={`payments.${idx}.fee_percent`}
@@ -611,7 +710,9 @@ export function AppointmentPrepayDialog({
                                         const formatted = formatPercentageInput(e.target.value);
                                         setPaymentFeeDisplay((prev) => ({ ...prev, [idx]: formatted }));
 
-                                        const numeric = parseFloat(formatted.replace(/\./g, "").replace(",", "."));
+                                        const numeric = parseFloat(
+                                          formatted.replace(/\./g, "").replace(",", ".")
+                                        );
                                         field.onChange(Number.isNaN(numeric) ? 0 : numeric);
                                       }}
                                     />
@@ -620,85 +721,60 @@ export function AppointmentPrepayDialog({
                                 </FormItem>
                               )}
                             />
-                          </div>
-                        ) : isCreditLike ? (
-                          <FormField
-                            control={form.control}
-                            name={`payments.${idx}.fee_percent`}
-                            render={({ field }) => (
-                              <FormItem className="min-w-0">
-                                <FormLabel>Taxa (%)</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    type="text"
-                                    inputMode="decimal"
-                                    placeholder="0,00"
-                                    value={paymentFeeDisplay[idx] ?? ""}
-                                    onChange={(e) => {
-                                      const formatted = formatPercentageInput(e.target.value);
-                                      setPaymentFeeDisplay((prev) => ({ ...prev, [idx]: formatted }));
-
-                                      const numeric = parseFloat(formatted.replace(/\./g, "").replace(",", "."));
-                                      field.onChange(Number.isNaN(numeric) ? 0 : numeric);
-                                    }}
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                        ) : (
-                          <div />
-                        )}
-                      </div>
-                    )}
-
-                    <FormField
-                      control={form.control}
-                      name={`payments.${idx}.notes`}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Observações (opcional)</FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder="Ex: comprovante, detalhes..."
-                              value={field.value ?? ""}
-                              onChange={(e) => field.onChange(e.target.value)}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
+                          ) : (
+                            <div />
+                          )}
+                        </div>
                       )}
-                    />
 
-                    <div className="text-xs text-muted-foreground flex justify-between">
-                      <span>Pago nesta linha (base): R$ {Number(amountValue).toFixed(2)}</span>
-                      <span>
-                        Total base pago: R$ {paidBaseTotal.toFixed(2)} • Restante: R${" "}
-                        {Math.max(0, remaining).toFixed(2)}
-                      </span>
+                      <FormField
+                        control={form.control}
+                        name={`payments.${idx}.notes`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Observações (opcional)</FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder="Ex: comprovante, detalhes..."
+                                value={field.value ?? ""}
+                                onChange={(e) => field.onChange(e.target.value)}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <div className="text-xs text-muted-foreground flex justify-between">
+                        <span>Pago nesta linha (base): R$ {Number(amountValue).toFixed(2)}</span>
+                        <span>
+                          Total base pago: R$ {paidBaseTotal.toFixed(2)} • Restante: R$ {Math.max(0, remaining).toFixed(2)}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
 
-            <DialogFooter className="flex-col sm:flex-row gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  onOpenChange(false);
-                  onCancel();
-                }}
-              >
-                Cancelar
-              </Button>
+              <DialogFooter className="flex-col sm:flex-row gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    onOpenChange(false);
+                    onCancel();
+                  }}
+                >
+                  Cancelar
+                </Button>
 
-              <Button type="submit">Confirmar Pagamento</Button>
-            </DialogFooter>
-          </form>
-        </Form>
+                <Button type="submit">
+                  {intent === "partial" ? "Confirmar Pagamento Parcial" : "Confirmar Pagamento"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        )}
       </DialogContent>
     </Dialog>
   );

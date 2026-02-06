@@ -119,6 +119,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/{appointment}', 'destroy')->middleware('permission:appointments,delete');
         Route::patch('/{appointment}/checkout', 'checkout')->middleware('permission:appointments,update');
         Route::patch('/{appointment}/prepay', 'prepay')->middleware('permission:appointments,update');
+        Route::patch('/groups/{groupId}/prepay', 'prepayGroup')->middleware('permission:appointments,update');
         Route::get('/{appointment}/services/{appointmentService}/promotions', 'servicePromotionsIndex')->middleware('permission:appointments,read');
         Route::post('/{appointment}/services/{appointmentService}/promotions', 'servicePromotionsAttach')->middleware('permission:appointments,update');
         Route::patch('/{appointment}/services/{appointmentService}/promotions/{promotion}', 'servicePromotionsUpdatePivot')->middleware('permission:appointments,update');

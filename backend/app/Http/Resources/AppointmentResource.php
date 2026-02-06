@@ -55,6 +55,8 @@ class AppointmentResource extends JsonResource
 
         return [
             'id' => $this->id,
+            'group_id' => $this->group_id,
+            'group_sequence' => $this->group_sequence,
             'customer' => $this->whenLoaded('customer', fn () => [
                 'id'   => $this->customer->id,
                 'name' => $this->customer->name,

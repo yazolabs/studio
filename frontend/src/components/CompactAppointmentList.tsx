@@ -25,7 +25,7 @@ interface Appointment {
   time: string;
   duration?: number;
   status: AptStatus;
-  payment_status: "unpaid" | "prepaid" | "paid";
+  payment_status: "unpaid" | "partial" | "paid";
   notes?: string;
   price?: number;
 }
@@ -46,7 +46,7 @@ const getPaymentStatusColor = (status: Appointment["payment_status"]) => {
   switch (status) {
     case "unpaid":
       return "bg-rose-50 text-rose-700 border-rose-200";
-    case "prepaid":
+    case "partial":
       return "bg-amber-50 text-amber-800 border-amber-200";
     case "paid":
       return "bg-emerald-50 text-emerald-800 border-emerald-200";
@@ -59,7 +59,7 @@ const getPaymentStatusLabel = (status: Appointment["payment_status"]) => {
   switch (status) {
     case "unpaid":
       return "Não pago";
-    case "prepaid":
+    case "partial":
       return "Pago antecipado";
     case "paid":
       return "Pago";

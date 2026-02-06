@@ -9,7 +9,7 @@ use App\Models\{AccountPayable, Appointment, AppointmentService, CashierTransact
 use App\Services\PromotionApplicabilityService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
-use Illuminate\Support\Arr;
+use Illuminate\Support\{Arr, Str};
 use Illuminate\Support\Facades\{Auth, DB, Log};
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
@@ -83,6 +83,8 @@ class AppointmentController extends Controller
                 'discount_type',
                 'final_price',
                 'notes',
+                'group_id',
+                'group_sequence',
             ]);
 
             $services = (array) $request->input('services', []);
@@ -97,6 +99,13 @@ class AppointmentController extends Controller
             $this->assertServicePromotionsApplicableOrFail($services, $appliedOn);
 
             $items = (array) $request->input('items', []);
+
+            $hasGroupSequence = array_key_exists('group_sequence', $payload) && $payload['group_sequence'] !== null && $payload['group_sequence'] !== '';
+            $groupIdEmpty = !array_key_exists('group_id', $payload) || empty($payload['group_id']);
+
+            if ($hasGroupSequence && $groupIdEmpty) {
+                $payload['group_id'] = (string) Str::uuid();
+            }
 
             $appointment = Appointment::create($payload);
 
@@ -150,6 +159,8 @@ class AppointmentController extends Controller
                 'discount_type',
                 'final_price',
                 'notes',
+                'group_id',
+                'group_sequence',
             ]);
 
             $appointment->update($payload);
@@ -751,9 +762,8 @@ class AppointmentController extends Controller
                     'items',
                     'appointmentServices.service',
                     'appointmentServices.promotions',
+                    'payments',
                 ]);
-
-                $wasPrepaid = $appointment->payment_status === AppointmentPaymentStatus::Prepaid->value;
 
                 if (!empty($data['services_to_add']) && is_array($data['services_to_add'])) {
                     foreach ($data['services_to_add'] as $row) {
@@ -834,7 +844,7 @@ class AppointmentController extends Controller
                 $dateYmd = optional($appointment->date)->format('Y-m-d') ?? now()->toDateString();
                 $dateObj = Carbon::parse($dateYmd);
 
-                $itemIds = $appointment->items->pluck('id')->map(fn($id) => (int) $id)->values()->all();
+                $itemIds = $appointment->items->pluck('id')->map(fn ($id) => (int) $id)->values()->all();
 
                 foreach ($appointment->appointmentServices as $aps) {
                     $serviceBase = round((float) $aps->service_price, 2);
@@ -874,9 +884,9 @@ class AppointmentController extends Controller
                         $promoDiscountTotal += $discount;
 
                         $aps->promotions()->updateExistingPivot($promo->id, [
-                            'applied_percent' => $discountType === 'percentage' ? $discountRaw : null,
-                            'applied_value'   => $discountType === 'fixed' ? $discountRaw : null,
-                            'discount_amount' => $discount,
+                            'applied_percent'    => $discountType === 'percentage' ? $discountRaw : null,
+                            'applied_value'      => $discountType === 'fixed' ? $discountRaw : null,
+                            'discount_amount'    => $discount,
                             'applied_by_user_id' => Auth::id(),
                         ]);
                     }
@@ -900,116 +910,139 @@ class AppointmentController extends Controller
                 }
 
                 $totalAfterDiscount = max(0.0, round($afterPromos - $manualDiscount, 2));
-                $expectedBaseCents = $toCents($totalAfterDiscount);
+                $expectedBaseCents  = $toCents($totalAfterDiscount);
+
+                $existingBaseCents = $appointment->payments->sum(fn ($pay) => $toCents((float) $pay->base_amount));
+                $existingAmountCents = $appointment->payments->sum(fn ($pay) => $toCents((float) $pay->amount));
+
+                $alreadyFullyPaid = ($expectedBaseCents > 0)
+                    ? (($existingBaseCents + 1) >= $expectedBaseCents)
+                    : true;
+
+                $ignoreIncomingPayments = $alreadyFullyPaid;
 
                 $payments = $data['payments'] ?? [];
+                if (empty($payments)) $payments = [];
 
-                if ($expectedBaseCents > 0) {
-                    if (empty($payments)) {
-                        throw ValidationException::withMessages([
-                            'payments' => 'Informe ao menos um pagamento.',
+                $sumBaseCents   = $existingBaseCents;
+                $sumAmountCents = $existingAmountCents;
+
+                if (!$ignoreIncomingPayments) {
+                    if ($expectedBaseCents > 0) {
+                        if (empty($payments)) {
+                            throw ValidationException::withMessages([
+                                'payments' => 'Informe ao menos um pagamento.',
+                            ]);
+                        }
+
+                        foreach ($payments as $idx => $p) {
+                            $amt = round((float) ($p['amount'] ?? 0), 2);
+                            if ($amt <= 0) {
+                                throw ValidationException::withMessages([
+                                    "payments.$idx.amount" => 'O valor do pagamento deve ser maior que zero.',
+                                ]);
+                            }
+                        }
+                    } else {
+                        foreach ($payments as $idx => $p) {
+                            $amt = round((float) ($p['amount'] ?? 0), 2);
+                            if ($amt != 0.0) {
+                                throw ValidationException::withMessages([
+                                    "payments.$idx.amount" => 'Quando o valor final é R$ 0,00, os pagamentos devem ser R$ 0,00.',
+                                ]);
+                            }
+                        }
+                    }
+
+                    $appointment->payments()->delete();
+
+                    $sumBaseCents   = 0;
+                    $sumAmountCents = 0;
+
+                    foreach ($payments as $p) {
+                        $method     = (string) $p['method'];
+                        $baseAmount = round((float) ($p['amount'] ?? 0), 2);
+
+                        $feePercent   = (float) ($p['fee_percent'] ?? 0);
+                        $isCreditLike = in_array($method, ['credit', 'credit_link'], true);
+
+                        if ($isCreditLike && $baseAmount > 0 && empty($p['card_brand'])) {
+                            throw ValidationException::withMessages([
+                                'payments' => 'Cartão de crédito exige a bandeira (card_brand).',
+                            ]);
+                        }
+
+                        $hasFee = $isCreditLike && $feePercent > 0 && $baseAmount > 0;
+
+                        $grossAmount = $hasFee
+                            ? round($baseAmount * (1 + ($feePercent / 100)), 2)
+                            : $baseAmount;
+
+                        $feeAmount = $hasFee
+                            ? round($grossAmount - $baseAmount, 2)
+                            : 0.00;
+
+                        $baseCents   = $toCents($baseAmount);
+                        $amountCents = $toCents($grossAmount);
+
+                        $sumBaseCents   += $baseCents;
+                        $sumAmountCents += $amountCents;
+
+                        $meta = $p['meta'] ?? null;
+                        if (!empty($p['notes'])) {
+                            $meta = is_array($meta) ? $meta : [];
+                            $meta['notes'] = (string) $p['notes'];
+                        }
+
+                        $appointment->payments()->create([
+                            'method'       => $method,
+                            'base_amount'  => number_format($baseCents / 100, 2, '.', ''),
+                            'fee_percent'  => $hasFee ? number_format($feePercent, 2, '.', '') : '0.00',
+                            'fee_amount'   => number_format($toCents($feeAmount) / 100, 2, '.', ''),
+                            'amount'       => number_format($amountCents / 100, 2, '.', ''),
+                            'card_brand'   => $p['card_brand'] ?? null,
+                            'installments' => $p['installments'] ?? null,
+                            'meta'         => $meta,
                         ]);
                     }
 
-                    foreach ($payments as $idx => $p) {
-                        $amt = round((float) ($p['amount'] ?? 0), 2);
-                        if ($amt <= 0) {
+                    if ($expectedBaseCents > 0) {
+                        $diff = abs($sumBaseCents - $expectedBaseCents);
+                        if ($diff > 1) {
+                            $got = number_format($sumBaseCents / 100, 2, ',', '.');
+                            $exp = number_format($expectedBaseCents / 100, 2, ',', '.');
                             throw ValidationException::withMessages([
-                                "payments.$idx.amount" => 'O valor do pagamento deve ser maior que zero.',
+                                'payments' => "A soma dos pagamentos (sem taxa) deve ser igual ao valor líquido (após promoções e descontos). Informado: R$ {$got} • Esperado: R$ {$exp}.",
                             ]);
                         }
                     }
-                } else {
-                    foreach ($payments as $idx => $p) {
-                        $amt = round((float) ($p['amount'] ?? 0), 2);
-                        if ($amt != 0.0) {
-                            throw ValidationException::withMessages([
-                                "payments.$idx.amount" => 'Quando o valor final é R$ 0,00, os pagamentos devem ser R$ 0,00.',
-                            ]);
-                        }
-                    }
+
+                    $appointment->unsetRelation('payments');
+                    $appointment->load(['payments']);
                 }
 
-                $appointment->payments()->delete();
+                $appointment->total_price = number_format($toCents($subtotal) / 100, 2, '.', '');
+                $appointment->final_price = number_format($sumAmountCents / 100, 2, '.', '');
 
-                $sumBaseCents   = 0;
-                $sumAmountCents = 0;
-
-                foreach (($data['payments'] ?? []) as $p) {
-                    $method     = (string) $p['method'];
-                    $baseAmount = round((float) $p['amount'], 2);
-
-                    $feePercent   = (float) ($p['fee_percent'] ?? 0);
-                    $isCreditLike = in_array($method, ['credit', 'credit_link'], true);
-
-                    if ($isCreditLike && empty($p['card_brand'])) {
-                        throw ValidationException::withMessages([
-                            'payments' => 'Cartão de crédito exige a bandeira (card_brand).',
-                        ]);
-                    }
-
-                    $hasFee = $isCreditLike && $feePercent > 0;
-
-                    $grossAmount = $hasFee
-                        ? round($baseAmount * (1 + ($feePercent / 100)), 2)
-                        : $baseAmount;
-
-                    $feeAmount = $hasFee
-                        ? round($grossAmount - $baseAmount, 2)
-                        : 0.00;
-
-                    $baseCents   = $toCents($baseAmount);
-                    $amountCents = $toCents($grossAmount);
-
-                    $sumBaseCents   += $baseCents;
-                    $sumAmountCents += $amountCents;
-
-                    $meta = $p['meta'] ?? null;
-                    if (!empty($p['notes'])) {
-                        $meta = is_array($meta) ? $meta : [];
-                        $meta['notes'] = (string) $p['notes'];
-                    }
-
-                    $appointment->payments()->create([
-                        'method'       => $method,
-                        'base_amount'  => number_format($baseCents / 100, 2, '.', ''),
-                        'fee_percent'  => $hasFee ? number_format($feePercent, 2, '.', '') : '0.00',
-                        'fee_amount'   => number_format($toCents($feeAmount) / 100, 2, '.', ''),
-                        'amount'       => number_format($amountCents / 100, 2, '.', ''),
-                        'card_brand'   => $p['card_brand'] ?? null,
-                        'installments' => $p['installments'] ?? null,
-                        'meta'         => $meta,
-                    ]);
-                }
-
-                $diff = abs($sumBaseCents - $expectedBaseCents);
-                if ($diff > 1) {
-                    $got = number_format($sumBaseCents / 100, 2, ',', '.');
-                    $exp = number_format($expectedBaseCents / 100, 2, ',', '.');
-                    throw ValidationException::withMessages([
-                        'payments' => "A soma dos pagamentos (sem taxa) deve ser igual ao valor líquido (após promoções e descontos). Informado: R$ {$got} • Esperado: R$ {$exp}.",
-                    ]);
-                }
-
-                $appointment->total_price    = number_format($toCents($subtotal) / 100, 2, '.', '');
-                $appointment->final_price    = number_format($sumAmountCents / 100, 2, '.', '');
                 $appointment->payment_status = AppointmentPaymentStatus::Paid->value;
                 $appointment->save();
 
                 $appointment->unsetRelation('payments');
                 $appointment->load(['payments', 'customer']);
 
-                if (!$wasPrepaid) {
-                    $cashierDate  = optional($appointment->date)->toDateString() ?? now()->toDateString();
-                    $refCheckout  = "APP-{$appointment->id}-CHECKOUT";
-                    $customerName = $appointment->customer?->name ?? "Cliente";
+                $cashierDate  = optional($appointment->date)->toDateString() ?? now()->toDateString();
+                $refCheckout  = "APP-{$appointment->id}-CHECKOUT";
+                $customerName = $appointment->customer?->name ?? "Cliente";
 
-                    CashierTransaction::where('reference', $refCheckout)
-                        ->where('category', 'Atendimentos')
-                        ->where('type', TransactionType::Income)
-                        ->delete();
+                CashierTransaction::where('reference', $refCheckout)
+                    ->where('category', 'Atendimentos')
+                    ->where('type', TransactionType::Income)
+                    ->delete();
 
+                if (!$ignoreIncomingPayments) {
                     foreach ($appointment->payments as $pay) {
+                        if ((float) $pay->amount <= 0) continue;
+
                         CashierTransaction::create([
                             'date'           => $cashierDate,
                             'type'           => TransactionType::Income,
@@ -1027,6 +1060,7 @@ class AppointmentController extends Controller
                 $appointment->loadMissing(['appointmentServices.service', 'customer']);
 
                 Commission::where('appointment_id', $appointment->id)->delete();
+
                 AccountPayable::where('appointment_id', $appointment->id)
                     ->where('category', 'Comissões')
                     ->where('reference', 'like', "APP-{$appointment->id}-%")
@@ -1042,7 +1076,7 @@ class AppointmentController extends Controller
                         Log::warning('SERVICE WITHOUT PROFESSIONAL ON CHECKOUT', [
                             'appointment_id' => $appointment->id,
                             'appointment_service_id' => $aps->id,
-                            'service_id'     => $aps->service_id,
+                            'service_id' => $aps->service_id,
                         ]);
                         continue;
                     }
@@ -1064,7 +1098,9 @@ class AppointmentController extends Controller
                         'status'            => CommissionStatus::Pending,
                     ]);
 
-                    $serviceName = $aps->relationLoaded('service') && $aps->service ? $aps->service->name : "Serviço #{$aps->service_id}";
+                    $serviceName = $aps->relationLoaded('service') && $aps->service
+                        ? $aps->service->name
+                        : "Serviço #{$aps->service_id}";
 
                     AccountPayable::create([
                         'description'     => "Comissão: {$serviceName}",
@@ -1085,6 +1121,7 @@ class AppointmentController extends Controller
                 'file'           => $e->getFile(),
                 'line'           => $e->getLine(),
             ]);
+
             throw $e;
         }
 
@@ -1226,9 +1263,9 @@ class AppointmentController extends Controller
                         $promoDiscountTotal += $discount;
 
                         $aps->promotions()->updateExistingPivot($promo->id, [
-                            'applied_percent' => $discountType === 'percentage' ? $discountRaw : null,
-                            'applied_value'   => $discountType === 'fixed' ? $discountRaw : null,
-                            'discount_amount' => $discount,
+                            'applied_percent'    => $discountType === 'percentage' ? $discountRaw : null,
+                            'applied_value'      => $discountType === 'fixed' ? $discountRaw : null,
+                            'discount_amount'    => $discount,
                             'applied_by_user_id' => Auth::id(),
                         ]);
                     }
@@ -1252,33 +1289,17 @@ class AppointmentController extends Controller
                 }
 
                 $totalAfterDiscount = max(0.0, round($afterPromos - $manualDiscount, 2));
-                $expectedBaseCents = $toCents($totalAfterDiscount);
+                $expectedBaseCents  = $toCents($totalAfterDiscount);
 
                 $payments = $data['payments'] ?? [];
+                if (empty($payments)) $payments = [];
 
-                if ($expectedBaseCents > 0) {
-                    if (empty($payments)) {
+                foreach ($payments as $idx => $p) {
+                    $amt = round((float) ($p['amount'] ?? 0), 2);
+                    if ($amt < 0) {
                         throw ValidationException::withMessages([
-                            'payments' => 'Informe ao menos um pagamento.',
+                            "payments.$idx.amount" => 'O valor do pagamento não pode ser negativo.',
                         ]);
-                    }
-
-                    foreach ($payments as $idx => $p) {
-                        $amt = round((float) ($p['amount'] ?? 0), 2);
-                        if ($amt <= 0) {
-                            throw ValidationException::withMessages([
-                                "payments.$idx.amount" => 'O valor do pagamento deve ser maior que zero.',
-                            ]);
-                        }
-                    }
-                } else {
-                    foreach ($payments as $idx => $p) {
-                        $amt = round((float) ($p['amount'] ?? 0), 2);
-                        if ($amt != 0.0) {
-                            throw ValidationException::withMessages([
-                                "payments.$idx.amount" => 'Quando o valor final é R$ 0,00, os pagamentos devem ser R$ 0,00.',
-                            ]);
-                        }
                     }
                 }
 
@@ -1287,20 +1308,20 @@ class AppointmentController extends Controller
                 $sumBaseCents   = 0;
                 $sumAmountCents = 0;
 
-                foreach (($data['payments'] ?? []) as $p) {
+                foreach ($payments as $p) {
                     $method     = (string) $p['method'];
-                    $baseAmount = round((float) $p['amount'], 2);
+                    $baseAmount = round((float) ($p['amount'] ?? 0), 2);
 
                     $feePercent   = (float) ($p['fee_percent'] ?? 0);
                     $isCreditLike = in_array($method, ['credit', 'credit_link'], true);
 
-                    if ($isCreditLike && empty($p['card_brand'])) {
+                    if ($isCreditLike && $baseAmount > 0 && empty($p['card_brand'])) {
                         throw ValidationException::withMessages([
                             'payments' => 'Cartão de crédito exige a bandeira (card_brand).',
                         ]);
                     }
 
-                    $hasFee = $isCreditLike && $feePercent > 0;
+                    $hasFee = $isCreditLike && $feePercent > 0 && $baseAmount > 0;
 
                     $grossAmount = $hasFee
                         ? round($baseAmount * (1 + ($feePercent / 100)), 2)
@@ -1334,20 +1355,27 @@ class AppointmentController extends Controller
                     ]);
                 }
 
-                $diff = abs($sumBaseCents - $expectedBaseCents);
-
-                if ($diff > 1) {
+                if ($sumBaseCents > ($expectedBaseCents + 1)) {
                     $got = number_format($sumBaseCents / 100, 2, ',', '.');
                     $exp = number_format($expectedBaseCents / 100, 2, ',', '.');
-
                     throw ValidationException::withMessages([
-                        'payments' => "A soma dos pagamentos (sem taxa) deve ser igual ao valor líquido (após promoções e descontos). Informado: R$ {$got} • Esperado: R$ {$exp}.",
+                        'payments' => "O total recebido não pode ultrapassar o valor do agendamento. Recebido: R$ {$got} • Esperado: R$ {$exp}.",
                     ]);
+                }
+
+                if ($expectedBaseCents <= 0) {
+                    $status = AppointmentPaymentStatus::Paid->value;
+                } else {
+                    $status = $sumBaseCents <= 0
+                        ? AppointmentPaymentStatus::Unpaid->value
+                        : (($sumBaseCents + 1) >= $expectedBaseCents
+                            ? AppointmentPaymentStatus::Paid->value
+                            : AppointmentPaymentStatus::Partial->value);
                 }
 
                 $appointment->total_price    = number_format($toCents($subtotal) / 100, 2, '.', '');
                 $appointment->final_price    = number_format($sumAmountCents / 100, 2, '.', '');
-                $appointment->payment_status = AppointmentPaymentStatus::Prepaid->value;
+                $appointment->payment_status = $status;
                 $appointment->save();
 
                 $appointment->unsetRelation('payments');
@@ -1366,6 +1394,10 @@ class AppointmentController extends Controller
                     ->delete();
 
                 foreach ($appointment->payments as $pay) {
+                    if ((float) $pay->amount <= 0) {
+                        continue;
+                    }
+
                     CashierTransaction::create([
                         'date'           => $cashierDate,
                         'type'           => TransactionType::Income,
@@ -1385,6 +1417,9 @@ class AppointmentController extends Controller
                     'rows'           => $appointment->payments->count(),
                     'total_price'    => $appointment->total_price,
                     'final_price'    => $appointment->final_price,
+                    'payment_status' => $appointment->payment_status,
+                    'expected_base'  => number_format($expectedBaseCents / 100, 2, '.', ''),
+                    'received_base'  => number_format($sumBaseCents / 100, 2, '.', ''),
                 ]);
             });
         } catch (\Throwable $e) {
@@ -1407,6 +1442,385 @@ class AppointmentController extends Controller
                 'appointmentServices.promotions',
             ])
         ))
+            ->response()
+            ->setStatusCode(Response::HTTP_OK);
+    }
+
+    public function prepayGroup(Request $request)
+    {
+        $data = $request->validate([
+            'group_id'               => ['required', 'uuid'],
+            'received_date'          => ['nullable', 'date'],
+            'intent'                 => ['nullable', 'in:paid,partial'],
+            'payments'               => ['nullable', 'array'],
+            'payments.*.method'      => ['required_with:payments', 'string', 'max:50'],
+            'payments.*.amount'      => ['required_with:payments', 'numeric', 'min:0'],
+            'payments.*.fee_percent' => ['nullable', 'numeric', 'min:0'],
+            'payments.*.card_brand'  => ['nullable', 'string', 'max:50'],
+            'payments.*.installments'=> ['nullable', 'integer', 'min:1'],
+            'payments.*.meta'        => ['nullable', 'array'],
+            'payments.*.notes'       => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $toCents = fn ($v) => (int) round(((float) $v) * 100);
+
+        $groupId = (string) $data['group_id'];
+        $intent  = $data['intent'] ?? null;
+        $paymentsInput = $data['payments'] ?? [];
+
+        try {
+            DB::transaction(function () use ($groupId, $intent, $paymentsInput, $data, $toCents) {
+                $appointments = Appointment::query()
+                    ->where('group_id', $groupId)
+                    ->with([
+                        'customer',
+                        'items',
+                        'payments',
+                        'appointmentServices.service',
+                        'appointmentServices.promotions',
+                    ])
+                    ->orderByRaw('COALESCE(group_sequence, 9999) asc')
+                    ->orderBy('date')
+                    ->orderBy('start_time')
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get();
+
+                if ($appointments->isEmpty()) {
+                    throw ValidationException::withMessages([
+                        'group_id' => 'Nenhum agendamento encontrado para este group_id.',
+                    ]);
+                }
+
+                $calcExpectedBaseCentsForAppointment = function (Appointment $appointment) use ($toCents) {
+                    $servicesTotal = $appointment->appointmentServices->sum(fn ($aps) => (float) $aps->service_price);
+                    $productsTotal = $appointment->items->sum(fn ($i) => (float) $i->pivot->price * (int) $i->pivot->quantity);
+                    $subtotal      = (float) $servicesTotal + (float) $productsTotal;
+
+                    $promoDiscountTotal = 0.0;
+
+                    $dateYmd = optional($appointment->date)->format('Y-m-d') ?? now()->toDateString();
+                    $dateObj = Carbon::parse($dateYmd);
+
+                    $itemIds = $appointment->items->pluck('id')->map(fn($id) => (int) $id)->values()->all();
+
+                    foreach ($appointment->appointmentServices as $aps) {
+                        $serviceBase = round((float) $aps->service_price, 2);
+                        $remaining   = $serviceBase;
+
+                        $promos = $aps->promotions
+                            ->sortBy(fn ($p) => (int) ($p->pivot->sort_order ?? 0))
+                            ->values();
+
+                        foreach ($promos as $promo) {
+                            if (!$this->promotionApplicability->isApplicable($promo, $dateObj, [(int) $aps->service_id], $itemIds)) {
+                                throw ValidationException::withMessages([
+                                    'appointment_services' => "Promoção '{$promo->name}' não é aplicável para este serviço/data/itens.",
+                                ]);
+                            }
+
+                            if ($promo->min_purchase_amount !== null && $subtotal < (float) $promo->min_purchase_amount) {
+                                throw ValidationException::withMessages([
+                                    'appointment_services' => "Promoção '{$promo->name}' exige valor mínimo de compra.",
+                                ]);
+                            }
+
+                            $discountType = $promo->discount_type?->value ?? (string) $promo->discount_type;
+                            $discountRaw  = (float) $promo->discount_value;
+
+                            $discount = 0.0;
+
+                            if ($remaining > 0) {
+                                if ($discountType === 'percentage') {
+                                    $discount = round($remaining * ($discountRaw / 100), 2);
+                                } else {
+                                    $discount = round(min($discountRaw, $remaining), 2);
+                                }
+
+                                if ($promo->max_discount !== null) {
+                                    $discount = min($discount, (float) $promo->max_discount);
+                                }
+
+                                $discount = max(0.0, min($discount, $remaining));
+                            }
+
+                            $remaining -= $discount;
+                            $promoDiscountTotal += $discount;
+                        }
+                    }
+
+                    $afterPromos = max(0.0, round($subtotal - $promoDiscountTotal, 2));
+
+                    $manualType = $appointment->discount_type ?: 'percentage';
+                    $manualRaw  = (float) ($appointment->discount_amount ?? 0);
+
+                    $manualDiscount = 0.0;
+                    if ($manualRaw > 0) {
+                        $manualDiscount = $manualType === 'percentage'
+                            ? round($afterPromos * ($manualRaw / 100), 2)
+                            : round(min($manualRaw, $afterPromos), 2);
+                    }
+
+                    $totalAfterDiscount = max(0.0, round($afterPromos - $manualDiscount, 2));
+
+                    return [
+                        'subtotal' => $subtotal,
+                        'expected_base_cents' => $toCents($totalAfterDiscount),
+                    ];
+                };
+
+                $normalizedPayments = [];
+                foreach ($paymentsInput as $idx => $p) {
+                    $method = (string) ($p['method'] ?? '');
+                    $baseAmount = round((float) ($p['amount'] ?? 0), 2);
+
+                    if ($baseAmount < 0) {
+                        throw ValidationException::withMessages([
+                            "payments.$idx.amount" => 'O valor do pagamento não pode ser negativo.',
+                        ]);
+                    }
+
+                    $feePercent   = (float) ($p['fee_percent'] ?? 0);
+                    $isCreditLike = in_array($method, ['credit', 'credit_link'], true);
+
+                    if ($isCreditLike && $baseAmount > 0 && empty($p['card_brand'])) {
+                        throw ValidationException::withMessages([
+                            'payments' => 'Cartão de crédito exige a bandeira (card_brand).',
+                        ]);
+                    }
+
+                    $meta = $p['meta'] ?? null;
+                    if (!empty($p['notes'])) {
+                        $meta = is_array($meta) ? $meta : [];
+                        $meta['notes'] = (string) $p['notes'];
+                    }
+
+                    $normalizedPayments[] = [
+                        'method'       => $method,
+                        'base_amount'  => $baseAmount,
+                        'fee_percent'  => $isCreditLike ? max(0.0, $feePercent) : 0.0,
+                        'card_brand'   => $p['card_brand'] ?? null,
+                        'installments' => $p['installments'] ?? null,
+                        'meta'         => $meta,
+                        'src_index'    => $idx,
+                    ];
+                }
+
+                $expectedByAppointment = [];
+                $expectedGroupBaseCents = 0;
+
+                foreach ($appointments as $appt) {
+                    $calc = $calcExpectedBaseCentsForAppointment($appt);
+                    $expectedByAppointment[$appt->id] = $calc;
+                    $expectedGroupBaseCents += (int) $calc['expected_base_cents'];
+                }
+
+                $sumReceivedBaseCents = 0;
+                foreach ($normalizedPayments as $p) {
+                    $sumReceivedBaseCents += $toCents($p['base_amount']);
+                }
+
+                if ($expectedGroupBaseCents > 0) {
+                    if (empty($normalizedPayments)) {
+                        throw ValidationException::withMessages([
+                            'payments' => 'Informe ao menos um pagamento.',
+                        ]);
+                    }
+                }
+
+                if ($intent === 'paid') {
+                    $diff = abs($sumReceivedBaseCents - $expectedGroupBaseCents);
+                    if ($diff > 1) {
+                        $got = number_format($sumReceivedBaseCents / 100, 2, ',', '.');
+                        $exp = number_format($expectedGroupBaseCents / 100, 2, ',', '.');
+                        throw ValidationException::withMessages([
+                            'payments' => "A soma dos pagamentos (base) deve ser igual ao total do grupo. Informado: R$ {$got} • Esperado: R$ {$exp}.",
+                        ]);
+                    }
+                } elseif ($intent === 'partial') {
+                    if ($sumReceivedBaseCents <= 0) {
+                        throw ValidationException::withMessages([
+                            'payments' => 'No pagamento parcial, informe um valor maior que zero.',
+                        ]);
+                    }
+                    if ($sumReceivedBaseCents >= $expectedGroupBaseCents) {
+                        $got = number_format($sumReceivedBaseCents / 100, 2, ',', '.');
+                        $exp = number_format($expectedGroupBaseCents / 100, 2, ',', '.');
+                        throw ValidationException::withMessages([
+                            'payments' => "No pagamento parcial, o total recebido deve ser MENOR que o total do grupo. Recebido: R$ {$got} • Esperado: R$ {$exp}.",
+                        ]);
+                    }
+                } else {
+                    if ($sumReceivedBaseCents > ($expectedGroupBaseCents + 1)) {
+                        $got = number_format($sumReceivedBaseCents / 100, 2, ',', '.');
+                        $exp = number_format($expectedGroupBaseCents / 100, 2, ',', '.');
+                        throw ValidationException::withMessages([
+                            'payments' => "O total recebido não pode ultrapassar o total do grupo. Recebido: R$ {$got} • Esperado: R$ {$exp}.",
+                        ]);
+                    }
+                }
+
+                $cashierDate = !empty($data['received_date'])
+                    ? Carbon::parse($data['received_date'])->toDateString()
+                    : now()->toDateString();
+
+                $groupRef = "APPG-{$groupId}-PREPAY";
+
+                foreach ($appointments as $appt) {
+                    $appt->payments()->delete();
+
+                    CashierTransaction::where('reference', "APP-{$appt->id}-PREPAY")
+                        ->where('category', 'Atendimentos')
+                        ->where('type', TransactionType::Income)
+                        ->delete();
+
+                    CashierTransaction::where('reference', $groupRef)
+                        ->where('category', 'Atendimentos')
+                        ->where('type', TransactionType::Income)
+                        ->delete();
+                }
+
+                $apptQueue = $appointments->values()->all();
+
+                $apptRemaining = [];
+                foreach ($apptQueue as $appt) {
+                    $apptRemaining[$appt->id] = (int) ($expectedByAppointment[$appt->id]['expected_base_cents'] ?? 0);
+                }
+
+                foreach ($normalizedPayments as $p) {
+                    $method = $p['method'];
+                    $feePercent = (float) $p['fee_percent'];
+                    $isCreditLike = in_array($method, ['credit', 'credit_link'], true);
+
+                    $baseLeftCents = $toCents($p['base_amount']);
+
+                    if ($baseLeftCents <= 0) continue;
+
+                    foreach ($apptQueue as $appt) {
+                        $need = $apptRemaining[$appt->id] ?? 0;
+                        if ($need <= 0) continue;
+                        if ($baseLeftCents <= 0) break;
+
+                        $allocBaseCents = min($need, $baseLeftCents);
+                        if ($allocBaseCents <= 0) continue;
+
+                        $allocBase = $allocBaseCents / 100;
+
+                        $hasFee = $isCreditLike && $feePercent > 0 && $allocBase > 0;
+
+                        $grossAmount = $hasFee
+                            ? round($allocBase * (1 + ($feePercent / 100)), 2)
+                            : round($allocBase, 2);
+
+                        $feeAmount = $hasFee
+                            ? round($grossAmount - $allocBase, 2)
+                            : 0.00;
+
+                        $meta = $p['meta'];
+                        $meta = is_array($meta) ? $meta : [];
+                        $meta['group_id'] = $groupId;
+                        $meta['group_payment_index'] = $p['src_index'];
+
+                        $appt->payments()->create([
+                            'method'       => $method,
+                            'base_amount'  => number_format($allocBase, 2, '.', ''),
+                            'fee_percent'  => $hasFee ? number_format($feePercent, 2, '.', '') : '0.00',
+                            'fee_amount'   => number_format($feeAmount, 2, '.', ''),
+                            'amount'       => number_format($grossAmount, 2, '.', ''),
+                            'card_brand'   => $p['card_brand'] ?? null,
+                            'installments' => $p['installments'] ?? null,
+                            'meta'         => $meta,
+                        ]);
+
+                        if ($grossAmount > 0) {
+                            $customerName = $appt->customer?->name ?? "Cliente";
+
+                            CashierTransaction::create([
+                                'date'           => $cashierDate,
+                                'type'           => TransactionType::Income,
+                                'category'       => 'Atendimentos',
+                                'description'    => "Pré-pago (grupo) agendamento #{$appt->id} - {$customerName}",
+                                'amount'         => number_format($grossAmount, 2, '.', ''),
+                                'payment_method' => $method,
+                                'reference'      => $groupRef,
+                                'user_id'        => Auth::id(),
+                                'notes'          => 'PREPAID_GROUP',
+                            ]);
+                        }
+
+                        $apptRemaining[$appt->id] -= $allocBaseCents;
+                        $baseLeftCents -= $allocBaseCents;
+                    }
+                }
+
+                foreach ($appointments as $appt) {
+                    $calc = $expectedByAppointment[$appt->id];
+                    $subtotal = (float) ($calc['subtotal'] ?? 0);
+                    $expectedBaseCents = (int) ($calc['expected_base_cents'] ?? 0);
+
+                    $appt->unsetRelation('payments');
+                    $appt->load('payments');
+
+                    $sumBaseCents = $appt->payments->sum(fn($pay) => $toCents((float) $pay->base_amount));
+                    $sumAmountCents = $appt->payments->sum(fn($pay) => $toCents((float) $pay->amount));
+
+                    if ($sumBaseCents > ($expectedBaseCents + 1)) {
+                        $got = number_format($sumBaseCents / 100, 2, ',', '.');
+                        $exp = number_format($expectedBaseCents / 100, 2, ',', '.');
+                        throw ValidationException::withMessages([
+                            'payments' => "Rateio inválido: agendamento #{$appt->id} recebeu acima do líquido. Recebido: R$ {$got} • Esperado: R$ {$exp}.",
+                        ]);
+                    }
+
+                    $status = $sumBaseCents <= 0
+                        ? AppointmentPaymentStatus::Unpaid->value
+                        : (($sumBaseCents + 1) >= $expectedBaseCents
+                            ? AppointmentPaymentStatus::Paid->value
+                            : AppointmentPaymentStatus::Partial->value);
+
+                    $appt->total_price    = number_format($toCents($subtotal) / 100, 2, '.', '');
+                    $appt->final_price    = number_format($sumAmountCents / 100, 2, '.', '');
+                    $appt->payment_status = $status;
+                    $appt->save();
+                }
+
+                Log::info('PREPAY GROUP COMPLETED', [
+                    'group_id' => $groupId,
+                    'appointments' => $appointments->pluck('id')->values()->all(),
+                    'cashier_date' => $cashierDate,
+                    'expected_group_base' => number_format($expectedGroupBaseCents / 100, 2, '.', ''),
+                    'received_group_base' => number_format($sumReceivedBaseCents / 100, 2, '.', ''),
+                    'intent' => $intent,
+                ]);
+            });
+
+        } catch (\Throwable $e) {
+            Log::error('PREPAY GROUP FAILED', [
+                'group_id' => $groupId ?? null,
+                'message'  => $e->getMessage(),
+                'file'     => $e->getFile(),
+                'line'     => $e->getLine(),
+            ]);
+
+            throw $e;
+        }
+
+        $appointments = Appointment::query()
+            ->where('group_id', $groupId)
+            ->with([
+                'customer',
+                'items',
+                'payments',
+                'appointmentServices.service',
+                'appointmentServices.promotions',
+            ])
+            ->orderByRaw('COALESCE(group_sequence, 9999) asc')
+            ->orderBy('date')
+            ->orderBy('start_time')
+            ->orderBy('id')
+            ->get();
+
+        return AppointmentResource::collection($appointments)
             ->response()
             ->setStatusCode(Response::HTTP_OK);
     }
