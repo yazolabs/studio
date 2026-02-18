@@ -123,7 +123,13 @@ class CommissionService extends BaseService
             $data['service_id'] ??= $svc->service_id;
             $data['professional_id'] ??= $svc->professional_id;
 
-            $data['service_price'] ??= $svc->service_price;
+            $gross = (float) $svc->service_price;
+
+            $promoDiscount = (float) $svc->promotions()->sum('appointment_service_promotion.discount_amount');
+
+            $final = max(0.0, round($gross - $promoDiscount, 2));
+
+            $data['service_price'] ??= $final;
 
             $data['commission_type'] ??= $svc->commission_type;
             $data['commission_value'] ??= $svc->commission_value;
@@ -155,12 +161,16 @@ class CommissionService extends BaseService
 
     protected function calculateCommissionAmount(array $data): float
     {
-        $price = (float) ($data['service_price'] ?? 0);
-        $value = (float) ($data['commission_value'] ?? 0);
+        $price = round((float) ($data['service_price'] ?? 0), 2);
+        $value = round((float) ($data['commission_value'] ?? 0), 2);
         $type  = $data['commission_type'] ?? 'percentage';
 
-        return $type === 'percentage'
-            ? round(($price * $value) / 100, 2)
-            : round($value, 2);
+        if ($price <= 0) return 0.0;
+
+        if ($type === 'percentage') {
+            return round(($price * $value) / 100, 2);
+        }
+
+        return round(min($value, $price), 2);
     }
 }

@@ -1083,7 +1083,7 @@ class AppointmentController extends Controller
                     }
                 }
 
-                $appointment->loadMissing(['appointmentServices.service', 'customer']);
+                $appointment->loadMissing(['appointmentServices.service', 'appointmentServices.promotions', 'customer']);
 
                 Commission::where('appointment_id', $appointment->id)->delete();
 
@@ -1094,9 +1094,14 @@ class AppointmentController extends Controller
 
                 foreach ($appointment->appointmentServices as $aps) {
                     $professionalId  = $aps->professional_id;
-                    $commissionType  = $aps->commission_type;
-                    $commissionValue = $aps->commission_value;
-                    $servicePrice    = (float) $aps->service_price;
+                    $commissionType  = (string) $aps->commission_type;
+                    $commissionValue = (float) $aps->commission_value;
+
+                    $grossServicePrice = round((float) $aps->service_price, 2);
+
+                    $promoDiscount = (float) $aps->promotions()->sum('appointment_service_promotion.discount_amount');
+
+                    $finalServicePrice = max(0.0, round($grossServicePrice - $promoDiscount, 2));
 
                     if (!$professionalId) {
                         Log::warning('SERVICE WITHOUT PROFESSIONAL ON CHECKOUT', [
@@ -1107,17 +1112,25 @@ class AppointmentController extends Controller
                         continue;
                     }
 
-                    $commissionAmount = $commissionType === 'percentage'
-                        ? $servicePrice * ((float) $commissionValue / 100)
-                        : (float) $commissionValue;
+                    $commissionAmount = 0.0;
+
+                    if ($finalServicePrice > 0) {
+                        if ($commissionType === 'percentage') {
+                            $commissionAmount = round($finalServicePrice * ($commissionValue / 100), 2);
+                        } else {
+                            $commissionAmount = min(round($commissionValue, 2), $finalServicePrice);
+                        }
+                    } else {
+                        $commissionAmount = 0.0;
+                    }
 
                     Commission::create([
-                        'professional_id'   => $professionalId,
+                        'professional_id'   => (int) $professionalId,
                         'appointment_id'    => $appointment->id,
                         'service_id'        => $aps->service_id,
                         'customer_id'       => $appointment->customer_id,
                         'date'              => now()->toDateString(),
-                        'service_price'     => $servicePrice,
+                        'service_price'     => $finalServicePrice,
                         'commission_type'   => $commissionType,
                         'commission_value'  => $commissionValue,
                         'commission_amount' => $commissionAmount,
@@ -1134,7 +1147,7 @@ class AppointmentController extends Controller
                         'due_date'        => now()->addDays(7)->toDateString(),
                         'status'          => AccountPayableStatus::Pending,
                         'category'        => 'Comissões',
-                        'professional_id' => $professionalId,
+                        'professional_id' => (int) $professionalId,
                         'appointment_id'  => $appointment->id,
                         'reference'       => "APP-{$appointment->id}-APS-{$aps->id}",
                     ]);

@@ -277,7 +277,11 @@ export function AppointmentCheckoutDialog({ open, onOpenChange, appointmentId }:
               `Serviço #${serviceId}`;
 
             const promoIds = Array.isArray(aps?.promotions)
-              ? uniqueInts(aps.promotions.map((p: any) => p?.id))
+              ? uniqueInts(
+                  [...aps.promotions]
+                    .sort((a: any, b: any) => safeNumber(a?.pivot?.sort_order, 0) - safeNumber(b?.pivot?.sort_order, 0))
+                    .map((p: any) => p?.id)
+                )
               : uniqueInts(aps?.promotion_ids ?? []);
 
             mappedServices.push({
