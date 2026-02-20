@@ -1059,8 +1059,8 @@ class AppointmentController extends Controller
 
                         $newBase = $newBaseCents / 100;
 
-                        $method     = (string) $pay->method;
-                        $feePercent = (float) ($pay->fee_percent ?? 0);
+                        $method       = (string) $pay->method;
+                        $feePercent   = (float) ($pay->fee_percent ?? 0);
                         $isCreditLike = in_array($method, ['credit', 'credit_link'], true);
 
                         $grossNew = ($isCreditLike && $feePercent > 0)
@@ -1125,32 +1125,38 @@ class AppointmentController extends Controller
                     }
 
                     $commission = Commission::create([
-                        'professional_id'   => (int) $professionalId,
-                        'appointment_id'    => $appointment->id,
-                        'service_id'        => $aps->service_id,
-                        'customer_id'       => $appointment->customer_id,
-                        'date'              => now()->toDateString(),
-                        'service_price'     => $finalServicePrice,
-                        'commission_type'   => $commissionType,
-                        'commission_value'  => $commissionValue,
-                        'commission_amount' => $commissionAmount,
-                        'status'            => CommissionStatus::Pending,
+                        'professional_id'        => (int) $professionalId,
+                        'appointment_id'         => $appointment->id,
+                        'service_id'             => (int) $aps->service_id,
+                        'appointment_service_id' => (int) $aps->id,
+                        'customer_id'            => (int) $appointment->customer_id,
+                        'date'                   => optional($appointment->date)->toDateString() ?? now()->toDateString(),
+                        'service_price'          => number_format($finalServicePrice, 2, '.', ''),
+                        'commission_type'        => $commissionType,
+                        'commission_value'       => number_format($commissionValue, 2, '.', ''),
+                        'commission_amount'      => number_format($commissionAmount, 2, '.', ''),
+                        'status'                 => CommissionStatus::Pending,
                     ]);
 
                     $serviceName = $aps->relationLoaded('service') && $aps->service
                         ? $aps->service->name
                         : "Serviço #{$aps->service_id}";
 
+                    $originType = 'commission';
+
                     AccountPayable::create([
                         'description'     => "Comissão: {$serviceName}",
-                        'amount'          => $commissionAmount,
+                        'amount'          => number_format($commissionAmount, 2, '.', ''),
                         'due_date'        => now()->addDays(7)->toDateString(),
                         'status'          => AccountPayableStatus::Pending,
                         'category'        => 'Comissões',
                         'professional_id' => (int) $professionalId,
                         'appointment_id'  => $appointment->id,
                         'reference'       => "APP-{$appointment->id}-APS-{$aps->id}",
+
                         'commission_id'   => $commission->id,
+                        'origin_type'     => $originType,
+                        'origin_id'       => $commission->id,
                     ]);
                 }
             });

@@ -12,7 +12,7 @@ import { MoreHorizontal, Plus, Pencil, Check, Eye, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAccountsPayableQuery, useCreateAccountPayable, useUpdateAccountPayable, useDeleteAccountPayable, useMarkAccountAsPaid } from "@/hooks/accounts-payable";
 import { displayCurrency, formatCurrencyInput } from "@/utils/formatters";
-import type { AccountPayable, CreateAccountPayableDto } from "@/types/account-payable";
+import type { AccountPayable, CreateAccountPayableDto, UpdateAccountPayableDto } from "@/types/account-payable";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
@@ -28,7 +28,6 @@ export default function AccountsPayable() {
   const isMobile = useIsMobile();
 
   const { data, isLoading } = useAccountsPayableQuery();
-
   const accounts = data ?? [];
 
   const createMutation = useCreateAccountPayable();
@@ -63,15 +62,12 @@ export default function AccountsPayable() {
     setIsDialogOpen(true);
   };
 
-  const openEdit = (account: any) => {
+  const openEdit = (account: AccountPayable) => {
     setEditingId(account.id);
     setFormData({
       description: account.description ?? "",
       category: account.category ?? "",
-      amount:
-        account.amount != null
-          ? formatCurrencyInput(String(account.amount))
-          : "",
+      amount: account.amount != null ? formatCurrencyInput(String(account.amount)) : "",
       due_date: account.due_date ?? "",
       notes: account.notes ?? "",
     });
@@ -104,38 +100,74 @@ export default function AccountsPayable() {
     return Number.isNaN(num) ? 0 : num;
   };
 
+  const getOriginInfo = (row: AccountPayable) => {
+    const anyRow = row as any;
+
+    const type =
+      row.origin_type ??
+      anyRow.origin_type ??
+      anyRow.origin?.type ??
+      "manual";
+
+    const originId =
+      row.origin_id ??
+      anyRow.origin_id ??
+      anyRow.origin?.id ??
+      row.commission?.id ??
+      null;
+
+    const originStatus =
+      anyRow.origin?.status ??
+      row.commission?.status ??
+      null;
+
+    const originPaymentDate =
+      anyRow.origin?.payment_date ??
+      row.commission?.payment_date ??
+      null;
+
+    return { type, originId, originStatus, originPaymentDate };
+  };
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
-    if (isSaving || createMutation.isPending || updateMutation.isPending) {
-      return;
-    }
-
+    if (isSaving || createMutation.isPending || updateMutation.isPending) return;
     setIsSaving(true);
 
     try {
       const amountNumber = parseCurrencyToNumber(formData.amount);
       const amountString = amountNumber.toFixed(2);
 
-      const payload: CreateAccountPayableDto = {
-        description: formData.description,
-        amount: amountString,
-        category: formData.category || null,
-        due_date: formData.due_date || null,
-        status: "pending",
-        supplier_id: null,
-        professional_id: null,
-        appointment_id: null,
-        payment_date: null,
-        payment_method: null,
-        reference: null,
-        notes: formData.notes || null,
-      };
-
       if (editingId) {
+        const payload: UpdateAccountPayableDto = {
+          description: formData.description,
+          amount: amountString,
+          category: formData.category || null,
+          due_date: formData.due_date || null,
+          notes: formData.notes || null,
+        };
+
         await updateMutation.mutateAsync(payload);
         toast.success("Conta atualizada com sucesso!");
       } else {
+        const payload: CreateAccountPayableDto = {
+          description: formData.description,
+          amount: amountString,
+          category: formData.category || null,
+          due_date: formData.due_date || null,
+          status: "pending",
+          supplier_id: null,
+          professional_id: null,
+          appointment_id: null,
+          origin_type: "manual",
+          origin_id: null,
+          payment_date: null,
+          payment_method: null,
+          reference: null,
+          notes: formData.notes || null,
+        };
+
         await createMutation.mutateAsync(payload);
         toast.success("Conta criada com sucesso!");
       }
@@ -143,10 +175,7 @@ export default function AccountsPayable() {
       setIsDialogOpen(false);
       setEditingId(null);
     } catch (error: any) {
-      toast.error(
-        error?.response?.data?.message ??
-          "Erro ao salvar conta. Tente novamente."
-      );
+      toast.error(error?.response?.data?.message ?? "Erro ao salvar conta. Tente novamente.");
     } finally {
       setIsSaving(false);
     }
@@ -155,46 +184,35 @@ export default function AccountsPayable() {
   const handlePayment = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selectedId) return;
-
     if (markPaidMutation.isPending) return;
 
-    try {
-      if (!paymentData.payment_method) {
-        toast.error("Selecione a forma de pagamento.");
-        return;
-      }
+    if (!paymentData.payment_method) {
+      toast.error("Selecione a forma de pagamento.");
+      return;
+    }
 
+    try {
       await markPaidMutation.mutateAsync({
         id: selectedId,
         payment_method: paymentData.payment_method,
         payment_date: paymentData.payment_date,
       });
 
-      toast.success("Pagamento registrado com sucesso!");
       setIsPaymentDialogOpen(false);
       setSelectedId(null);
-    } catch (error: any) {
-      toast.error(
-        error?.response?.data?.message ??
-          "Erro ao registrar pagamento. Tente novamente."
-      );
+    } catch {
     }
   };
 
   const handleDelete = async (id: number) => {
-    const confirmed = window.confirm(
-      "Tem certeza que deseja excluir esta conta?"
-    );
+    const confirmed = window.confirm("Tem certeza que deseja excluir esta conta?");
     if (!confirmed) return;
 
     try {
       await deleteMutation.mutateAsync(id);
       toast.success("Conta excluída com sucesso!");
     } catch (error: any) {
-      toast.error(
-        error?.response?.data?.message ??
-          "Erro ao excluir conta. Tente novamente."
-      );
+      toast.error(error?.response?.data?.message ?? "Erro ao excluir conta. Tente novamente.");
     }
   };
 
@@ -209,60 +227,56 @@ export default function AccountsPayable() {
       paid: "Paga",
     };
 
-    return (
-      <Badge className={colors[status] ?? ""}>{labels[status] ?? status}</Badge>
-    );
+    return <Badge className={colors[status] ?? ""}>{labels[status] ?? status}</Badge>;
   };
 
   const columns = [
     {
       key: "due_date",
       header: "Vencimento",
-      render: (row: any) =>
+      render: (row: AccountPayable) =>
         row.due_date ? format(parseISO(row.due_date), "dd/MM/yyyy") : "-",
     },
-    {
-      key: "description",
-      header: "Descrição",
-    },
-    {
-      key: "category",
-      header: "Categoria",
-    },
+    { key: "description", header: "Descrição" },
+    { key: "category", header: "Categoria" },
     {
       key: "amount",
       header: "Valor",
-      render: (row: any) =>
-        displayCurrency(Number(row.amount) || 0),
+      render: (row: AccountPayable) => displayCurrency(Number(row.amount) || 0),
+    },
+    {
+      key: "professional",
+      header: "Profissional",
+      render: (row: AccountPayable) => row.professional?.name ?? "—",
     },
     {
       key: "status",
       header: "Status",
-      render: (row: any) => getStatusBadge(row.status),
+      render: (row: AccountPayable) => getStatusBadge(row.status),
     },
     {
       key: "origin",
       header: "Origem",
       render: (row: AccountPayable) => {
-        const type = row.origin_type ?? "manual";
+        const { type, originId, originStatus } = getOriginInfo(row);
 
         const label =
-          type === "commission" ? "Comissão"
-          : type === "manual" ? "Manual"
-          : type;
+          type === "commission" ? "Comissão" : type === "manual" ? "Manual" : String(type);
 
-        const originId = row.origin_id ?? row.commission?.id ?? null;
         const appId = row.appointment?.id ?? row.appointment_id ?? null;
 
         return (
           <div className="space-y-0.5">
             <div className="text-sm font-medium">
-              {label}{originId ? ` #${originId}` : ""}
+              {label}
+              {originId ? ` #${originId}` : ""}
             </div>
 
             <div className="text-xs text-muted-foreground">
               {appId ? `Agendamento #${appId}` : "—"}
-              {row.commission?.status ? ` • Comissão: ${row.commission.status === "paid" ? "paga" : "pendente"}` : ""}
+              {type === "commission" && originStatus
+                ? ` • Comissão: ${originStatus === "paid" ? "paga" : "pendente"}`
+                : ""}
             </div>
           </div>
         );
@@ -271,14 +285,10 @@ export default function AccountsPayable() {
     {
       key: "actions",
       header: "Ações",
-      render: (row: any) => (
+      render: (row: AccountPayable) => (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button
-              size={isMobile ? "sm" : "icon"}
-              variant="ghost"
-              className="h-8 w-8"
-            >
+            <Button size={isMobile ? "sm" : "icon"} variant="ghost" className="h-8 w-8">
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
@@ -298,9 +308,7 @@ export default function AccountsPayable() {
                   Editar
                 </DropdownMenuItem>
 
-                <DropdownMenuItem
-                  onClick={() => openPaymentDialog(row.id)}
-                >
+                <DropdownMenuItem onClick={() => openPaymentDialog(row.id)}>
                   <Check className="mr-2 h-4 w-4" />
                   Registrar pagamento
                 </DropdownMenuItem>
@@ -326,7 +334,7 @@ export default function AccountsPayable() {
   const totalPending = useMemo(
     () =>
       accounts
-        .filter((a: any) => a.status === "pending")
+        .filter((a) => a.status === "pending")
         .reduce((sum, a) => sum + Number(a.amount), 0),
     [accounts]
   );
@@ -334,7 +342,7 @@ export default function AccountsPayable() {
   const totalPaid = useMemo(
     () =>
       accounts
-        .filter((a: any) => a.status === "paid")
+        .filter((a) => a.status === "paid")
         .reduce((sum, a) => sum + Number(a.amount), 0),
     [accounts]
   );
@@ -344,15 +352,10 @@ export default function AccountsPayable() {
       <div className="flex flex-wrap justify-between items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold">Contas a Pagar</h1>
-          <p className="text-muted-foreground">
-            Controle financeiro e despesas do salão
-          </p>
+          <p className="text-muted-foreground">Controle financeiro e despesas do salão</p>
         </div>
 
-        <Button
-          onClick={openCreate}
-          className={cn("shadow-md", isMobile && "w-full")}
-        >
+        <Button onClick={openCreate} className={cn("shadow-md", isMobile && "w-full")}>
           <Plus className="mr-2 h-4 w-4" />
           Nova Conta
         </Button>
@@ -361,23 +364,17 @@ export default function AccountsPayable() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="border p-4 rounded-lg">
           <p className="text-muted-foreground text-sm">Total Pendente</p>
-          <p className="text-2xl font-bold text-yellow-600">
-            {displayCurrency(totalPending)}
-          </p>
+          <p className="text-2xl font-bold text-yellow-600">{displayCurrency(totalPending)}</p>
         </div>
 
         <div className="border p-4 rounded-lg">
           <p className="text-muted-foreground text-sm">Total Pago</p>
-          <p className="text-2xl font-bold text-green-600">
-            {displayCurrency(totalPaid)}
-          </p>
+          <p className="text-2xl font-bold text-green-600">{displayCurrency(totalPaid)}</p>
         </div>
 
         <div className="border p-4 rounded-lg">
           <p className="text-muted-foreground text-sm">Total Geral</p>
-          <p className="text-2xl font-bold">
-            {displayCurrency(totalPending + totalPaid)}
-          </p>
+          <p className="text-2xl font-bold">{displayCurrency(totalPending + totalPaid)}</p>
         </div>
       </div>
 
@@ -387,14 +384,14 @@ export default function AccountsPayable() {
         loading={isLoading}
         emptyMessage="Nenhuma conta encontrada"
         searchPlaceholder="Buscar contas..."
-        searchFn={(a, term) =>
+        searchFn={(a: any, term) =>
           [
             a.description,
             a.category,
             a.reference,
             a.origin_type,
             a.origin_id ? String(a.origin_id) : null,
-            a.commission?.id ? String(a.commission.id) : null,
+            a.origin?.id ? String(a.origin.id) : null,
             a.appointment?.id ? String(a.appointment.id) : a.appointment_id ? String(a.appointment_id) : null,
             a.professional?.name,
             a.id ? String(a.id) : null,
@@ -421,23 +418,14 @@ export default function AccountsPayable() {
           }
         }}
       >
-        <DialogContent
-          className={cn(
-            "max-h-[90vh]",
-            isMobile ? "max-w-[95vw]" : "max-w-2xl"
-          )}
-        >
+        <DialogContent className={cn("max-h-[90vh]", isMobile ? "max-w-[95vw]" : "max-w-2xl")}>
           <DialogHeader>
-            <DialogTitle>
-              {editingId ? "Editar Conta" : "Nova Conta"}
-            </DialogTitle>
+            <DialogTitle>{editingId ? "Editar Conta" : "Nova Conta"}</DialogTitle>
           </DialogHeader>
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <section className="space-y-3">
-              <h3 className="text-sm font-medium text-muted-foreground">
-                Informações principais
-              </h3>
+              <h3 className="text-sm font-medium text-muted-foreground">Informações principais</h3>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -446,12 +434,7 @@ export default function AccountsPayable() {
                   </Label>
                   <Input
                     value={formData.description}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        description: e.target.value,
-                      })
-                    }
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                     required
                     placeholder="Ex: Aluguel do salão"
                   />
@@ -463,12 +446,7 @@ export default function AccountsPayable() {
                   </Label>
                   <Input
                     value={formData.category}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        category: e.target.value,
-                      })
-                    }
+                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                     required
                     placeholder="Ex: Fixas, Fornecedores..."
                   />
@@ -477,9 +455,7 @@ export default function AccountsPayable() {
             </section>
 
             <section className="space-y-3">
-              <h3 className="text-sm font-medium text-muted-foreground">
-                Valores e vencimento
-              </h3>
+              <h3 className="text-sm font-medium text-muted-foreground">Valores e vencimento</h3>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -490,12 +466,7 @@ export default function AccountsPayable() {
                     type="text"
                     inputMode="decimal"
                     value={formData.amount}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        amount: formatCurrencyInput(e.target.value),
-                      })
-                    }
+                    onChange={(e) => setFormData({ ...formData, amount: formatCurrencyInput(e.target.value) })}
                     placeholder="R$ 0,00"
                     required
                   />
@@ -503,18 +474,12 @@ export default function AccountsPayable() {
 
                 <div className="space-y-2">
                   <Label>
-                    Data de Vencimento{" "}
-                    <span className="text-red-500">*</span>
+                    Data de Vencimento <span className="text-red-500">*</span>
                   </Label>
                   <Input
                     type="date"
                     value={formData.due_date}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        due_date: e.target.value,
-                      })
-                    }
+                    onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
                     required
                   />
                 </div>
@@ -522,18 +487,14 @@ export default function AccountsPayable() {
             </section>
 
             <section className="space-y-3">
-              <h3 className="text-sm font-medium text-muted-foreground">
-                Observações
-              </h3>
+              <h3 className="text-sm font-medium text-muted-foreground">Observações</h3>
 
               <div className="space-y-2">
                 <Label>Observações</Label>
                 <Textarea
                   rows={3}
                   value={formData.notes}
-                  onChange={(e) =>
-                    setFormData({ ...formData, notes: e.target.value })
-                  }
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                   placeholder="Informações adicionais sobre a conta (opcional)"
                 />
               </div>
@@ -544,22 +505,11 @@ export default function AccountsPayable() {
                 variant="outline"
                 type="button"
                 onClick={() => setIsDialogOpen(false)}
-                disabled={
-                  isSaving ||
-                  createMutation.isPending ||
-                  updateMutation.isPending
-                }
+                disabled={isSaving || createMutation.isPending || updateMutation.isPending}
               >
                 Cancelar
               </Button>
-              <Button
-                type="submit"
-                disabled={
-                  isSaving ||
-                  createMutation.isPending ||
-                  updateMutation.isPending
-                }
-              >
+              <Button type="submit" disabled={isSaving || createMutation.isPending || updateMutation.isPending}>
                 {editingId ? "Atualizar" : "Cadastrar"}
               </Button>
             </DialogFooter>
@@ -573,42 +523,26 @@ export default function AccountsPayable() {
           setIsPaymentDialogOpen(open);
           if (!open) {
             setSelectedId(null);
-            setPaymentData({
-              payment_method: "",
-              payment_date: today,
-            });
+            setPaymentData({ payment_method: "", payment_date: today });
           }
         }}
       >
-        <DialogContent
-          className={cn(
-            "max-h-[90vh]",
-            isMobile ? "max-w-[95vw]" : "max-w-md"
-          )}
-        >
+        <DialogContent className={cn("max-h-[90vh]", isMobile ? "max-w-[95vw]" : "max-w-md")}>
           <DialogHeader>
             <DialogTitle>Registrar Pagamento</DialogTitle>
           </DialogHeader>
 
           <form onSubmit={handlePayment} className="space-y-6">
             <section className="space-y-3">
-              <h3 className="text-sm font-medium text-muted-foreground">
-                Dados do pagamento
-              </h3>
+              <h3 className="text-sm font-medium text-muted-foreground">Dados do pagamento</h3>
 
               <div className="space-y-2">
                 <Label>
-                  Forma de Pagamento{" "}
-                  <span className="text-red-500">*</span>
+                  Forma de Pagamento <span className="text-red-500">*</span>
                 </Label>
                 <Select
                   value={paymentData.payment_method}
-                  onValueChange={(v) =>
-                    setPaymentData({
-                      ...paymentData,
-                      payment_method: v,
-                    })
-                  }
+                  onValueChange={(v) => setPaymentData({ ...paymentData, payment_method: v })}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione" />
@@ -625,28 +559,18 @@ export default function AccountsPayable() {
 
               <div className="space-y-2">
                 <Label>
-                  Data do Pagamento{" "}
-                  <span className="text-red-500">*</span>
+                  Data do Pagamento <span className="text-red-500">*</span>
                 </Label>
                 <Input
                   type="date"
                   value={paymentData.payment_date}
-                  onChange={(e) =>
-                    setPaymentData({
-                      ...paymentData,
-                      payment_date: e.target.value,
-                    })
-                  }
+                  onChange={(e) => setPaymentData({ ...paymentData, payment_date: e.target.value })}
                 />
               </div>
             </section>
 
             <DialogFooter>
-              <Button
-                variant="outline"
-                type="button"
-                onClick={() => setIsPaymentDialogOpen(false)}
-              >
+              <Button variant="outline" type="button" onClick={() => setIsPaymentDialogOpen(false)}>
                 Cancelar
               </Button>
               <Button type="submit" disabled={markPaidMutation.isPending}>
@@ -661,17 +585,10 @@ export default function AccountsPayable() {
         open={isDetailsDialogOpen}
         onOpenChange={(open) => {
           setIsDetailsDialogOpen(open);
-          if (!open) {
-            setSelectedId(null);
-          }
+          if (!open) setSelectedId(null);
         }}
       >
-        <DialogContent
-          className={cn(
-            'max-h-[90vh]',
-            isMobile ? 'max-w-[95vw]' : 'max-w-2xl',
-          )}
-        >
+        <DialogContent className={cn("max-h-[90vh]", isMobile ? "max-w-[95vw]" : "max-w-2xl")}>
           <DialogHeader>
             <DialogTitle>Detalhes da Conta</DialogTitle>
           </DialogHeader>
@@ -679,89 +596,76 @@ export default function AccountsPayable() {
           {selectedId && (
             <div className="space-y-4">
               {(() => {
-                const acc = accounts.find((a: any) => a.id === selectedId);
+                const acc = accounts.find((a) => a.id === selectedId);
                 if (!acc) return null;
+
+                const { type, originId, originStatus, originPaymentDate } = getOriginInfo(acc);
+                const anyAcc = acc as any;
+
+                const appointmentId = acc.appointment?.id ?? acc.appointment_id ?? null;
+                const appointmentDate = acc.appointment?.date ?? null;
 
                 return (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <Label className="text-muted-foreground">
-                        Descrição
-                      </Label>
+                      <Label className="text-muted-foreground">Descrição</Label>
                       <p className="font-medium">{acc.description}</p>
                     </div>
 
                     <div>
-                      <Label className="text-muted-foreground">
-                        Categoria
-                      </Label>
+                      <Label className="text-muted-foreground">Categoria</Label>
                       <p className="font-medium">{acc.category}</p>
                     </div>
 
                     <div>
-                      <Label className="text-muted-foreground">
-                        Valor
-                      </Label>
-                      <p className="font-medium">
-                        {displayCurrency(Number(acc.amount) || 0)}
-                      </p>
+                      <Label className="text-muted-foreground">Valor</Label>
+                      <p className="font-medium">{displayCurrency(Number(acc.amount) || 0)}</p>
                     </div>
 
-                    <div>
-                      <Label className="text-muted-foreground">
-                        Vencimento
-                      </Label>
-                      <p className="font-medium">
-                        {acc.due_date
-                          ? format(
-                              parseISO(acc.due_date),
-                              "dd/MM/yyyy"
-                            )
-                          : "-"}
-                      </p>
-                    </div>
-
-                    <div>
-                      <Label className="text-muted-foreground">
-                        Status
-                      </Label>
-                      <div className="mt-1">
-                        {getStatusBadge(acc.status)}
+                    {acc.professional?.name && (
+                      <div>
+                        <Label className="text-muted-foreground">Profissional</Label>
+                        <p className="font-medium">{acc.professional.name}</p>
                       </div>
+                    )}
+
+                    <div>
+                      <Label className="text-muted-foreground">Vencimento</Label>
+                      <p className="font-medium">
+                        {acc.due_date ? format(parseISO(acc.due_date), "dd/MM/yyyy") : "-"}
+                      </p>
+                    </div>
+
+                    <div>
+                      <Label className="text-muted-foreground">Status</Label>
+                      <div className="mt-1">{getStatusBadge(acc.status)}</div>
                     </div>
 
                     <div>
                       <Label className="text-muted-foreground">Origem</Label>
                       <p className="font-medium">
-                        {acc.origin_type ?? "manual"}
-                        {acc.origin_id
-                          ? ` #${acc.origin_id}`
-                          : acc.commission?.id
-                          ? ` #${acc.commission.id}`
-                          : ""}
+                        {String(type)}
+                        {originId ? ` #${originId}` : ""}
                       </p>
                     </div>
 
-                    {(acc.appointment?.id ?? acc.appointment_id) && (
+                    {appointmentId && (
                       <div>
                         <Label className="text-muted-foreground">Agendamento</Label>
                         <p className="font-medium">
-                          #{acc.appointment?.id ?? acc.appointment_id}
-                          {acc.appointment?.date
-                            ? ` • ${format(parseISO(acc.appointment.date), "dd/MM/yyyy")}`
-                            : ""}
+                          #{appointmentId}
+                          {appointmentDate ? ` • ${format(parseISO(appointmentDate), "dd/MM/yyyy")}` : ""}
                         </p>
                       </div>
                     )}
 
-                    {acc.commission && (
+                    {type === "commission" && originId && (
                       <div>
                         <Label className="text-muted-foreground">Comissão</Label>
                         <p className="font-medium">
-                          #{acc.commission.id} •{" "}
-                          {acc.commission.status === "paid" ? "Paga" : "Pendente"}
-                          {acc.commission.payment_date
-                            ? ` • ${format(parseISO(acc.commission.payment_date), "dd/MM/yyyy")}`
+                          #{originId} • {originStatus === "paid" ? "Paga" : "Pendente"}
+                          {originPaymentDate
+                            ? ` • ${format(parseISO(originPaymentDate), "dd/MM/yyyy")}`
                             : ""}
                         </p>
                       </div>
@@ -770,34 +674,27 @@ export default function AccountsPayable() {
                     {acc.payment_date && (
                       <>
                         <div>
-                          <Label className="text-muted-foreground">
-                            Pagamento
-                          </Label>
-                          <p className="font-medium">
-                            {format(
-                              parseISO(acc.payment_date),
-                              "dd/MM/yyyy"
-                            )}
-                          </p>
+                          <Label className="text-muted-foreground">Pagamento</Label>
+                          <p className="font-medium">{format(parseISO(acc.payment_date), "dd/MM/yyyy")}</p>
                         </div>
 
                         <div>
-                          <Label className="text-muted-foreground">
-                            Forma
-                          </Label>
-                          <p className="font-medium">
-                            {acc.payment_method}
-                          </p>
+                          <Label className="text-muted-foreground">Forma</Label>
+                          <p className="font-medium">{acc.payment_method}</p>
                         </div>
                       </>
                     )}
 
                     {acc.notes && (
                       <div className="sm:col-span-2">
-                        <Label className="text-muted-foreground">
-                          Observações
-                        </Label>
+                        <Label className="text-muted-foreground">Observações</Label>
                         <p className="font-medium">{acc.notes}</p>
+                      </div>
+                    )}
+
+                    {type !== "commission" && anyAcc.commission && (
+                      <div className="sm:col-span-2 text-xs text-muted-foreground">
+                        (debug) payload antigo: commission #{anyAcc.commission?.id}
                       </div>
                     )}
                   </div>

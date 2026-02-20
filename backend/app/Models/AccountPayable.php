@@ -22,6 +22,7 @@ class AccountPayable extends Model
         'supplier_id',
         'professional_id',
         'appointment_id',
+        'commission_id',
         'origin_type',
         'origin_id',
         'payment_date',
@@ -36,6 +37,7 @@ class AccountPayable extends Model
         'status' => AccountPayableStatus::class,
         'payment_date' => 'date',
         'origin_id' => 'integer',
+        'commission_id' => 'integer',
     ];
 
     public function supplier()

@@ -5,36 +5,44 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DataTable } from '@/components/DataTable';
-import { DollarSign, TrendingUp, Users, Download, FileText, Check } from 'lucide-react';
+import { DollarSign, TrendingUp, Users, Download, FileText, Check, MoreHorizontal, Pencil } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import { format, parseISO } from 'date-fns';
-import { useCommissionsQuery, useMarkCommissionAsPaid } from '@/hooks/commissions';
+import { useCommissionsQuery, useMarkCommissionAsPaid, useUpdateCommission } from '@/hooks/commissions';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { Commission } from '@/types/commission';
-import { displayCurrency } from '@/utils/formatters';
+import { displayCurrency, formatCurrencyInput } from '@/utils/formatters';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
+
+import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 export default function Commissions() {
   const [selectedProfessional, setSelectedProfessional] = useState<string>('all');
   const [start_date, setStartDate] = useState(format(new Date(), 'yyyy-MM-01'));
   const [end_date, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
 
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<Commission | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [editAmount, setEditAmount] = useState<string>('');
+
   const isMobile = useIsMobile();
 
   const { data, isLoading } = useCommissionsQuery({
     start_date,
     end_date,
-    professional_id:
-      selectedProfessional !== 'all'
-        ? Number(selectedProfessional)
-        : undefined,
+    professional_id: selectedProfessional !== 'all' ? Number(selectedProfessional) : undefined,
   });
 
-  const { mutate: markAsPaid, isPending: isMarkingPaid } =
-    useMarkCommissionAsPaid();
+  const updateMutation = useUpdateCommission(editing?.id ?? 0);
+
+  const { mutate: markAsPaid, isPending: isMarkingPaid } = useMarkCommissionAsPaid();
 
   const commissions = data ?? [];
 
@@ -46,25 +54,22 @@ export default function Commissions() {
     return Array.from(names.entries());
   }, [commissions]);
 
+  const selectedProfessionalName = useMemo(() => {
+    if (selectedProfessional === 'all') return 'Todos';
+    const id = Number(selectedProfessional);
+    return uniqueProfessionals.find(([pid]) => pid === id)?.[1] ?? selectedProfessional;
+  }, [selectedProfessional, uniqueProfessionals]);
+
   const filteredCommissions = useMemo(() => {
     return commissions.filter((c) => {
-      const byProf =
-        selectedProfessional === 'all' ||
-        c.professional?.id === Number(selectedProfessional);
-
+      const byProf = selectedProfessional === 'all' || c.professional?.id === Number(selectedProfessional);
       return byProf;
     });
   }, [commissions, selectedProfessional]);
 
   const summary = useMemo(() => {
-    const totalCommissions = filteredCommissions.reduce(
-      (sum, c) => sum + Number(c.commission_amount || 0),
-      0
-    );
-    const totalServices = filteredCommissions.reduce(
-      (sum, c) => sum + Number(c.service_price || 0),
-      0
-    );
+    const totalCommissions = filteredCommissions.reduce((sum, c) => sum + Number(c.commission_amount || 0), 0);
+    const totalServices = filteredCommissions.reduce((sum, c) => sum + Number(c.service_price || 0), 0);
     const serviceCount = filteredCommissions.length;
 
     const byProfessional = filteredCommissions.reduce((acc, c) => {
@@ -84,44 +89,26 @@ export default function Commissions() {
     doc.text('Relatório de Comissões', 14, 22);
     doc.setFontSize(11);
     doc.text(
-      `Período: ${format(new Date(start_date), 'dd/MM/yyyy')} a ${format(
-        new Date(end_date),
-        'dd/MM/yyyy'
-      )}`,
+      `Período: ${format(new Date(start_date), 'dd/MM/yyyy')} a ${format(new Date(end_date), 'dd/MM/yyyy')}`,
       14,
       32
     );
-    doc.text(
-      `Profissional: ${
-        selectedProfessional === 'all' ? 'Todos' : selectedProfessional
-      }`,
-      14,
-      40
-    );
-    doc.text(
-      `Total em Comissões: ${displayCurrency(summary.totalCommissions)}`,
-      14,
-      48
-    );
-    doc.text(
-      `Total em Serviços: ${displayCurrency(summary.totalServices)}`,
-      14,
-      56
-    );
+    doc.text(`Profissional: ${selectedProfessionalName}`, 14, 40);
+    doc.text(`Total em Comissões: ${displayCurrency(summary.totalCommissions)}`, 14, 48);
+    doc.text(`Total em Serviços: ${displayCurrency(summary.totalServices)}`, 14, 56);
 
     autoTable(doc, {
       startY: 65,
-      head: [
-        ['Data', 'Agendamento', 'Profissional', 'Cliente', 'Serviço', 'Valor Serv.', 'Comissão']
-      ],
+      head: [['Data', 'Agendamento', 'Profissional', 'Cliente', 'Serviço', 'Valor Serv.', 'Comissão', 'AP']],
       body: filteredCommissions.map((c) => [
         c.date ? format(parseISO(c.date), 'dd/MM/yyyy') : '-',
-        `#${c.appointment?.id} (linha ${c.appointment_service_id ?? '-'})`,
+        c.appointment?.id ? `#${c.appointment.id} (linha ${c.appointment_service_id ?? '-'})` : '-',
         c.professional?.name ?? '-',
         c.customer?.name ?? '-',
         c.service?.name ?? '-',
         displayCurrency(Number(c.service_price || 0)),
         displayCurrency(Number(c.commission_amount || 0)),
+        c.account_payable_id ? `#${c.account_payable_id}` : '-',
       ]),
     });
 
@@ -132,36 +119,34 @@ export default function Commissions() {
     const ws = XLSX.utils.json_to_sheet(
       filteredCommissions.map((c) => ({
         Data: c.date ? format(parseISO(c.date), 'dd/MM/yyyy') : '-',
-        Agendamento: c.appointment?.id ? `#${c.appointment?.id}` : '-',
+        Agendamento: c.appointment?.id ? `#${c.appointment.id}` : '-',
         Linha: c.appointment_service_id ?? '-',
         Profissional: c.professional?.name ?? '-',
         Cliente: c.customer?.name ?? '-',
         Serviço: c.service?.name ?? '-',
         'Valor do Serviço': displayCurrency(Number(c.service_price || 0)),
-        'Tipo Comissão':
-          c.commission_type === 'percentage' ? 'Percentual' : 'Fixa',
+        'Tipo Comissão': c.commission_type === 'percentage' ? 'Percentual' : 'Fixa',
         'Valor Comissão':
           c.commission_type === 'percentage'
             ? `${c.commission_value}%`
             : displayCurrency(Number(c.commission_value || 0)),
-        'Total Comissão': displayCurrency(
-          Number(c.commission_amount || 0)
-        ),
+        'Total Comissão': displayCurrency(Number(c.commission_amount || 0)),
+        AP: c.account_payable_id ? `#${c.account_payable_id}` : '-',
         Status: c.status === 'paid' ? 'Paga' : 'Pendente',
       }))
     );
+
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Comissões');
 
-    const summaryData = Object.entries(summary.byProfessional).map(
-      ([prof, data]) => ({
-        Profissional: prof,
-        'Qtd Atendimentos': data.services,
-        'Total em Comissões': displayCurrency(data.total),
-      })
-    );
+    const summaryData = Object.entries(summary.byProfessional).map(([prof, data]) => ({
+      Profissional: prof,
+      'Qtd Atendimentos': data.services,
+      'Total em Comissões': displayCurrency(data.total),
+    }));
     const wsSummary = XLSX.utils.json_to_sheet(summaryData);
     XLSX.utils.book_append_sheet(wb, wsSummary, 'Resumo por Profissional');
+
     XLSX.writeFile(wb, `comissoes-${start_date}-${end_date}.xlsx`);
   };
 
@@ -169,47 +154,92 @@ export default function Commissions() {
     markAsPaid(id);
   };
 
+  const parseCurrencyToNumber = (value: string): number => {
+    if (!value) return 0;
+    const cleaned = value.replace(/[^\d,-]/g, '');
+    if (!cleaned) return 0;
+    const normalized = cleaned.replace(',', '.');
+    const num = parseFloat(normalized);
+    return Number.isNaN(num) ? 0 : num;
+  };
+
+  const openEdit = (c: Commission) => {
+    if (c.status === 'paid') {
+      toast.error('Não é possível editar uma comissão já paga.');
+      return;
+    }
+
+    setEditing(c);
+    setEditAmount(c.commission_amount != null ? formatCurrencyInput(String(c.commission_amount)) : '');
+    setIsEditDialogOpen(true);
+  };
+
+  const handleSubmitEdit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    if (!editing) return;
+    if (isSaving || updateMutation.isPending) return;
+
+    setIsSaving(true);
+    try {
+      const amountNumber = parseCurrencyToNumber(editAmount);
+      const amountString = amountNumber.toFixed(2);
+
+      await updateMutation.mutateAsync({
+        commission_amount: amountString,
+      });
+
+      toast.success('Comissão atualizada com sucesso!');
+      setIsEditDialogOpen(false);
+      setEditing(null);
+      setEditAmount('');
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message ?? 'Erro ao atualizar comissão.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const getStatusBadge = (status: Commission['status']) => {
+    const colors: Record<string, string> = {
+      pending: 'bg-yellow-500 text-yellow-50',
+      paid: 'bg-green-600 text-green-50',
+    };
+    const labels: Record<string, string> = {
+      pending: 'Pendente',
+      paid: 'Paga',
+    };
+
+    return <Badge className={colors[status] ?? ''}>{labels[status] ?? status}</Badge>;
+  };
+
   const columns = [
     {
       key: 'date',
-      header: 'Data/Hora',
-      render: (c: Commission) =>
-      c.date ? format(parseISO(c.date), 'dd/MM/yyyy') : '-',
+      header: 'Data',
+      render: (c: Commission) => (c.date ? format(parseISO(c.date), 'dd/MM/yyyy') : '-'),
     },
     {
-      key: "appointment_service_id",
-      header: "Atendimento",
+      key: 'appointment_service_id',
+      header: 'Atendimento',
       render: (c: Commission) => {
         const appId = c.appointment?.id;
         const lineId = c.appointment_service_id ?? c.appointment_service?.id;
 
-        const starts = c.appointment_service?.starts_at
-          ? format(parseISO(c.appointment_service.starts_at), "HH:mm")
-          : null;
-
-        const ends = c.appointment_service?.ends_at
-          ? format(parseISO(c.appointment_service.ends_at), "HH:mm")
-          : null;
-
+        const starts = c.appointment_service?.starts_at ? format(parseISO(c.appointment_service.starts_at), 'HH:mm') : null;
+        const ends = c.appointment_service?.ends_at ? format(parseISO(c.appointment_service.ends_at), 'HH:mm') : null;
         const windowLabel = starts && ends ? `${starts}–${ends}` : null;
 
-        const linePrice =
-          c.appointment_service?.service_price ?? c.service_price ?? "0";
+        const linePrice = c.appointment_service?.service_price ?? c.service_price ?? '0';
 
         return (
           <div className="space-y-0.5">
-            <div className="font-medium">
-              {appId ? `#${appId}` : "-"}
-            </div>
-
+            <div className="font-medium">{appId ? `#${appId}` : '-'}</div>
             <div className="text-xs text-muted-foreground">
-              Linha: {lineId ?? "-"}
-              {windowLabel ? ` • ${windowLabel}` : ""}
+              Linha: {lineId ?? '-'}
+              {windowLabel ? ` • ${windowLabel}` : ''}
             </div>
-
-            <div className="text-xs text-muted-foreground">
-              Valor linha: {displayCurrency(Number(linePrice || 0))}
-            </div>
+            <div className="text-xs text-muted-foreground">Valor linha: {displayCurrency(Number(linePrice || 0))}</div>
           </div>
         );
       },
@@ -232,44 +262,72 @@ export default function Commissions() {
     {
       key: 'service_price',
       header: 'Valor Serviço',
-      render: (c: Commission) =>
-        displayCurrency(Number(c.service_price || 0)),
+      render: (c: Commission) => displayCurrency(Number(c.service_price || 0)),
     },
     {
       key: 'commission_amount',
       header: 'Comissão',
       render: (c: Commission) => (
         <div className="space-y-1">
-          <div className="font-medium text-green-600">
-            {displayCurrency(Number(c.commission_amount || 0))}
-          </div>
+          <div className="font-medium text-green-600">{displayCurrency(Number(c.commission_amount || 0))}</div>
           <div className="text-xs text-muted-foreground">
             {c.commission_type === 'percentage'
               ? `${c.commission_value}%`
-              : `Fixo: ${displayCurrency(
-                  Number(c.commission_value || 0)
-                )}`}
+              : `Fixo: ${displayCurrency(Number(c.commission_value || 0))}`}
           </div>
         </div>
       ),
     },
     {
+      key: 'account_payable_id',
+      header: 'Conta a Pagar',
+      render: (c: Commission) => (c.account_payable_id ? <span className="font-medium">AP #{c.account_payable_id}</span> : '-'),
+    },
+    {
       key: 'status',
       header: 'Status',
-      render: (c: Commission) =>
-        c.status === 'paid' ? (
-          <span className="text-green-600 font-medium">Paga</span>
-        ) : (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={isMarkingPaid}
-            onClick={() => handleMarkAsPaid(c.id)}
-          >
-            <Check className="w-4 h-4 mr-1" />
-            Marcar como Paga
-          </Button>
-        ),
+      render: (c: Commission) => getStatusBadge(c.status),
+    },
+    {
+      key: 'actions',
+      header: 'Ações',
+      render: (c: Commission) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size={isMobile ? 'sm' : 'icon'} variant="ghost" className="h-8 w-8">
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>Ações</DropdownMenuLabel>
+
+            {c.status === 'pending' && (
+              <>
+                <DropdownMenuItem onClick={() => openEdit(c)}>
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Editar comissão
+                </DropdownMenuItem>
+
+                <DropdownMenuItem disabled={isMarkingPaid} onClick={() => handleMarkAsPaid(c.id)}>
+                  <Check className="mr-2 h-4 w-4" />
+                  Marcar como paga
+                </DropdownMenuItem>
+
+                <DropdownMenuSeparator />
+              </>
+            )}
+
+            {c.account_payable_id ? (
+              <DropdownMenuItem onClick={() => navigator.clipboard?.writeText(String(c.account_payable_id))}>
+                Copiar AP #{c.account_payable_id}
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem disabled>Sem AP vinculado</DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
     },
   ];
 
@@ -288,29 +346,15 @@ export default function Commissions() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold">Comissões</h1>
-          <p className="text-muted-foreground">
-            Relatório de comissões dos profissionais
-          </p>
+          <p className="text-muted-foreground">Relatório de comissões dos profissionais</p>
         </div>
-        <div
-          className={cn(
-            'flex gap-2',
-            isMobile && 'w-full flex-col',
-          )}
-        >
-          <Button
-            variant="outline"
-            onClick={exportToPDF}
-            className={cn(isMobile && 'w-full')}
-          >
+
+        <div className={cn('flex gap-2', isMobile && 'w-full flex-col')}>
+          <Button variant="outline" onClick={exportToPDF} className={cn(isMobile && 'w-full')}>
             <FileText className="h-4 w-4 mr-2" />
             Exportar PDF
           </Button>
-          <Button
-            variant="outline"
-            onClick={exportToExcel}
-            className={cn(isMobile && 'w-full')}
-          >
+          <Button variant="outline" onClick={exportToExcel} className={cn(isMobile && 'w-full')}>
             <Download className="h-4 w-4 mr-2" />
             Exportar Excel
           </Button>
@@ -320,18 +364,13 @@ export default function Commissions() {
       <Card>
         <CardHeader>
           <CardTitle>Filtros</CardTitle>
-          <CardDescription>
-            Selecione o profissional e período para visualizar as comissões
-          </CardDescription>
+          <CardDescription>Selecione o profissional e período para visualizar as comissões</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 md:grid-cols-3">
             <div className="space-y-2">
               <Label>Profissional</Label>
-              <Select
-                value={selectedProfessional}
-                onValueChange={setSelectedProfessional}
-              >
+              <Select value={selectedProfessional} onValueChange={setSelectedProfessional}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
@@ -345,21 +384,15 @@ export default function Commissions() {
                 </SelectContent>
               </Select>
             </div>
+
             <div className="space-y-2">
               <Label>Data Início</Label>
-              <Input
-                type="date"
-                value={start_date}
-                onChange={(e) => setStartDate(e.target.value)}
-              />
+              <Input type="date" value={start_date} onChange={(e) => setStartDate(e.target.value)} />
             </div>
+
             <div className="space-y-2">
               <Label>Data Fim</Label>
-              <Input
-                type="date"
-                value={end_date}
-                onChange={(e) => setEndDate(e.target.value)}
-              />
+              <Input type="date" value={end_date} onChange={(e) => setEndDate(e.target.value)} />
             </div>
           </div>
         </CardContent>
@@ -368,48 +401,34 @@ export default function Commissions() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader className="flex justify-between pb-2">
-            <CardTitle className="text-sm font-medium">
-              Total em Comissões
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Total em Comissões</CardTitle>
             <DollarSign className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              {displayCurrency(summary.totalCommissions)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              No período selecionado
-            </p>
+            <div className="text-2xl font-bold text-green-600">{displayCurrency(summary.totalCommissions)}</div>
+            <p className="text-xs text-muted-foreground">No período selecionado</p>
           </CardContent>
         </Card>
+
         <Card>
           <CardHeader className="flex justify-between pb-2">
-            <CardTitle className="text-sm font-medium">
-              Total em Serviços
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Total em Serviços</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {displayCurrency(summary.totalServices)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Valor total dos serviços
-            </p>
+            <div className="text-2xl font-bold">{displayCurrency(summary.totalServices)}</div>
+            <p className="text-xs text-muted-foreground">Valor total dos serviços</p>
           </CardContent>
         </Card>
+
         <Card>
           <CardHeader className="flex justify-between pb-2">
             <CardTitle className="text-sm font-medium">Atendimentos</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {summary.serviceCount}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Total de atendimentos
-            </p>
+            <div className="text-2xl font-bold">{summary.serviceCount}</div>
+            <p className="text-xs text-muted-foreground">Total de atendimentos</p>
           </CardContent>
         </Card>
       </div>
@@ -417,9 +436,7 @@ export default function Commissions() {
       <Card>
         <CardHeader>
           <CardTitle>Detalhamento de Comissões</CardTitle>
-          <CardDescription>
-            Lista completa de comissões por atendimento
-          </CardDescription>
+          <CardDescription>Lista completa de comissões por atendimento</CardDescription>
         </CardHeader>
         <CardContent>
           <DataTable
@@ -434,6 +451,7 @@ export default function Commissions() {
                 c.customer?.name,
                 c.service?.name,
                 c.appointment?.id ? String(c.appointment.id) : null,
+                c.account_payable_id ? String(c.account_payable_id) : null,
                 c.id ? String(c.id) : null,
               ]
                 .filter(Boolean)
@@ -446,36 +464,24 @@ export default function Commissions() {
       <Card>
         <CardHeader>
           <CardTitle>Resumo por Profissional</CardTitle>
-          <CardDescription>
-            Total de comissões agrupadas por profissional
-          </CardDescription>
+          <CardDescription>Total de comissões agrupadas por profissional</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
             {Object.entries(summary.byProfessional)
               .sort(([, a], [, b]) => b.total - a.total)
               .map(([prof, data]) => {
-                const media =
-                  data.services > 0 ? data.total / data.services : 0;
+                const media = data.services > 0 ? data.total / data.services : 0;
 
                 return (
-                  <div
-                    key={prof}
-                    className="flex items-center justify-between border-b pb-3"
-                  >
+                  <div key={prof} className="flex items-center justify-between border-b pb-3">
                     <div>
                       <p className="font-medium">{prof}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {data.services} atendimento(s)
-                      </p>
+                      <p className="text-sm text-muted-foreground">{data.services} atendimento(s)</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-lg font-bold text-green-600">
-                        {displayCurrency(data.total)}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Média: {displayCurrency(media)}
-                      </p>
+                      <p className="text-lg font-bold text-green-600">{displayCurrency(data.total)}</p>
+                      <p className="text-xs text-muted-foreground">Média: {displayCurrency(media)}</p>
                     </div>
                   </div>
                 );
@@ -483,6 +489,53 @@ export default function Commissions() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog
+        open={isEditDialogOpen}
+        onOpenChange={(open) => {
+          setIsEditDialogOpen(open);
+          if (!open) {
+            setEditing(null);
+            setEditAmount('');
+            setIsSaving(false);
+          }
+        }}
+      >
+        <DialogContent className={cn('max-h-[90vh]', isMobile ? 'max-w-[95vw]' : 'max-w-md')}>
+          <DialogHeader>
+            <DialogTitle>Editar Comissão</DialogTitle>
+          </DialogHeader>
+
+          {editing && (
+            <form onSubmit={handleSubmitEdit} className="space-y-6">
+              <div className="space-y-2">
+                <Label>Comissão (R$)</Label>
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={editAmount}
+                  onChange={(e) => setEditAmount(formatCurrencyInput(e.target.value))}
+                  placeholder="R$ 0,00"
+                  required
+                />
+                <p className="text-xs text-muted-foreground">
+                  Comissão #{editing.id}
+                  {editing.account_payable_id ? ` • AP #${editing.account_payable_id}` : ''}
+                </p>
+              </div>
+
+              <DialogFooter>
+                <Button variant="outline" type="button" onClick={() => setIsEditDialogOpen(false)} disabled={isSaving || updateMutation.isPending}>
+                  Cancelar
+                </Button>
+                <Button type="submit" disabled={isSaving || updateMutation.isPending}>
+                  Salvar
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

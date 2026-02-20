@@ -1,8 +1,17 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { queryKeys } from '../../services/api';
-import { createCommission, getCommission, listCommissions, removeCommission, updateCommission, markCommissionAsPaid } from '../../services/commissionsService';
-import type { Commission, CreateCommissionDto, UpdateCommissionDto } from '../../types/commission';
-import { toast } from 'sonner';
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../../services/api";
+import { createCommission, getCommission, listCommissions, removeCommission, updateCommission, markCommissionAsPaid } from "../../services/commissionsService";
+import type { Commission, CreateCommissionDto, UpdateCommissionDto } from "../../types/commission";
+import { toast } from "sonner";
+
+function getLinkedAccountPayableId(c: any): number | null {
+  return (
+    c?.account_payable_id ??
+    c?.accountPayable?.id ??
+    c?.account_payable?.id ??
+    null
+  );
+}
 
 export function useCommissionsQuery(params?: Parameters<typeof listCommissions>[0]) {
   return useQuery<Commission[]>({
@@ -23,8 +32,12 @@ export function useCreateCommission() {
   const queryClient = useQueryClient();
   return useMutation<Commission, unknown, CreateCommissionDto>({
     mutationFn: createCommission,
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.commissions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.accountsPayable });
+
+      const apId = getLinkedAccountPayableId(data);
+      if (apId) queryClient.invalidateQueries({ queryKey: [queryKeys.accountsPayable[0], apId] });
     },
   });
 }
@@ -33,9 +46,13 @@ export function useUpdateCommission(id: number) {
   const queryClient = useQueryClient();
   return useMutation<Commission, unknown, UpdateCommissionDto>({
     mutationFn: (payload) => updateCommission(id, payload),
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.commissions });
       queryClient.invalidateQueries({ queryKey: [queryKeys.commissions[0], id] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.accountsPayable });
+
+      const apId = getLinkedAccountPayableId(data);
+      if (apId) queryClient.invalidateQueries({ queryKey: [queryKeys.accountsPayable[0], apId] });
     },
   });
 }
@@ -46,6 +63,7 @@ export function useDeleteCommission() {
     mutationFn: (id) => removeCommission(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.commissions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.accountsPayable });
     },
   });
 }
@@ -58,10 +76,15 @@ export function useMarkCommissionAsPaid() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.commissions });
       queryClient.invalidateQueries({ queryKey: [queryKeys.commissions[0], data.id] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.accountsPayable });
+
+      const apId = getLinkedAccountPayableId(data);
+      if (apId) queryClient.invalidateQueries({ queryKey: [queryKeys.accountsPayable[0], apId] });
+
       toast.success(`Comissão #${data.id} marcada como paga com sucesso!`);
     },
     onError: () => {
-      toast.error('Erro ao marcar comissão como paga.');
+      toast.error("Erro ao marcar comissão como paga.");
     },
   });
 }

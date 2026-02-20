@@ -1,3 +1,9 @@
+import type { AccountPayableStatus, AccountPayable } from "./account-payable";
+
+export type CommissionStatus = AccountPayableStatus;
+
+export type CommissionType = "percentage" | "fixed";
+
 export type Commission = {
   id: number;
   professional: { id: number; name: string } | null;
@@ -13,11 +19,12 @@ export type Commission = {
   } | null;
   date: string | null;
   service_price: string;
-  commission_type: 'percentage' | 'fixed';
+  commission_type: CommissionType;
   commission_value: string;
   commission_amount: string;
-  status: 'pending' | 'paid';
+  status: CommissionStatus;
   payment_date: string | null;
+  account_payable?: AccountPayable | null;
   account_payable_id?: number | null;
   created_at: string | null;
   updated_at: string | null;
@@ -31,10 +38,10 @@ export type CreateCommissionDto = {
   appointment_service_id?: number | null;
   date: string;
   service_price: string;
-  commission_type: 'percentage' | 'fixed';
+  commission_type: CommissionType;
   commission_value: string;
   commission_amount?: string;
-  status: 'pending' | 'paid';
+  status: CommissionStatus;
   payment_date?: string | null;
 };
 

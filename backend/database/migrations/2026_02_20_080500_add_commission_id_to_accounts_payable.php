@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
-        Schema::table('account_payables', function (Blueprint $table) {
+        Schema::table('accounts_payable', function (Blueprint $table) {
             $table->foreignId('commission_id')
                 ->nullable()
                 ->after('appointment_id')
@@ -20,7 +20,7 @@ return new class extends Migration {
 
     public function down(): void
     {
-        Schema::table('account_payables', function (Blueprint $table) {
+        Schema::table('accounts_payable', function (Blueprint $table) {
             $table->dropConstrainedForeignId('commission_id');
         });
     }
