@@ -1124,7 +1124,7 @@ class AppointmentController extends Controller
                         $commissionAmount = 0.0;
                     }
 
-                    Commission::create([
+                    $commission = Commission::create([
                         'professional_id'   => (int) $professionalId,
                         'appointment_id'    => $appointment->id,
                         'service_id'        => $aps->service_id,
@@ -1150,6 +1150,7 @@ class AppointmentController extends Controller
                         'professional_id' => (int) $professionalId,
                         'appointment_id'  => $appointment->id,
                         'reference'       => "APP-{$appointment->id}-APS-{$aps->id}",
+                        'commission_id'   => $commission->id,
                     ]);
                 }
             });

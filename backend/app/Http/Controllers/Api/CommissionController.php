@@ -4,10 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\CommissionResource;
-use App\Models\Commission;
+use App\Models\{Commission, AccountPayable};
 use App\Services\CommissionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\Response;
 
 class CommissionController extends Controller
@@ -69,7 +70,11 @@ class CommissionController extends Controller
             'payment_date',
         ]);
 
-        $commission = $this->service->create($payload);
+        $commission = DB::transaction(function () use ($payload) {
+            $created = $this->service->create($payload);
+            $this->syncAccountPayableFromCommission($created);
+            return $created;
+        });
 
         return (new CommissionResource(
             $commission->load(['professional', 'customer', 'service', 'appointment', 'appointmentService', 'accountPayable'])
@@ -80,7 +85,9 @@ class CommissionController extends Controller
 
     public function show(Commission $commission)
     {
-        return new CommissionResource($commission->load(['professional', 'customer', 'service', 'appointment', 'appointmentService', 'accountPayable']));
+        return new CommissionResource(
+            $commission->load(['professional', 'customer', 'service', 'appointment', 'appointmentService', 'accountPayable'])
+        );
     }
 
     public function update(Request $request, Commission $commission)
@@ -100,35 +107,87 @@ class CommissionController extends Controller
             'payment_date',
         ]);
 
-        $updated = $this->service->update($commission, $payload);
+        $updated = DB::transaction(function () use ($commission, $payload) {
+            $u = $this->service->update($commission, $payload);
+            $this->syncAccountPayableFromCommission($u);
+            return $u;
+        });
 
-        return new CommissionResource($updated->load(['professional', 'customer', 'service', 'appointment', 'appointmentService', 'accountPayable']));
+        return new CommissionResource(
+            $updated->load(['professional', 'customer', 'service', 'appointment', 'appointmentService', 'accountPayable'])
+        );
     }
 
     public function destroy(Commission $commission)
     {
         $this->service->delete($commission);
-
         return response()->noContent();
     }
 
     public function markAsPaid(Commission $commission)
     {
-        $commission->update([
-            'status' => 'paid',
-            'payment_date' => now()->toDateString(),
-        ]);
-
-        $commission->load('accountPayable');
-        if ($commission->accountPayable) {
-            $commission->accountPayable->update([
-                'status' => 'paid',
+        $updated = DB::transaction(function () use ($commission) {
+            $u = $this->service->update($commission, [
+                'status'       => 'paid',
                 'payment_date' => now()->toDateString(),
             ]);
-        }
+
+            $this->syncAccountPayableFromCommission($u);
+            return $u;
+        });
 
         return new CommissionResource(
-            $commission->fresh(['professional', 'customer', 'service', 'appointment', 'appointmentService', 'accountPayable'])
+            $updated->fresh(['professional', 'customer', 'service', 'appointment', 'appointmentService', 'accountPayable'])
         );
+    }
+
+    private function syncAccountPayableFromCommission(Commission $commission): void
+    {
+        $commission->loadMissing(['service', 'accountPayable']);
+
+        $originType = $commission->getMorphClass();
+        $status = is_object($commission->status) ? $commission->status->value : (string) $commission->status;
+
+        $updates = [
+            'amount' => (float) $commission->commission_amount,
+        ];
+
+        if ($status === 'paid') {
+            $updates['status'] = 'paid';
+            $updates['payment_date'] = $commission->payment_date ?? now()->toDateString();
+        } else {
+            $updates['status'] = 'pending';
+            $updates['payment_date'] = null;
+        }
+
+        $ap = AccountPayable::withTrashed()
+            ->where('origin_type', $originType)
+            ->where('origin_id', $commission->id)
+            ->first();
+
+        if ($ap) {
+            if (method_exists($ap, 'trashed') && $ap->trashed()) {
+                $ap->restore();
+            }
+
+            $ap->update($updates);
+            return;
+        }
+
+        $serviceName = $commission->service?->name;
+        $description = $serviceName ? "Comissão: {$serviceName}" : "Comissão";
+
+        AccountPayable::create([
+            'description'     => $description,
+            'amount'          => $updates['amount'],
+            'due_date'        => now()->addDays(7)->toDateString(),
+            'status'          => $updates['status'],
+            'category'        => 'Comissões',
+            'professional_id' => $commission->professional_id,
+            'appointment_id'  => $commission->appointment_id,
+            'origin_type'     => $originType,
+            'origin_id'       => $commission->id,
+            'payment_date'    => $updates['payment_date'],
+        ]);
     }
 }

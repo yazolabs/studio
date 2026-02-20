@@ -26,7 +26,7 @@ class AccountPayableController extends Controller
             'search',
         ]);
 
-        $query = AccountPayable::with(['professional', 'appointment', 'commission'])
+        $query = AccountPayable::with(['professional', 'appointment', 'origin'])
             ->when($filters['status'] ?? null, fn($q, $status) => $q->where('status', $status))
             ->when($filters['category'] ?? null, fn($q, $cat) => $q->where('category', 'like', "%{$cat}%"))
             ->when($filters['professional_id'] ?? null, fn($q, $id) => $q->where('professional_id', $id))
@@ -58,11 +58,8 @@ class AccountPayableController extends Controller
             'supplier_id',
             'professional_id',
             'appointment_id',
-
-            // ✅ NOVOS
             'origin_type',
             'origin_id',
-
             'payment_date',
             'payment_method',
             'reference',
@@ -71,14 +68,18 @@ class AccountPayableController extends Controller
 
         $account = $this->service->create($payload);
 
-        return (new AccountPayableResource($account->load(['professional', 'appointment', 'commission'])))
+        return (new AccountPayableResource(
+            $account->load(['professional', 'appointment', 'origin'])
+        ))
             ->response()
             ->setStatusCode(Response::HTTP_CREATED);
     }
 
     public function show(AccountPayable $accountPayable)
     {
-        return new AccountPayableResource($accountPayable->load(['professional', 'appointment', 'commission']));
+        return new AccountPayableResource(
+            $accountPayable->load(['professional', 'appointment', 'origin'])
+        );
     }
 
     public function update(Request $request, AccountPayable $accountPayable)
@@ -102,7 +103,9 @@ class AccountPayableController extends Controller
 
         $updated = $this->service->update($accountPayable, $payload);
 
-        return new AccountPayableResource($updated->load(['professional', 'appointment', 'commission']));
+        return new AccountPayableResource(
+            $updated->load(['professional', 'appointment', 'origin'])
+        );
     }
 
     public function destroy(AccountPayable $accountPayable)
@@ -115,41 +118,35 @@ class AccountPayableController extends Controller
     {
         $payload = $request->validate([
             'payment_method' => ['required', 'string', 'max:50'],
-            'payment_date' => ['required', 'date'],
+            'payment_date'   => ['required', 'date'],
         ]);
 
-        $accountPayable->update([
-            'status' => 'paid',
+        $updated = $this->service->update($accountPayable, [
+            'status'         => 'paid',
             'payment_method' => $payload['payment_method'],
-            'payment_date' => $payload['payment_date'],
+            'payment_date'   => $payload['payment_date'],
         ]);
 
-        $accountPayable->load('commission');
-        if ($accountPayable->commission) {
-            $accountPayable->commission->update([
-                'status' => 'paid',
-                'payment_date' => $payload['payment_date'],
-            ]);
-        }
-
-        $ref = $accountPayable->reference ?: "AP-{$accountPayable->id}";
+        $ref = $updated->reference ?: "AP-{$updated->id}";
 
         CashierTransaction::firstOrCreate(
             [
-                'type' => 'saida',
+                'type'      => 'saida',
                 'reference' => $ref,
             ],
             [
-                'date' => $payload['payment_date'],
-                'category' => $accountPayable->category ?: 'Contas a pagar',
-                'description' => $accountPayable->description ?: "Conta paga #{$accountPayable->id}",
-                'amount' => $accountPayable->amount,
+                'date'           => $payload['payment_date'],
+                'category'       => $updated->category ?: 'Contas a pagar',
+                'description'    => $updated->description ?: "Conta paga #{$updated->id}",
+                'amount'         => $updated->amount,
                 'payment_method' => $payload['payment_method'],
-                'user_id' => $request->user()?->id,
-                'notes' => $accountPayable->notes,
+                'user_id'        => $request->user()?->id,
+                'notes'          => $updated->notes,
             ]
         );
 
-        return new AccountPayableResource($accountPayable->fresh(['professional', 'appointment', 'commission']));
+        return new AccountPayableResource(
+            $updated->fresh(['professional', 'appointment', 'origin'])
+        );
     }
 }

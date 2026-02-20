@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\AccountPayableStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\{Model, SoftDeletes};
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 class AccountPayable extends Model
 {
@@ -52,10 +53,9 @@ class AccountPayable extends Model
         return $this->belongsTo(Appointment::class);
     }
 
-    public function commission()
+    public function origin(): MorphTo
     {
-        return $this->belongsTo(Commission::class, 'origin_id')
-            ->where('origin_type', 'commission');
+        return $this->morphTo();
     }
 
     public function isPending(): bool

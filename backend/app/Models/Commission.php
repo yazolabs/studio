@@ -3,8 +3,9 @@
 namespace App\Models;
 
 use App\Enums\{CommissionStatus, CommissionType};
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\{Model, SoftDeletes};
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\MorphOne;
 
 class Commission extends Model
 {
@@ -60,10 +61,9 @@ class Commission extends Model
         return $this->belongsTo(AppointmentService::class, 'appointment_service_id');
     }
 
-    public function accountPayable()
+    public function accountPayable(): MorphOne
     {
-        return $this->hasOne(AccountPayable::class, 'origin_id', 'id')
-            ->where('origin_type', 'commission');
+        return $this->morphOne(AccountPayable::class, 'origin');
     }
 
     public function isPaid(): bool

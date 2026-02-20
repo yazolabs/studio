@@ -1,18 +1,32 @@
+export type AccountPayableStatus = "pending" | "paid";
+
+export type AccountPayableOriginType = "manual" | "commission" | string;
+
+export type CommissionOrigin = {
+  id: number;
+  status: AccountPayableStatus;
+  payment_date: string | null;
+  commission_amount?: string;
+};
+
+export type AccountPayableOrigin = CommissionOrigin | Record<string, any> | null;
+
 export type AccountPayable = {
   id: number;
   description: string;
   amount: string;
   due_date: string | null;
-  status: 'pending' | 'paid';
+  status: AccountPayableStatus;
   category: string | null;
   supplier_id: number | null;
   professional_id: number | null;
   appointment_id: number | null;
-  origin_type?: 'manual' | 'commission' | string | null;
-  origin_id?: number | null;
+  origin_type: AccountPayableOriginType | null;
+  origin_id: number | null;
+  origin?: AccountPayableOrigin;
   professional?: { id: number; name: string } | null;
   appointment?: { id: number; date: string | null; payment_method: string | null } | null;
-  commission?: { id: number; status: 'pending' | 'paid'; payment_date: string | null } | null;
+  commission?: CommissionOrigin | null;
   payment_date: string | null;
   payment_method: string | null;
   reference: string | null;
@@ -25,12 +39,12 @@ export type CreateAccountPayableDto = {
   description: string;
   amount: string;
   due_date: string | null;
-  status: 'pending' | 'paid';
+  status: AccountPayableStatus;
   category: string | null;
   supplier_id: number | null;
   professional_id: number | null;
   appointment_id: number | null;
-  origin_type?: 'manual' | 'commission' | string | null;
+  origin_type?: AccountPayableOriginType | null;
   origin_id?: number | null;
   payment_date: string | null;
   payment_method: string | null;

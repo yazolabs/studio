@@ -99,37 +99,38 @@ class AccountPayableService extends BaseService
     protected function syncCommission(AccountPayable $account): void
     {
         if ($account->origin_type === 'commission' && !empty($account->origin_id)) {
-            $commission = Commission::query()->find($account->origin_id);
+            $commissionId = (int) $account->origin_id;
         } else {
-            if (!$account->appointment_id || !$account->professional_id) {
-                return;
-            }
+            if (!$account->appointment_id || !$account->professional_id) return;
 
-            $commission = Commission::query()
+            $commissionId = (int) Commission::query()
                 ->where('appointment_id', $account->appointment_id)
                 ->where('professional_id', $account->professional_id)
                 ->orderBy('id')
-                ->first();
+                ->value('id');
+
+            if (!$commissionId) return;
         }
 
-        if (!$commission) {
-            return;
-        }
 
-        $status = is_object($account->status)
-            ? $account->status->value
-            : $account->status;
+        $status = is_object($account->status) ? $account->status->value : (string) $account->status;
+
+        $updates = [];
+
+        if ($account->amount !== null) {
+            $updates['commission_amount'] = (float) $account->amount;
+        }
 
         if ($status === 'paid') {
-            $commission->update([
-                'status'       => 'paid',
-                'payment_date' => $account->payment_date ?? now()->toDateString(),
-            ]);
+            $updates['status'] = 'paid';
+            $updates['payment_date'] = $account->payment_date ?? now()->toDateString();
         } else {
-            $commission->update([
-                'status'       => 'pending',
-                'payment_date' => null,
-            ]);
+            $updates['status'] = 'pending';
+            $updates['payment_date'] = null;
+        }
+
+        if (!empty($updates)) {
+            Commission::query()->where('id', $commissionId)->update($updates);
         }
     }
 }

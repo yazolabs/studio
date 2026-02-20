@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Models\{Commission, AppointmentService};
+use App\Models\{AccountPayable, Commission, AppointmentService};
 use Illuminate\Database\Eloquent\{Builder, Model};
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -35,9 +35,16 @@ class CommissionService extends BaseService
 
             unset($data['_auto']);
 
-            $data['commission_amount'] = $this->calculateCommissionAmount($data);
+            if (!array_key_exists('commission_amount', $data) || $data['commission_amount'] === null || $data['commission_amount'] === '') {
+                $data['commission_amount'] = $this->calculateCommissionAmount($data);
+            }
 
-            return parent::create($data);
+            /** @var Commission $created */
+            $created = parent::create($data);
+
+            $this->syncAccountPayableFromCommission($created);
+
+            return $created;
         });
     }
 
@@ -54,9 +61,16 @@ class CommissionService extends BaseService
 
             unset($data['_auto']);
 
-            $data['commission_amount'] = $this->calculateCommissionAmount($data);
+            if (!array_key_exists('commission_amount', $data) || $data['commission_amount'] === null || $data['commission_amount'] === '') {
+                $data['commission_amount'] = $this->calculateCommissionAmount($data);
+            }
 
-            return parent::create($data);
+            /** @var Commission $created */
+            $created = parent::create($data);
+
+            $this->syncAccountPayableFromCommission($created);
+
+            return $created;
         });
     }
 
@@ -74,28 +88,33 @@ class CommissionService extends BaseService
                 $data = $this->hydrateAppointmentServiceLink($data, $merged);
             }
 
-            if (
-                isset($data['service_price']) ||
-                isset($data['commission_type']) ||
-                isset($data['commission_value'])
-            ) {
+            $shouldRecalc =
+                (array_key_exists('service_price', $data) ||
+                 array_key_exists('commission_type', $data) ||
+                 array_key_exists('commission_value', $data));
+
+            $hasManualCommissionAmount = array_key_exists('commission_amount', $data);
+
+            if ($shouldRecalc && !$hasManualCommissionAmount) {
                 $merged = array_merge($model->toArray(), $data);
                 $data['commission_amount'] = $this->calculateCommissionAmount($merged);
             }
 
             unset($data['_auto']);
 
-            return parent::update($model, $data);
+            /** @var Commission $updated */
+            $updated = parent::update($model, $data);
+
+            $this->syncAccountPayableFromCommission($updated);
+
+            return $updated;
         });
     }
 
     public function updateAuto(Model $model, array $data): Model
     {
         $data['_auto'] = true;
-
-        $updated = $this->update($model, $data);
-
-        return $updated;
+        return $this->update($model, $data);
     }
 
     protected function hydrateAppointmentServiceLink(array $data, ?array $context = null): array
@@ -124,13 +143,10 @@ class CommissionService extends BaseService
             $data['professional_id'] ??= $svc->professional_id;
 
             $gross = (float) $svc->service_price;
-
             $promoDiscount = (float) $svc->promotions()->sum('appointment_service_promotion.discount_amount');
-
             $final = max(0.0, round($gross - $promoDiscount, 2));
 
             $data['service_price'] ??= $final;
-
             $data['commission_type'] ??= $svc->commission_type;
             $data['commission_value'] ??= $svc->commission_value;
 
@@ -151,7 +167,7 @@ class CommissionService extends BaseService
         }
 
         if (!empty($data['_auto']) && empty($data['appointment_service_id'])) {
-            throw \Illuminate\Validation\ValidationException::withMessages([
+            throw ValidationException::withMessages([
                 'appointment_service_id' => ['Não foi possível resolver appointment_service_id automaticamente.'],
             ]);
         }
@@ -172,5 +188,29 @@ class CommissionService extends BaseService
         }
 
         return round(min($value, $price), 2);
+    }
+
+    protected function syncAccountPayableFromCommission(Commission $commission): void
+    {
+        $status = is_object($commission->status) ? $commission->status->value : (string) $commission->status;
+
+        $updates = [
+            'amount' => (float) $commission->commission_amount,
+            'professional_id' => $commission->professional_id,
+            'appointment_id'  => $commission->appointment_id,
+        ];
+
+        if ($status === 'paid') {
+            $updates['status'] = 'paid';
+            $updates['payment_date'] = $commission->payment_date ?? now()->toDateString();
+        } else {
+            $updates['status'] = 'pending';
+            $updates['payment_date'] = null;
+        }
+
+        AccountPayable::query()
+            ->where('origin_type', 'commission')
+            ->where('origin_id', $commission->id)
+            ->update($updates);
     }
 }
