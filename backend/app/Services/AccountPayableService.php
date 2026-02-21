@@ -36,6 +36,7 @@ class AccountPayableService extends BaseService
 
             $data = $this->hydrateOriginFromCommission($data);
 
+            /** @var AccountPayable $account */
             $account = parent::create($data);
 
             $this->syncCommission($account);
@@ -53,8 +54,10 @@ class AccountPayableService extends BaseService
             }
 
             if (
+                array_key_exists('commission_id', $data) ||
                 array_key_exists('origin_type', $data) ||
                 array_key_exists('origin_id', $data) ||
+                array_key_exists('reference', $data) ||
                 array_key_exists('appointment_id', $data) ||
                 array_key_exists('professional_id', $data)
             ) {
@@ -62,6 +65,7 @@ class AccountPayableService extends BaseService
                 $data = $this->hydrateOriginFromCommission($data, $merged);
             }
 
+            /** @var AccountPayable $account */
             $account = parent::update($model, $data);
 
             $this->syncCommission($account);
@@ -74,23 +78,40 @@ class AccountPayableService extends BaseService
     {
         $ctx = $context ?? $data;
 
-        if (!empty($ctx['origin_type']) || !empty($ctx['origin_id'])) {
-            return $data;
+        if (empty($ctx['commission_id']) && !empty($ctx['origin_type']) && (string) $ctx['origin_type'] === 'commission' && !empty($ctx['origin_id'])) {
+            $data['commission_id'] = (int) $ctx['origin_id'];
         }
 
-        if (empty($ctx['appointment_id']) || empty($ctx['professional_id'])) {
-            return $data;
-        }
-
-        $commissionId = Commission::query()
-            ->where('appointment_id', $ctx['appointment_id'])
-            ->where('professional_id', $ctx['professional_id'])
-            ->orderBy('id')
-            ->value('id');
-
-        if ($commissionId) {
+        if (!empty($ctx['commission_id'])) {
+            $cid = (int) $ctx['commission_id'];
+            $data['commission_id'] = $cid;
             $data['origin_type'] = 'commission';
-            $data['origin_id'] = $commissionId;
+            $data['origin_id'] = $cid;
+            return $data;
+        }
+
+        if (!empty($ctx['origin_type']) && (string) $ctx['origin_type'] === 'commission' && !empty($ctx['origin_id'])) {
+            $cid = (int) $ctx['origin_id'];
+            $data['origin_type'] = 'commission';
+            $data['origin_id'] = $cid;
+            $data['commission_id'] = $cid;
+            return $data;
+        }
+
+        $ref = (string) ($ctx['reference'] ?? '');
+        $apsId = $this->extractApsIdFromReference($ref);
+
+        if ($apsId) {
+            $cid = (int) Commission::query()
+                ->where('appointment_service_id', $apsId)
+                ->orderBy('id')
+                ->value('id');
+
+            if ($cid) {
+                $data['origin_type'] = 'commission';
+                $data['origin_id'] = $cid;
+                $data['commission_id'] = $cid;
+            }
         }
 
         return $data;
@@ -98,20 +119,38 @@ class AccountPayableService extends BaseService
 
     protected function syncCommission(AccountPayable $account): void
     {
-        if ($account->origin_type === 'commission' && !empty($account->origin_id)) {
+        $commissionId = null;
+
+        if (!empty($account->commission_id)) {
+            $commissionId = (int) $account->commission_id;
+        } elseif ((string) $account->origin_type === 'commission' && !empty($account->origin_id)) {
             $commissionId = (int) $account->origin_id;
         } else {
-            if (!$account->appointment_id || !$account->professional_id) return;
-
-            $commissionId = (int) Commission::query()
-                ->where('appointment_id', $account->appointment_id)
-                ->where('professional_id', $account->professional_id)
-                ->orderBy('id')
-                ->value('id');
-
-            if (!$commissionId) return;
+            $apsId = $this->extractApsIdFromReference((string) $account->reference);
+            if ($apsId) {
+                $commissionId = (int) Commission::query()
+                    ->where('appointment_service_id', $apsId)
+                    ->orderBy('id')
+                    ->value('id');
+            }
         }
 
+        if (!$commissionId) {
+            return;
+        }
+
+        $needsBackfill =
+            (empty($account->commission_id) || (int) $account->commission_id !== (int) $commissionId) ||
+            ((string) $account->origin_type !== 'commission') ||
+            (empty($account->origin_id) || (int) $account->origin_id !== (int) $commissionId);
+
+        if ($needsBackfill) {
+            $account->forceFill([
+                'commission_id' => $commissionId,
+                'origin_type'   => 'commission',
+                'origin_id'     => $commissionId,
+            ])->saveQuietly();
+        }
 
         $status = is_object($account->status) ? $account->status->value : (string) $account->status;
 
@@ -132,5 +171,17 @@ class AccountPayableService extends BaseService
         if (!empty($updates)) {
             Commission::query()->where('id', $commissionId)->update($updates);
         }
+    }
+
+    private function extractApsIdFromReference(string $ref): ?int
+    {
+        if (!$ref) return null;
+
+        if (preg_match('/APP-\d+-APS-(\d+)/', $ref, $m)) {
+            $apsId = (int) ($m[1] ?? 0);
+            return $apsId > 0 ? $apsId : null;
+        }
+
+        return null;
     }
 }
