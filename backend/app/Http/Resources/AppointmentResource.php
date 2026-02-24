@@ -10,6 +10,33 @@ class AppointmentResource extends JsonResource
 {
     public function toArray($request): array
     {
+        $user = $request->user();
+        $isProfessional = $user?->hasRole('professional') === true;
+
+        $startTime = $this->start_time?->format('H:i:s');
+        $endTime   = $this->end_time?->format('H:i:s');
+        $duration  = $this->duration;
+
+        if ($isProfessional && $this->relationLoaded('appointmentServices')) {
+            $minStart = null;
+            $maxEnd   = null;
+
+            foreach ($this->appointmentServices as $aps) {
+                if (!empty($aps->starts_at)) {
+                    $dt = Carbon::parse($aps->starts_at);
+                    if (!$minStart || $dt->lt($minStart)) $minStart = $dt;
+                }
+                if (!empty($aps->ends_at)) {
+                    $dt = Carbon::parse($aps->ends_at);
+                    if (!$maxEnd || $dt->gt($maxEnd)) $maxEnd = $dt;
+                }
+            }
+
+            if ($minStart) $startTime = $minStart->format('H:i:s');
+            if ($maxEnd)   $endTime   = $maxEnd->format('H:i:s');
+            if ($minStart && $maxEnd) $duration = $minStart->diffInMinutes($maxEnd);
+        }
+
         $professionalsMap = [];
 
         if ($this->relationLoaded('appointmentServices')) {
@@ -140,25 +167,25 @@ class AppointmentResource extends JsonResource
                     ];
                 });
             }),
-            'items' => $this->whenLoaded('items', fn () =>
+            'date'       => $this->date?->toDateString(),
+            'start_time' => $startTime,
+            'end_time'   => $endTime,
+            'duration'   => $duration,
+            'status' => $this->status?->value,
+            'payment_status' => $this->when(!$isProfessional, $this->payment_status?->value),
+            'total_price'     => $this->when(!$isProfessional, $this->total_price),
+            'discount_type'   => $this->when(!$isProfessional, $this->discount_type),
+            'discount_amount' => $this->when(!$isProfessional, $this->discount_amount),
+            'final_price'     => $this->when(!$isProfessional, $this->final_price),
+            'items' => $this->when(!$isProfessional, $this->whenLoaded('items', fn () =>
                 $this->items->map(fn ($item) => [
                     'id'       => $item->id,
                     'name'     => $item->name,
                     'price'    => $item->pivot->price,
                     'quantity' => $item->pivot->quantity,
                 ])
-            ),
-            'date'       => $this->date?->toDateString(),
-            'start_time' => $this->start_time?->format('H:i:s'),
-            'end_time'   => $this->end_time?->format('H:i:s'),
-            'duration'   => $this->duration,
-            'status'         => $this->status?->value,
-            'payment_status' => $this->payment_status?->value,
-            'total_price'     => $this->total_price,
-            'discount_type'   => $this->discount_type,
-            'discount_amount' => $this->discount_amount,
-            'final_price'     => $this->final_price,
-            'payments' => $this->whenLoaded('payments', fn () =>
+            )),
+            'payments' => $this->when(!$isProfessional, $this->whenLoaded('payments', fn () =>
                 $this->payments->map(fn ($p) => [
                     'id'           => $p->id,
                     'method'       => $p->method,
@@ -172,8 +199,8 @@ class AppointmentResource extends JsonResource
                     'created_at'   => $p->created_at?->toISOString(),
                     'updated_at'   => $p->updated_at?->toISOString(),
                 ])
-            ),
-            'payment_summary' => $this->whenLoaded('payments', function () {
+            )),
+            'payment_summary' => $this->when(!$isProfessional, $this->whenLoaded('payments', function () {
                 $grouped = $this->payments->groupBy('method');
 
                 return $grouped->map(function ($rows, $method) {
@@ -187,7 +214,7 @@ class AppointmentResource extends JsonResource
                         'amount' => number_format($sumCents / 100, 2, '.', ''),
                     ];
                 })->values();
-            }),
+            })),
             'notes'      => $this->notes,
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),

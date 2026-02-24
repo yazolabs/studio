@@ -37,7 +37,7 @@ class User extends Authenticatable
 
     public function roles()
     {
-        return $this->belongsToMany(Role::class, 'role_user');
+        return $this->belongsToMany(Role::class, 'role_user')->withTimestamps();
     }
 
     public function hasRole($role)
@@ -59,11 +59,16 @@ class User extends Authenticatable
     
     public function isAdmin()
     {
-        return $this->hasRole('adm');
+        return $this->hasRole('admin');
     }
 
     public function professional()
     {
         return $this->hasOne(Professional::class);
+    }
+
+    public function professionalId(): ?int
+    {
+        return $this->professional?->id;
     }
 }

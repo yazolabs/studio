@@ -23,15 +23,11 @@ class AppointmentController extends Controller
 
     public function index(Request $request)
     {
+        $user = $request->user();
+
         $query = Appointment::query()
-            ->with([
-                'customer',
-                'services',
-                'items',
-                'payments',
-                'appointmentServices.service',
-                'appointmentServices.promotions',
-            ])
+            ->visibleTo($user)
+            ->with($this->appointmentWithFor($request))
             ->orderBy('date', 'desc')
             ->orderBy('start_time', 'desc');
 
@@ -50,16 +46,23 @@ class AppointmentController extends Controller
         if ($request->filled('status')) {
             $query->where('status', $request->status);
         }
+
         if ($request->filled('payment_status')) {
             $query->where('payment_status', $request->payment_status);
         }
+
         if ($request->filled('date')) {
             $query->whereDate('date', $request->date);
         }
+
         if ($request->filled('start_date') && $request->filled('end_date')) {
             $query->whereBetween('date', [$request->start_date, $request->end_date]);
         }
-        if ($request->filled('professional_id')) {
+
+        if ($user->hasRole('professional')) {
+            $pid = $user->professionalId() ?? -1;
+            $query->whereHas('appointmentServices', fn ($q) => $q->where('professional_id', $pid));
+        } elseif ($request->filled('professional_id')) {
             $pid = (int) $request->professional_id;
             $query->whereHas('appointmentServices', fn ($q) => $q->where('professional_id', $pid));
         }
@@ -129,16 +132,18 @@ class AppointmentController extends Controller
         });
     }
 
-    public function show(Appointment $appointment)
+    public function show(Request $request, Appointment $appointment)
     {
-        $appointment->load([
-            'customer',
-            'services',
-            'items',
-            'payments',
-            'appointmentServices.service',
-            'appointmentServices.promotions',
-        ]);
+        $user = $request->user();
+
+        $allowed = Appointment::query()
+            ->visibleTo($user)
+            ->whereKey($appointment->id)
+            ->exists();
+
+        abort_unless($allowed, 404);
+
+        $appointment->load($this->appointmentWithFor($request));
 
         return new AppointmentResource($appointment);
     }
@@ -223,6 +228,39 @@ class AppointmentController extends Controller
         });
 
         return response()->noContent();
+    }
+
+    private function appointmentWithFor(Request $request): array
+    {
+        $user = $request->user();
+
+        if ($user->hasRole('admin')) {
+            return [
+                'customer',
+                'services',
+                'items',
+                'payments',
+                'appointmentServices.service',
+                'appointmentServices.promotions',
+            ];
+        }
+
+        if ($user->hasRole('professional')) {
+            $pid = $user->professionalId() ?? -1;
+
+            return [
+                'customer',
+                'appointmentServices' => function ($q) use ($pid) {
+                    $q->where('professional_id', $pid)
+                    ->with(['service', 'promotions']);
+                },
+                'services' => function ($q) use ($pid) {
+                    $q->wherePivot('professional_id', $pid);
+                },
+            ];
+        }
+
+        return ['customer'];
     }
 
     private function syncServices(Appointment $appointment, $services): void
@@ -699,16 +737,11 @@ class AppointmentController extends Controller
 
     public function calendar(Request $request)
     {
-        $query = Appointment::with([
-                'customer',
-                'services',
-                'payments',
-                'appointmentServices.service',
-                'appointmentServices.promotions',
-            ])
-            ->when($request->filled('professional_id'), function ($q) use ($request) {
-                $q->whereHas('appointmentServices', fn($sub) => $sub->where('professional_id', (int) $request->professional_id));
-            })
+        $user = $request->user();
+
+        $query = Appointment::query()
+            ->visibleTo($user)
+            ->with($this->appointmentWithFor($request))
             ->when($request->filled('status'), fn($q) => $q->where('status', $request->status))
             ->when(
                 $request->filled('start_date') && $request->filled('end_date'),
@@ -720,6 +753,13 @@ class AppointmentController extends Controller
             )
             ->orderBy('date')
             ->orderBy('start_time');
+
+        if ($user->hasRole('professional')) {
+            $pid = $user->professionalId() ?? -1;
+            $query->whereHas('appointmentServices', fn($sub) => $sub->where('professional_id', $pid));
+        } elseif ($request->filled('professional_id')) {
+            $query->whereHas('appointmentServices', fn($sub) => $sub->where('professional_id', (int) $request->professional_id));
+        }
 
         return AppointmentResource::collection($query->get());
     }

@@ -3,7 +3,7 @@
 namespace App\Models;
 
 use App\Enums\{CommissionStatus, CommissionType};
-use Illuminate\Database\Eloquent\{Model, SoftDeletes};
+use Illuminate\Database\Eloquent\{Builder, Model, SoftDeletes};
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
 
@@ -69,5 +69,17 @@ class Commission extends Model
     public function isPaid(): bool
     {
         return $this->status->value === 'paid';
+    }
+
+    public function scopeVisibleTo(Builder $query, User $user): Builder
+    {
+        if ($user->hasRole('admin')) return $query;
+
+        if ($user->hasRole('professional')) {
+            $pid = $user->professionalId();
+            return $query->where('professional_id', $pid ?? -1);
+        }
+
+        return $query->whereRaw('1=0');
     }
 }

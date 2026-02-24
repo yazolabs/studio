@@ -4,7 +4,7 @@ namespace App\Models;
 
 use App\Enums\{AppointmentPaymentStatus, AppointmentStatus};
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\{Model, SoftDeletes};
+use Illuminate\Database\Eloquent\{Builder, Model, SoftDeletes};
 
 class Appointment extends Model
 {
@@ -92,5 +92,20 @@ class Appointment extends Model
     public function primaryPayment()
     {
         return $this->hasOne(AppointmentPayment::class)->latestOfMany();
+    }
+
+    public function scopeVisibleTo(Builder $query, User $user): Builder
+    {
+        if ($user->hasRole('admin')) return $query;
+
+        if ($user->hasRole('professional')) {
+            $pid = $user->professionalId();
+
+            return $query->whereHas('appointmentServices', function ($q) use ($pid) {
+                $q->where('professional_id', $pid ?? -1);
+            });
+        }
+
+        return $query->whereRaw('1=0');
     }
 }

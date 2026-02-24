@@ -19,6 +19,8 @@ class CommissionController extends Controller
 
     public function index(Request $request)
     {
+        $user = $request->user();
+
         $filters = $request->only([
             'status',
             'professional_id',
@@ -29,15 +31,13 @@ class CommissionController extends Controller
             'perPage',
         ]);
 
-        $query = Commission::with(['professional', 'customer', 'service', 'appointment', 'appointmentService', 'accountPayable'])
+        $query = Commission::query()
+            ->visibleTo($user)
+            ->with(['professional', 'customer', 'service', 'appointment', 'appointmentService', 'accountPayable'])
             ->when($filters['status'] ?? null, fn($q, $status) => $q->where('status', $status))
-            ->when($filters['professional_id'] ?? null, fn($q, $id) => $q->where('professional_id', $id))
             ->when($filters['appointment_id'] ?? null, fn($q, $id) => $q->where('appointment_id', $id))
             ->when(($filters['start_date'] ?? null) && ($filters['end_date'] ?? null), function ($q) use ($filters) {
-                $q->whereBetween('date', [
-                    $filters['start_date'],
-                    $filters['end_date']
-                ]);
+                $q->whereBetween('date', [$filters['start_date'], $filters['end_date']]);
             })
             ->when($filters['search'] ?? null, function ($q, $term) {
                 $q->where(function ($sub) use ($term) {
@@ -47,6 +47,13 @@ class CommissionController extends Controller
                 });
             })
             ->orderByDesc('date');
+
+        if ($user->hasRole('professional')) {
+            $pid = $user->professionalId() ?? -1;
+            $query->where('professional_id', $pid);
+        } elseif (!empty($filters['professional_id'])) {
+            $query->where('professional_id', (int) $filters['professional_id']);
+        }
 
         $commissions = $query->paginate($filters['perPage'] ?? 15);
 
@@ -83,8 +90,17 @@ class CommissionController extends Controller
             ->setStatusCode(Response::HTTP_CREATED);
     }
 
-    public function show(Commission $commission)
+    public function show(Request $request, Commission $commission)
     {
+        $user = $request->user();
+
+        $allowed = Commission::query()
+            ->visibleTo($user)
+            ->whereKey($commission->id)
+            ->exists();
+
+        abort_unless($allowed, 404);
+
         return new CommissionResource(
             $commission->load(['professional', 'customer', 'service', 'appointment', 'appointmentService', 'accountPayable'])
         );
