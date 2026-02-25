@@ -6,20 +6,27 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\CustomerResource;
 use App\Models\Customer;
 use Illuminate\Http\Request;
-use Illuminate\Support\Arr;
 use Symfony\Component\HttpFoundation\Response;
 
 class CustomerController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Customer::query()->orderBy('name');
+        $user = $request->user();
+        $isProfessional = $user?->hasRole('professional') === true;
 
-        if ($search = trim($request->get('search', ''))) {
-            $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                ->orWhere('email', 'like', "%{$search}%")
-                ->orWhere('phone', 'like', "%{$search}%");
+        $query = Customer::query()
+            ->when($isProfessional, fn ($q) => $q->select(['id', 'name']))
+            ->orderBy('name');
+
+        if ($search = trim((string) $request->get('search', ''))) {
+            $query->where(function ($q) use ($search, $isProfessional) {
+                $q->where('name', 'like', "%{$search}%");
+
+                if (!$isProfessional) {
+                    $q->orWhere('email', 'like', "%{$search}%")
+                      ->orWhere('phone', 'like', "%{$search}%");
+                }
             });
         }
 
@@ -59,8 +66,18 @@ class CustomerController extends Controller
             ->setStatusCode(Response::HTTP_CREATED);
     }
 
-    public function show(Customer $customer)
+    public function show(Request $request, Customer $customer)
     {
+        $user = $request->user();
+        $isProfessional = $user?->hasRole('professional') === true;
+
+        if ($isProfessional) {
+            $customer = Customer::query()
+                ->select(['id', 'name'])
+                ->whereKey($customer->id)
+                ->firstOrFail();
+        }
+
         return new CustomerResource($customer);
     }
 

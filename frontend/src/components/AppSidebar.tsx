@@ -6,6 +6,7 @@ import { useAuthUser } from '@/hooks/useAuthUser';
 import { usePermission } from '@/hooks/usePermission';
 import { cn } from "@/lib/utils";
 import { Screen } from '@/types/auth';
+import { usePermissions } from '@/contexts/permissionsContext';
 
 interface NavItem {
   title: string;

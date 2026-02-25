@@ -31,24 +31,27 @@ export function useAuthUser() {
 
     try {
       const { data } = await api.get<{ user: User; permissions: Permission[] }>("/me");
+
       setAuthState({
         user: { ...data.user, permissions: data.permissions },
         isAuthenticated: true,
         isLoading: false,
       });
+
       return data.user;
-    } catch (error) {
+    } catch {
       localStorage.removeItem("authToken");
+      delete api.defaults.headers.Authorization;
       setAuthState({ user: null, isAuthenticated: false, isLoading: false });
       return null;
     }
   }, []);
 
   useEffect(() => {
-    if (!authState.isAuthenticated) {
+    if (!authState.isAuthenticated && authState.isLoading) {
       fetchAuthenticatedUser();
     }
-  }, [fetchAuthenticatedUser, authState.isAuthenticated]);
+  }, [fetchAuthenticatedUser, authState.isAuthenticated, authState.isLoading]);
 
   const login = useCallback(
     async (login: string, password: string): Promise<LoginResult> => {
@@ -57,25 +60,30 @@ export function useAuthUser() {
           message: string;
           token: string;
           user: User;
-        }>("/login", {
-          login,
-          password,
-        });
+        }>("/login", { login, password });
 
         localStorage.setItem("authToken", data.token);
         api.defaults.headers.Authorization = `Bearer ${data.token}`;
+
+        const me = await api.get<{ user: User; permissions: Permission[] }>("/me");
+
         setAuthState({
-          user: { ...data.user, permissions: data.user.permissions }, // Atribui permissões
+          user: { ...me.data.user, permissions: me.data.permissions },
           isAuthenticated: true,
           isLoading: false,
         });
-        return { success: true, user: data.user };
+
+        return { success: true, user: me.data.user };
       } catch (error) {
         let message = "Não foi possível realizar o login.";
         if (axios.isAxiosError(error)) {
-          message = error.response?.data?.message ?? message;
+          message = (error.response?.data as any)?.message ?? message;
         }
+
+        localStorage.removeItem("authToken");
+        delete api.defaults.headers.Authorization;
         setAuthState({ user: null, isAuthenticated: false, isLoading: false });
+
         return { success: false, error: message };
       }
     },

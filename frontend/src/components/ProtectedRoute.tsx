@@ -1,7 +1,7 @@
-import { Navigate } from 'react-router-dom';
-import { useAuthUser } from '@/hooks/useAuthUser';
-import { usePermission } from '@/hooks/usePermission';
-import { Screen } from '@/types/auth';
+import { Navigate } from "react-router-dom";
+import { useAuth } from "@/contexts/authContext";
+import { usePermission } from "@/hooks/usePermission";
+import { Screen } from "@/types/auth";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -9,7 +9,7 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, screen }: ProtectedRouteProps) {
-  const { isAuthenticated, isLoading } = useAuthUser();
+  const { isAuthenticated, isLoading } = useAuth();
   const { canAccess } = usePermission();
 
   if (isLoading) {
@@ -24,7 +24,9 @@ export function ProtectedRoute({ children, screen }: ProtectedRouteProps) {
   }
 
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  if (screen && !canAccess(screen)) return <Navigate to="/dashboard" replace />;
+  if (screen && !canAccess(screen)) {
+    return <Navigate to="/unauthorized" replace state={{ screen }} />;
+  }
 
   return <>{children}</>;
 }

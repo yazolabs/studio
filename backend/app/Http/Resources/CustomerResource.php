@@ -8,6 +8,16 @@ class CustomerResource extends JsonResource
 {
     public function toArray($request): array
     {
+        $user = $request->user();
+        $isProfessional = $user?->hasRole('professional') === true;
+
+        if ($isProfessional) {
+            return [
+                'id'   => $this->id,
+                'name' => $this->name,
+            ];
+        }
+
         return [
             'id' => $this->id,
             'name' => $this->name,

@@ -32,7 +32,6 @@ class AuthController extends Controller
         }
 
         $user->tokens()->delete();
-
         $token = $user->createToken('auth_token')->plainTextToken;
 
         return response()->json([
@@ -50,17 +49,39 @@ class AuthController extends Controller
             return response()->json(['message' => 'Usuário não autenticado.'], 401);
         }
 
-        $permissions = $user->roles->flatMap(function ($role) {
-            return $role->permissions->map(function ($permission) {
+        $user->load([
+            'roles.permissions.screen',
+            'roles.permissions.action',
+        ]);
+
+        $byScreen = [];
+
+        foreach ($user->roles as $role) {
+            foreach ($role->permissions as $perm) {
+                $screen = $perm->screen?->slug;
+                $action = $perm->action?->slug;
+
+                if (! $screen || ! $action) continue;
+
+                if (! isset($byScreen[$screen])) {
+                    $byScreen[$screen] = [];
+                }
+
+                $byScreen[$screen][$action] = true;
+            }
+        }
+
+        $permissions = collect($byScreen)
+            ->map(function ($actions, $screen) {
                 return [
-                    'screen' => $permission->screen->slug,
-                    'action' => $permission->action->slug,
+                    'screen'  => $screen,
+                    'actions' => array_values(array_keys($actions)),
                 ];
-            });
-        });
+            })
+            ->values();
 
         return response()->json([
-            'user' => $user,
+            'user'        => $user,
             'permissions' => $permissions,
         ]);
     }
