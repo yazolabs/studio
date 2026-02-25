@@ -56,6 +56,8 @@ export default function Commissions() {
     );
   }, [canAccess]);
 
+  const showActions = !isProfessionalView;
+
   const { data, isLoading } = useCommissionsQuery({
     start_date,
     end_date,
@@ -66,8 +68,7 @@ export default function Commissions() {
   });
 
   const updateMutation = useUpdateCommission(editing?.id ?? 0);
-  const { mutate: markAsPaid, isPending: isMarkingPaid } =
-    useMarkCommissionAsPaid();
+  const { mutate: markAsPaid, isPending: isMarkingPaid } = useMarkCommissionAsPaid();
 
   const commissions = data ?? [];
 
@@ -133,16 +134,8 @@ export default function Commissions() {
       32
     );
     doc.text(`Profissional: ${selectedProfessionalName}`, 14, 40);
-    doc.text(
-      `Total em Comissões: ${displayCurrency(summary.totalCommissions)}`,
-      14,
-      48
-    );
-    doc.text(
-      `Total em Serviços: ${displayCurrency(summary.totalServices)}`,
-      14,
-      56
-    );
+    doc.text(`Total em Comissões: ${displayCurrency(summary.totalCommissions)}`, 14, 48);
+    doc.text(`Total em Serviços: ${displayCurrency(summary.totalServices)}`, 14, 56);
 
     autoTable(doc, {
       startY: 65,
@@ -213,6 +206,8 @@ export default function Commissions() {
   };
 
   const openEdit = (c: Commission) => {
+    if (!showActions) return;
+
     if (c.status === "paid") {
       toast.error("Não é possível editar uma comissão já paga.");
       return;
@@ -230,6 +225,7 @@ export default function Commissions() {
   const handleSubmitEdit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
+    if (!showActions) return;
     if (!editing) return;
     if (isSaving || updateMutation.isPending) return;
 
@@ -340,53 +336,55 @@ export default function Commissions() {
             <div className="flex items-center gap-2">
               {getStatusBadge(c.status)}
 
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-9 w-9"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-
-                <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                  <DropdownMenuLabel>Ações</DropdownMenuLabel>
-
-                  {c.status === "pending" && (
-                    <>
-                      <DropdownMenuItem onClick={() => openEdit(c)}>
-                        <Pencil className="mr-2 h-4 w-4" />
-                        Editar comissão
-                      </DropdownMenuItem>
-
-                      <DropdownMenuItem
-                        disabled={isMarkingPaid}
-                        onClick={() => handleMarkAsPaid(c.id)}
-                      >
-                        <Check className="mr-2 h-4 w-4" />
-                        Marcar como paga
-                      </DropdownMenuItem>
-
-                      <DropdownMenuSeparator />
-                    </>
-                  )}
-
-                  {c.account_payable_id ? (
-                    <DropdownMenuItem
-                      onClick={() =>
-                        navigator.clipboard?.writeText(String(c.account_payable_id))
-                      }
+              {showActions && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-9 w-9"
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      Copiar AP #{c.account_payable_id}
-                    </DropdownMenuItem>
-                  ) : (
-                    <DropdownMenuItem disabled>Sem AP vinculado</DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+
+                  <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenuLabel>Ações</DropdownMenuLabel>
+
+                    {c.status === "pending" && (
+                      <>
+                        <DropdownMenuItem onClick={() => openEdit(c)}>
+                          <Pencil className="mr-2 h-4 w-4" />
+                          Editar comissão
+                        </DropdownMenuItem>
+
+                        <DropdownMenuItem
+                          disabled={isMarkingPaid}
+                          onClick={() => handleMarkAsPaid(c.id)}
+                        >
+                          <Check className="mr-2 h-4 w-4" />
+                          Marcar como paga
+                        </DropdownMenuItem>
+
+                        <DropdownMenuSeparator />
+                      </>
+                    )}
+
+                    {c.account_payable_id ? (
+                      <DropdownMenuItem
+                        onClick={() =>
+                          navigator.clipboard?.writeText(String(c.account_payable_id))
+                        }
+                      >
+                        Copiar AP #{c.account_payable_id}
+                      </DropdownMenuItem>
+                    ) : (
+                      <DropdownMenuItem disabled>Sem AP vinculado</DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
 
             <div className="text-muted-foreground">
@@ -424,12 +422,11 @@ export default function Commissions() {
     );
   };
 
-  const columns = [
+  const columnsBase = [
     {
       key: "date",
       header: "Data",
-      render: (c: Commission) =>
-        c.date ? format(parseISO(c.date), "dd/MM/yyyy") : "-",
+      render: (c: Commission) => (c.date ? format(parseISO(c.date), "dd/MM/yyyy") : "-"),
     },
     {
       key: "appointment_service_id",
@@ -502,70 +499,61 @@ export default function Commissions() {
       key: "account_payable_id",
       header: "Conta a Pagar",
       render: (c: Commission) =>
-        c.account_payable_id ? (
-          <span className="font-medium">AP #{c.account_payable_id}</span>
-        ) : (
-          "-"
-        ),
+        c.account_payable_id ? <span className="font-medium">AP #{c.account_payable_id}</span> : "-",
     },
     {
       key: "status",
       header: "Status",
       render: (c: Commission) => getStatusBadge(c.status),
     },
-    {
-      key: "actions",
-      header: "Ações",
-      render: (c: Commission) => (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              size={isMobile ? "sm" : "icon"}
-              variant="ghost"
-              className="h-8 w-8"
-            >
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Ações</DropdownMenuLabel>
-
-            {c.status === "pending" && (
-              <>
-                <DropdownMenuItem onClick={() => openEdit(c)}>
-                  <Pencil className="mr-2 h-4 w-4" />
-                  Editar comissão
-                </DropdownMenuItem>
-
-                <DropdownMenuItem
-                  disabled={isMarkingPaid}
-                  onClick={() => handleMarkAsPaid(c.id)}
-                >
-                  <Check className="mr-2 h-4 w-4" />
-                  Marcar como paga
-                </DropdownMenuItem>
-
-                <DropdownMenuSeparator />
-              </>
-            )}
-
-            {c.account_payable_id ? (
-              <DropdownMenuItem
-                onClick={() =>
-                  navigator.clipboard?.writeText(String(c.account_payable_id))
-                }
-              >
-                Copiar AP #{c.account_payable_id}
-              </DropdownMenuItem>
-            ) : (
-              <DropdownMenuItem disabled>Sem AP vinculado</DropdownMenuItem>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ),
-    },
   ];
+
+  const columns = showActions
+    ? [
+        ...columnsBase,
+        {
+          key: "actions",
+          header: "Ações",
+          render: (c: Commission) => (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size={isMobile ? "sm" : "icon"} variant="ghost" className="h-8 w-8">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Ações</DropdownMenuLabel>
+
+                {c.status === "pending" && (
+                  <>
+                    <DropdownMenuItem onClick={() => openEdit(c)}>
+                      <Pencil className="mr-2 h-4 w-4" />
+                      Editar comissão
+                    </DropdownMenuItem>
+
+                    <DropdownMenuItem disabled={isMarkingPaid} onClick={() => handleMarkAsPaid(c.id)}>
+                      <Check className="mr-2 h-4 w-4" />
+                      Marcar como paga
+                    </DropdownMenuItem>
+
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+
+                {c.account_payable_id ? (
+                  <DropdownMenuItem onClick={() => navigator.clipboard?.writeText(String(c.account_payable_id))}>
+                    Copiar AP #{c.account_payable_id}
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem disabled>Sem AP vinculado</DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ),
+        },
+      ]
+    : columnsBase;
 
   const hasActiveFilters =
     (!isProfessionalView && selectedProfessional !== "all") ||
@@ -598,9 +586,7 @@ export default function Commissions() {
         <div>
           <h1 className="text-3xl font-bold">Comissões</h1>
           <p className="text-muted-foreground">
-            {isProfessionalView
-              ? "Suas comissões no período selecionado"
-              : "Relatório de comissões dos profissionais"}
+            {isProfessionalView ? "Suas comissões no período selecionado" : "Relatório de comissões dos profissionais"}
           </p>
         </div>
 
@@ -621,9 +607,7 @@ export default function Commissions() {
           <div className="flex items-center gap-2">
             <Filter className="h-4 w-4 text-muted-foreground" />
             <div className="flex flex-col">
-              <span className="text-xs md:text-sm font-medium text-muted-foreground">
-                Filtros
-              </span>
+              <span className="text-xs md:text-sm font-medium text-muted-foreground">Filtros</span>
 
               {hasActiveFilters && (
                 <span className="text-[11px] text-muted-foreground">
@@ -637,13 +621,7 @@ export default function Commissions() {
 
           <div className="flex items-center gap-1">
             {hasActiveFilters && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="text-[11px] md:text-xs"
-                onClick={clearFilters}
-              >
+              <Button type="button" variant="ghost" size="sm" className="text-[11px] md:text-xs" onClick={clearFilters}>
                 Limpar filtros
               </Button>
             )}
@@ -662,17 +640,10 @@ export default function Commissions() {
         </div>
 
         {filtersOpen && (
-          <div
-            className={cn(
-              "grid grid-cols-1 gap-2 mt-2",
-              isProfessionalView ? "md:grid-cols-2" : "md:grid-cols-3"
-            )}
-          >
+          <div className={cn("grid grid-cols-1 gap-2 mt-2", isProfessionalView ? "md:grid-cols-2" : "md:grid-cols-3")}>
             {!isProfessionalView && (
               <div className="flex flex-col gap-1">
-                <span className="text-[11px] font-medium text-muted-foreground">
-                  Profissional
-                </span>
+                <span className="text-[11px] font-medium text-muted-foreground">Profissional</span>
                 <Select value={selectedProfessional} onValueChange={setSelectedProfessional}>
                   <SelectTrigger className="h-9 text-xs">
                     <SelectValue placeholder="Selecione" />
@@ -690,27 +661,13 @@ export default function Commissions() {
             )}
 
             <div className="flex flex-col gap-1">
-              <span className="text-[11px] font-medium text-muted-foreground">
-                Data início
-              </span>
-              <Input
-                className="h-9 text-xs"
-                type="date"
-                value={start_date}
-                onChange={(e) => setStartDate(e.target.value)}
-              />
+              <span className="text-[11px] font-medium text-muted-foreground">Data início</span>
+              <Input className="h-9 text-xs" type="date" value={start_date} onChange={(e) => setStartDate(e.target.value)} />
             </div>
 
             <div className="flex flex-col gap-1">
-              <span className="text-[11px] font-medium text-muted-foreground">
-                Data fim
-              </span>
-              <Input
-                className="h-9 text-xs"
-                type="date"
-                value={end_date}
-                onChange={(e) => setEndDate(e.target.value)}
-              />
+              <span className="text-[11px] font-medium text-muted-foreground">Data fim</span>
+              <Input className="h-9 text-xs" type="date" value={end_date} onChange={(e) => setEndDate(e.target.value)} />
             </div>
           </div>
         )}
@@ -723,9 +680,7 @@ export default function Commissions() {
             <DollarSign className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              {displayCurrency(summary.totalCommissions)}
-            </div>
+            <div className="text-2xl font-bold text-green-600">{displayCurrency(summary.totalCommissions)}</div>
             <p className="text-xs text-muted-foreground">No período selecionado</p>
           </CardContent>
         </Card>
@@ -736,9 +691,7 @@ export default function Commissions() {
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {displayCurrency(summary.totalServices)}
-            </div>
+            <div className="text-2xl font-bold">{displayCurrency(summary.totalServices)}</div>
             <p className="text-xs text-muted-foreground">Valor total dos serviços</p>
           </CardContent>
         </Card>
@@ -766,11 +719,7 @@ export default function Commissions() {
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label>Buscar</Label>
-                <Input
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Buscar por cliente, serviço, ID, AP..."
-                />
+                <Input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Buscar por cliente, serviço, ID, AP..." />
               </div>
 
               <div className="space-y-3">
@@ -779,9 +728,7 @@ export default function Commissions() {
                 ))}
 
                 {!mobileList.length && (
-                  <p className="text-sm text-muted-foreground italic">
-                    Nenhuma comissão encontrada
-                  </p>
+                  <p className="text-sm text-muted-foreground italic">Nenhuma comissão encontrada</p>
                 )}
               </div>
             </div>
@@ -825,17 +772,11 @@ export default function Commissions() {
                   <div key={prof} className="flex items-center justify-between border-b pb-3">
                     <div>
                       <p className="font-medium">{prof}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {data.services} atendimento(s)
-                      </p>
+                      <p className="text-sm text-muted-foreground">{data.services} atendimento(s)</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-lg font-bold text-green-600">
-                        {displayCurrency(data.total)}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Média: {displayCurrency(media)}
-                      </p>
+                      <p className="text-lg font-bold text-green-600">{displayCurrency(data.total)}</p>
+                      <p className="text-xs text-muted-foreground">Média: {displayCurrency(media)}</p>
                     </div>
                   </div>
                 );
@@ -844,57 +785,59 @@ export default function Commissions() {
         </CardContent>
       </Card>
 
-      <Dialog
-        open={isEditDialogOpen}
-        onOpenChange={(open) => {
-          setIsEditDialogOpen(open);
-          if (!open) {
-            setEditing(null);
-            setEditAmount("");
-            setIsSaving(false);
-          }
-        }}
-      >
-        <DialogContent className={cn("max-h-[90vh]", isMobile ? "max-w-[95vw]" : "max-w-md")}>
-          <DialogHeader>
-            <DialogTitle>Editar Comissão</DialogTitle>
-          </DialogHeader>
+      {showActions && (
+        <Dialog
+          open={isEditDialogOpen}
+          onOpenChange={(open) => {
+            setIsEditDialogOpen(open);
+            if (!open) {
+              setEditing(null);
+              setEditAmount("");
+              setIsSaving(false);
+            }
+          }}
+        >
+          <DialogContent className={cn("max-h-[90vh]", isMobile ? "max-w-[95vw]" : "max-w-md")}>
+            <DialogHeader>
+              <DialogTitle>Editar Comissão</DialogTitle>
+            </DialogHeader>
 
-          {editing && (
-            <form onSubmit={handleSubmitEdit} className="space-y-6">
-              <div className="space-y-2">
-                <Label>Comissão (R$)</Label>
-                <Input
-                  type="text"
-                  inputMode="decimal"
-                  value={editAmount}
-                  onChange={(e) => setEditAmount(formatCurrencyInput(e.target.value))}
-                  placeholder="R$ 0,00"
-                  required
-                />
-                <p className="text-xs text-muted-foreground">
-                  Comissão #{editing.id}
-                  {editing.account_payable_id ? ` • AP #${editing.account_payable_id}` : ""}
-                </p>
-              </div>
+            {editing && (
+              <form onSubmit={handleSubmitEdit} className="space-y-6">
+                <div className="space-y-2">
+                  <Label>Comissão (R$)</Label>
+                  <Input
+                    type="text"
+                    inputMode="decimal"
+                    value={editAmount}
+                    onChange={(e) => setEditAmount(formatCurrencyInput(e.target.value))}
+                    placeholder="R$ 0,00"
+                    required
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Comissão #{editing.id}
+                    {editing.account_payable_id ? ` • AP #${editing.account_payable_id}` : ""}
+                  </p>
+                </div>
 
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  type="button"
-                  onClick={() => setIsEditDialogOpen(false)}
-                  disabled={isSaving || updateMutation.isPending}
-                >
-                  Cancelar
-                </Button>
-                <Button type="submit" disabled={isSaving || updateMutation.isPending}>
-                  Salvar
-                </Button>
-              </DialogFooter>
-            </form>
-          )}
-        </DialogContent>
-      </Dialog>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    type="button"
+                    onClick={() => setIsEditDialogOpen(false)}
+                    disabled={isSaving || updateMutation.isPending}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button type="submit" disabled={isSaving || updateMutation.isPending}>
+                    Salvar
+                  </Button>
+                </DialogFooter>
+              </form>
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

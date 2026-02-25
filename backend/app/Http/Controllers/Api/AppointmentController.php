@@ -447,12 +447,10 @@ class AppointmentController extends Controller
             }
             $professional = $professionalsCache[$professionalId];
 
-            $busyEndDateTime = $this->applyLunchPushBusyEnd($professional, $startDateTime, $endDateTime);
-
             $slotsByProfessional[$professionalId][] = [
                 'service_id' => $serviceId,
                 'start'      => $startDateTime,
-                'end'        => $busyEndDateTime,
+                'end'        => $endDateTime,
                 'index'      => $index,
             ];
 
@@ -477,11 +475,11 @@ class AppointmentController extends Controller
                     'Horário inicial fora do expediente ou dentro do intervalo do profissional.';
             }
 
-            if ($this->hasExternalProfessionalConflictConsideringLunch(
+            if ($this->hasExternalProfessionalConflict(
                 $date,
                 (int) $professionalId,
                 $startDateTime,
-                $busyEndDateTime,
+                $endDateTime,
                 $appointmentId
             )) {
                 $errors["services.$index.starts_at"][] =
@@ -508,6 +506,46 @@ class AppointmentController extends Controller
                         $errors["services.$indexB.starts_at"][] =
                             'Conflito de horário entre serviços do mesmo profissional neste agendamento.';
                     }
+                }
+            }
+        }
+
+        foreach ($slotsByProfessional as $professionalId => $slots) {
+            $professional = $professionalsCache[$professionalId] ?? null;
+            if (!$professional) continue;
+
+            $ref = $slots[0]['start']->copy();
+
+            $lunch = $this->getLunchIntervalForProfessionalOnDate($professional, $ref);
+            if (!$lunch) continue;
+
+            [$lStart, $lEnd] = $lunch;
+
+            $crossIndexes = [];
+            foreach ($slots as $sl) {
+                if ($this->timeRangesOverlap($sl['start'], $sl['end'], $lStart, $lEnd)) {
+                    $crossIndexes[] = $sl['index'];
+                }
+            }
+
+            if (empty($crossIndexes)) continue;
+
+            $newIntervals = array_map(fn($sl) => [$sl['start'], $sl['end']], $slots);
+
+            $ok = $this->canRelocateLunchAfterNextBusyBlock(
+                $date,
+                (int) $professionalId,
+                $professional,
+                $lStart,
+                $lEnd,
+                $newIntervals,
+                $appointmentId
+            );
+
+            if (!$ok) {
+                foreach ($crossIndexes as $idx) {
+                    $errors["services.$idx.starts_at"][] =
+                        'Este serviço cruza o intervalo do profissional e não há janela disponível para realocar o intervalo dentro do expediente.';
                 }
             }
         }
@@ -621,64 +659,178 @@ class AppointmentController extends Controller
             ->filter(fn($service) => !empty($service->pivot->starts_at) && !empty($service->pivot->ends_at))
             ->map(function ($service) {
                 return [
-                    'start'           => Carbon::parse($service->pivot->starts_at),
-                    'end'             => Carbon::parse($service->pivot->ends_at),
-                    'professional_id' => $service->pivot->professional_id,
+                    'start' => Carbon::parse($service->pivot->starts_at),
+                    'end'   => Carbon::parse($service->pivot->ends_at),
                 ];
-            });
+            })
+            ->values();
 
         if ($timeSlots->isEmpty()) {
             return;
         }
 
-        /** @var \Carbon\Carbon $minStart */
-        $minStart = $timeSlots->pluck('start')->min();
-
-        $professionalIds = $timeSlots->pluck('professional_id')->filter()->unique()->values()->all();
-        $professionalsById = Professional::whereIn('id', $professionalIds)->get()->keyBy('id');
-
-        $maxBusyEnd = null;
+        $minStart = null;
+        $maxEnd   = null;
 
         foreach ($timeSlots as $slot) {
-            /** @var Carbon $start */
-            $start = $slot['start'];
-            /** @var Carbon $end */
-            $end   = $slot['end'];
+            $s = $slot['start'];
+            $e = $slot['end'];
 
-            $busyEnd = $end->copy();
-
-            $professionalId = $slot['professional_id'] ?? null;
-            $professional = $professionalId ? ($professionalsById[$professionalId] ?? null) : null;
-
-            if ($professional) {
-                $lunch = $this->getLunchIntervalForProfessionalOnDate($professional, $start);
-                if ($lunch) {
-                    [$lStart, $lEnd] = $lunch;
-
-                    if ($start->lt($lEnd) && $lStart->lt($end)) {
-                        $lunchMinutes = $lStart->diffInMinutes($lEnd);
-                        if ($lunchMinutes > 0) {
-                            $busyEnd->addMinutes($lunchMinutes);
-                        }
-                    }
-                }
-            }
-
-            if (!$maxBusyEnd || $busyEnd->gt($maxBusyEnd)) {
-                $maxBusyEnd = $busyEnd;
-            }
+            if (!$minStart || $s->lt($minStart)) $minStart = $s;
+            if (!$maxEnd   || $e->gt($maxEnd))   $maxEnd   = $e;
         }
 
-        if (!$maxBusyEnd) return;
+        if (!$minStart || !$maxEnd) return;
 
-        $durationMinutes = $minStart->diffInMinutes($maxBusyEnd);
+        $durationMinutes = $minStart->diffInMinutes($maxEnd);
 
         $appointment->update([
             'start_time' => $minStart->format('H:i:s'),
-            'end_time'   => $maxBusyEnd->format('H:i:s'),
+            'end_time'   => $maxEnd->format('H:i:s'),
             'duration'   => $durationMinutes,
         ]);
     }
+
+    private function overlapsAny(Carbon $start, Carbon $end, array $intervals): bool
+    {
+        foreach ($intervals as $it) {
+            if (!is_array($it) || count($it) < 2) continue;
+            [$s, $e] = $it;
+
+            if ($s instanceof Carbon && $e instanceof Carbon) {
+                if ($this->timeRangesOverlap($start, $end, $s, $e)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private function ceilToHour(Carbon $t): Carbon
+    {
+        $x = $t->copy()->second(0);
+
+        if ((int) $x->minute === 0) {
+            return $x;
+        }
+
+        return $x->addHour()->minute(0);
+    }
+
+    private function getWorkIntervalForProfessionalOnDate(Professional $professional, Carbon $ref): ?array
+    {
+        $dayConfig = $this->getDayConfig($professional, $ref);
+        if (!$dayConfig) return null;
+
+        $startTime = $dayConfig['startTime'] ?? null;
+        $endTime   = $dayConfig['endTime'] ?? null;
+
+        if (!$startTime || !$endTime) return null;
+
+        $workStart = $ref->copy()->setTimeFromTimeString($startTime);
+        $workEnd   = $ref->copy()->setTimeFromTimeString($endTime);
+
+        if ($workEnd->lte($workStart)) return null;
+
+        return [$workStart, $workEnd];
+    }
+
+    private function getOccupiedIntervalsForProfessional(string $dateYmd, int $professionalId, ?int $ignoreAppointmentId = null): array
+    {
+        $appointments = Appointment::query()
+            ->when($ignoreAppointmentId, fn($q) => $q->where('id', '!=', $ignoreAppointmentId))
+            ->whereNotIn('status', ['cancelled', 'no_show'])
+            ->whereDate('date', $dateYmd)
+            ->whereHas('services', fn($q) => $q->where('professional_id', $professionalId))
+            ->with('services')
+            ->get();
+
+        $intervals = [];
+
+        foreach ($appointments as $appt) {
+            foreach ($appt->services as $srv) {
+                if ((int) ($srv->pivot->professional_id ?? 0) !== $professionalId) continue;
+                if (empty($srv->pivot->starts_at) || empty($srv->pivot->ends_at)) continue;
+
+                $s = Carbon::parse($srv->pivot->starts_at);
+                $e = Carbon::parse($srv->pivot->ends_at);
+
+                if ($e->gt($s)) {
+                    $intervals[] = [$s, $e];
+                }
+            }
+        }
+
+        usort($intervals, fn($a, $b) => $a[0]->timestamp <=> $b[0]->timestamp);
+
+        return $intervals;
+    }
+
+    private function canRelocateLunchAfterNextBusyBlock(
+        string $dateYmd,
+        int $professionalId,
+        Professional $professional,
+        Carbon $lStart,
+        Carbon $lEnd,
+        array $newIntervals,
+        ?int $ignoreAppointmentId = null
+    ): bool {
+        $ref = Carbon::parse($dateYmd . ' 12:00:00');
+
+        $work = $this->getWorkIntervalForProfessionalOnDate($professional, $ref);
+        if (!$work) return true;
+        [$workStart, $workEnd] = $work;
+
+        $lunchMinutes = $lStart->diffInMinutes($lEnd);
+        if ($lunchMinutes <= 0) return true;
+
+        $occupied = $this->getOccupiedIntervalsForProfessional($dateYmd, $professionalId, $ignoreAppointmentId);
+        $all      = array_merge($occupied, $newIntervals);
+
+        if (!$this->overlapsAny($lStart, $lEnd, $all)) {
+            return true;
+        }
+
+        $searchFrom = $lEnd->copy();
+
+        $nextBlock = null;
+        foreach ($all as $it) {
+            if (!is_array($it) || count($it) < 2) continue;
+            [$s, $e] = $it;
+
+            if (!($s instanceof Carbon) || !($e instanceof Carbon)) continue;
+
+            if ($s->gte($searchFrom)) {
+                $nextBlock = [$s, $e];
+                break;
+            }
+        }
+
+        if ($nextBlock) {
+            $searchFrom = $nextBlock[1]->copy();
+        }
+
+        $t = $this->ceilToHour($searchFrom);
+
+        while (true) {
+            $tEnd = $t->copy()->addMinutes($lunchMinutes);
+
+            if ($t->lt($workStart)) {
+                $t = $this->ceilToHour($workStart);
+                continue;
+            }
+
+            if ($tEnd->gt($workEnd)) {
+                return false;
+            }
+
+            if (!$this->overlapsAny($t, $tEnd, $all)) {
+                return true;
+            }
+
+            $t->addHour();
+        }
+}
 
     private function getLunchIntervalForProfessionalOnDate(Professional $professional, Carbon $ref): ?array
     {
