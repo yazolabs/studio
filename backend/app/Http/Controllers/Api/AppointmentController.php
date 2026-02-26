@@ -1104,7 +1104,7 @@ class AppointmentController extends Controller
                 $totalAfterDiscount = max(0.0, round($afterPromos - $manualDiscount, 2));
                 $expectedBaseCents  = $toCents($totalAfterDiscount);
 
-                $existingBaseCents = $appointment->payments->sum(fn ($pay) => $toCents((float) $pay->base_amount));
+                $existingBaseCents   = $appointment->payments->sum(fn ($pay) => $toCents((float) $pay->base_amount));
                 $existingAmountCents = $appointment->payments->sum(fn ($pay) => $toCents((float) $pay->amount));
 
                 $alreadyPaidBaseCentsForDeltaCashier = (int) $existingBaseCents;
@@ -1228,9 +1228,16 @@ class AppointmentController extends Controller
                 $refCheckout  = "APP-{$appointment->id}-CHECKOUT";
                 $customerName = $appointment->customer?->name ?? "Cliente";
 
+                $feeCategory = 'Taxas Maquininha';
+
                 CashierTransaction::where('reference', $refCheckout)
                     ->where('category', 'Atendimentos')
                     ->where('type', TransactionType::Income)
+                    ->delete();
+
+                CashierTransaction::where('reference', $refCheckout)
+                    ->where('category', $feeCategory)
+                    ->where('type', TransactionType::Expense)
                     ->delete();
 
                 if (!$ignoreIncomingPayments) {
@@ -1272,6 +1279,23 @@ class AppointmentController extends Controller
                             'user_id'        => Auth::id(),
                             'notes'          => null,
                         ]);
+
+                        if ($isCreditLike && $feePercent > 0) {
+                            $feeNew = round($grossNew - $newBase, 2);
+                            if ($feeNew > 0) {
+                                CashierTransaction::create([
+                                    'date'           => $cashierDate,
+                                    'type'           => TransactionType::Expense,
+                                    'category'       => $feeCategory,
+                                    'description'    => "Taxa maquininha ({$method} {$feePercent}%) - agendamento #{$appointment->id} - {$customerName}",
+                                    'amount'         => number_format($feeNew, 2, '.', ''),
+                                    'payment_method' => $method,
+                                    'reference'      => $refCheckout,
+                                    'user_id'        => Auth::id(),
+                                    'notes'          => 'FEE',
+                                ]);
+                            }
+                        }
                     }
                 }
 
@@ -1626,9 +1650,16 @@ class AppointmentController extends Controller
                 $refPrepay    = "APP-{$appointment->id}-PREPAY";
                 $customerName = $appointment->customer?->name ?? "Cliente";
 
+                $feeCategory = 'Taxas Maquininha';
+
                 CashierTransaction::where('reference', $refPrepay)
                     ->where('category', 'Atendimentos')
                     ->where('type', TransactionType::Income)
+                    ->delete();
+
+                CashierTransaction::where('reference', $refPrepay)
+                    ->where('category', $feeCategory)
+                    ->where('type', TransactionType::Expense)
                     ->delete();
 
                 foreach ($appointment->payments as $pay) {
@@ -1647,6 +1678,24 @@ class AppointmentController extends Controller
                         'user_id'        => Auth::id(),
                         'notes'          => 'PREPAID',
                     ]);
+
+                    $fee = round((float) ($pay->fee_amount ?? 0), 2);
+                    if ($fee > 0) {
+                        $feePercent = (float) ($pay->fee_percent ?? 0);
+                        $method = (string) $pay->method;
+
+                        CashierTransaction::create([
+                            'date'           => $cashierDate,
+                            'type'           => TransactionType::Expense,
+                            'category'       => $feeCategory,
+                            'description'    => "Taxa maquininha ({$method} {$feePercent}%) - pré-pago agendamento #{$appointment->id} - {$customerName}",
+                            'amount'         => number_format($fee, 2, '.', ''),
+                            'payment_method' => $method,
+                            'reference'      => $refPrepay,
+                            'user_id'        => Auth::id(),
+                            'notes'          => 'FEE',
+                        ]);
+                    }
                 }
 
                 Log::info('PREPAY COMPLETED', [
@@ -1904,6 +1953,8 @@ class AppointmentController extends Controller
 
                 $groupRef = "APPG-{$groupId}-PREPAY";
 
+                $feeCategory = 'Taxas Maquininha';
+
                 foreach ($appointments as $appt) {
                     $appt->payments()->delete();
 
@@ -1912,9 +1963,19 @@ class AppointmentController extends Controller
                         ->where('type', TransactionType::Income)
                         ->delete();
 
+                    CashierTransaction::where('reference', "APP-{$appt->id}-PREPAY")
+                        ->where('category', $feeCategory)
+                        ->where('type', TransactionType::Expense)
+                        ->delete();
+
                     CashierTransaction::where('reference', $groupRef)
                         ->where('category', 'Atendimentos')
                         ->where('type', TransactionType::Income)
+                        ->delete();
+
+                    CashierTransaction::where('reference', $groupRef)
+                        ->where('category', $feeCategory)
+                        ->where('type', TransactionType::Expense)
                         ->delete();
                 }
 
@@ -1931,7 +1992,6 @@ class AppointmentController extends Controller
                     $isCreditLike = in_array($method, ['credit', 'credit_link'], true);
 
                     $baseLeftCents = $toCents($p['base_amount']);
-
                     if ($baseLeftCents <= 0) continue;
 
                     foreach ($apptQueue as $appt) {
@@ -1984,6 +2044,20 @@ class AppointmentController extends Controller
                                 'user_id'        => Auth::id(),
                                 'notes'          => 'PREPAID_GROUP',
                             ]);
+
+                            if ($feeAmount > 0) {
+                                CashierTransaction::create([
+                                    'date'           => $cashierDate,
+                                    'type'           => TransactionType::Expense,
+                                    'category'       => $feeCategory,
+                                    'description'    => "Taxa maquininha ({$method} {$feePercent}%) - pré-pago (grupo) agendamento #{$appt->id} - {$customerName}",
+                                    'amount'         => number_format($feeAmount, 2, '.', ''),
+                                    'payment_method' => $method,
+                                    'reference'      => $groupRef,
+                                    'user_id'        => Auth::id(),
+                                    'notes'          => 'FEE',
+                                ]);
+                            }
                         }
 
                         $apptRemaining[$appt->id] -= $allocBaseCents;
