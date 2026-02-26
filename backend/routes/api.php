@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\Api\{ AccountPayableController, ActionController, AppointmentController, AuthController, CashierTransactionController, CommissionController, CustomerController, ItemController, ItemPriceController, ItemPriceHistoryController, PermissionController, ProfessionalController, ProfessionalOpenWindowController, PromotionController, RoleController, ScreenController, ServiceController, StateController, SupplierController, UserController, DashboardController};
+use App\Http\Controllers\Api\{ AccountPayableController, ActionController, AppointmentController, AuthController, CashierPinController, CashierTransactionController, CommissionController, CustomerController, ItemController, ItemPriceController, ItemPriceHistoryController, PermissionController, ProfessionalController, ProfessionalOpenWindowController, PromotionController, RoleController, ScreenController, ServiceController, StateController, SupplierController, UserController, DashboardController};
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', function () {
@@ -136,12 +136,19 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/{commission}/mark-paid', 'markAsPaid')->middleware('permission:commissions,update');
     });
 
+    Route::prefix('cashier')->controller(CashierPinController::class)->group(function () {
+        Route::get('/unlock-status', 'status')->middleware('permission:cashier,read');
+        Route::post('/unlock', 'unlock')->middleware(['permission:cashier,read', 'throttle:cashier-pin']);
+        Route::post('/lock', 'lock')->middleware('permission:cashier,read');
+        Route::post('/pin', 'setPin')->middleware('permission:cashier,read');
+    });
+
     Route::prefix('cashier')->controller(CashierTransactionController::class)->group(function () {
-        Route::get('/', 'index')->middleware('permission:cashier,read');
-        Route::post('/', 'store')->middleware('permission:cashier,create');
-        Route::get('/{cashierTransaction}', 'show')->middleware('permission:cashier,read');
-        Route::put('/{cashierTransaction}', 'update')->middleware('permission:cashier,update');
-        Route::delete('/{cashierTransaction}', 'destroy')->middleware('permission:cashier,delete');
+        Route::get('/', 'index')->middleware(['permission:cashier,read', 'cashier.pin']);
+        Route::post('/', 'store')->middleware(['permission:cashier,create', 'cashier.pin']);
+        Route::get('/{cashierTransaction}', 'show')->middleware(['permission:cashier,read', 'cashier.pin']);
+        Route::put('/{cashierTransaction}', 'update')->middleware(['permission:cashier,update', 'cashier.pin']);
+        Route::delete('/{cashierTransaction}', 'destroy')->middleware(['permission:cashier,delete', 'cashier.pin']);
     });
 
     Route::prefix('accounts-payable')->controller(AccountPayableController::class)->group(function () {

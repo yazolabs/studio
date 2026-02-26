@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\EnsureCashierPinUnlocked;
 use App\Models\User;
 use Illuminate\Http\{JsonResponse, Request};
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
@@ -88,7 +90,13 @@ class AuthController extends Controller
 
     public function logout(Request $request): JsonResponse
     {
-        $request->user()->currentAccessToken()->delete();
+        $user = $request->user();
+
+        if ($user) {
+            Cache::forget(EnsureCashierPinUnlocked::CACHE_PREFIX . $user->id);
+
+            $user->currentAccessToken()?->delete();
+        }
 
         return response()->json(['message' => 'Logout realizado com sucesso.']);
     }

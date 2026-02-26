@@ -2905,6 +2905,21 @@ export default function Appointments() {
     const visible = items.slice(0, 1);
     const hidden = items.slice(1);
 
+    const Content = (
+      <div className="max-w-xs">
+        <p className="text-xs font-medium mb-1">
+          Outros {hidden.length} {hidden.length === 1 ? singular : plural} deste atendimento:
+        </p>
+        <ul className="space-y-1">
+          {hidden.map((name) => (
+            <li key={name} className="text-xs text-muted-foreground leading-snug">
+              • {name}
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+
     return (
       <div className="flex flex-wrap items-center gap-1 max-w-[260px]">
         {visible.map((name) => (
@@ -2919,30 +2934,32 @@ export default function Appointments() {
         ))}
 
         {hidden.length > 0 && (
-          <Tooltip>
-            <TooltipTrigger>
-              <Badge variant="outline" className="cursor-pointer">
-                +{hidden.length}
-              </Badge>
-            </TooltipTrigger>
-
-            <TooltipContent className="max-w-xs">
-              <p className="text-xs font-medium mb-1">
-                Outros {hidden.length}{" "}
-                {hidden.length === 1 ? singular : plural} deste atendimento:
-              </p>
-              <ul className="space-y-1">
-                {hidden.map((name) => (
-                  <li
-                    key={name}
-                    className="text-xs text-muted-foreground leading-snug"
-                  >
-                    • {name}
-                  </li>
-                ))}
-              </ul>
-            </TooltipContent>
-          </Tooltip>
+          isMobile ? (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                >
+                  +{hidden.length}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[min(360px,calc(100vw-2rem))]">
+                {Content}
+              </PopoverContent>
+            </Popover>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="outline" className="cursor-pointer">
+                  +{hidden.length}
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">{Content}</TooltipContent>
+            </Tooltip>
+          )
         )}
       </div>
     );
@@ -3137,7 +3154,7 @@ export default function Appointments() {
   return (
     <TooltipProvider delayDuration={150}>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
               Agendamentos
@@ -3146,8 +3163,11 @@ export default function Appointments() {
               Gerencie os agendamentos do salão
             </p>
           </div>
-          <div className="flex flex-col md:flex-row gap-2">
-            <div className="flex gap-1 border rounded-lg p-1">
+          <div className={cn("flex flex-col gap-2 md:flex-row", isMobile && "w-full")}>
+            <div className={cn(
+              "flex gap-1 border rounded-lg p-1",
+              isMobile && "w-full overflow-x-auto"
+            )}>
               <Button
                 variant={effectiveViewMode === "professional" ? "secondary" : "ghost"}
                 size="sm"
@@ -3282,7 +3302,10 @@ export default function Appointments() {
                           <CalendarIcon className="ml-2 h-3 w-3 opacity-60" />
                         </Button>
                       </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
+                      <PopoverContent
+                        className={cn("w-auto p-0", isMobile && "max-w-[calc(100vw-2rem)]")}
+                        align="start"
+                      >
                         <Calendar
                           mode="single"
                           selected={dateFromFilter ?? undefined}
@@ -3313,7 +3336,10 @@ export default function Appointments() {
                           <CalendarIcon className="ml-2 h-3 w-3 opacity-60" />
                         </Button>
                       </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
+                      <PopoverContent
+                        className={cn("w-auto p-0", isMobile && "max-w-[calc(100vw-2rem)]")}
+                        align="start"
+                      >
                         <Calendar
                           mode="single"
                           selected={dateToFilter ?? undefined}
@@ -3968,7 +3994,7 @@ export default function Appointments() {
                                                     type="button"
                                                     variant="ghost"
                                                     size="icon"
-                                                    className="text-destructive"
+                                                    className={cn("text-destructive", isMobile ? "h-10 w-10" : "")}
                                                     onClick={() => removeServiceAtIndex(idx)}
                                                     title="Remover serviço"
                                                   >
@@ -4116,8 +4142,18 @@ export default function Appointments() {
                     {form.formState.isDirty ? " • alterações não salvas" : ""}
                   </div>
 
-                  <div className="flex items-center gap-2 ml-auto">
-                    <Button type="button" variant="outline" onClick={handleCloseDialog}>
+                  <div className={cn("flex items-center gap-2 ml-auto", isMobile && "w-full flex-col")}>
+                    <div className="text-[11px] text-muted-foreground md:hidden">
+                      {sessionsFA.fields.length} sessão(ões) • {totalDuration} min • R$ {totalPrice.toFixed(2)}
+                      {form.formState.isDirty ? " • alterações não salvas" : ""}
+                    </div>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleCloseDialog}
+                      className={cn(isMobile && "w-full")}
+                    >
                       Cancelar
                     </Button>
 
@@ -4125,12 +4161,9 @@ export default function Appointments() {
                       type="submit"
                       form="appointments-form"
                       disabled={form.formState.isSubmitting || (editingAppointment ? !form.formState.isDirty : false)}
+                      className={cn(isMobile && "w-full")}
                     >
-                      {form.formState.isSubmitting
-                        ? "Salvando..."
-                        : editingAppointment
-                        ? "Salvar"
-                        : "Criar"}
+                      {form.formState.isSubmitting ? "Salvando..." : editingAppointment ? "Salvar" : "Criar"}
                     </Button>
                   </div>
                 </div>

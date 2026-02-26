@@ -2,11 +2,11 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
@@ -25,6 +25,7 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        'cashier_pin_hash',
     ];
 
     protected function casts(): array
@@ -32,7 +33,34 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'cashier_pin_set_at' => 'datetime',
         ];
+    }
+
+    public function hasCashierPin(): bool
+    {
+        return !empty($this->cashier_pin_hash);
+    }
+
+    public function checkCashierPin(string $pin): bool
+    {
+        return $this->hasCashierPin() && Hash::check($pin, (string) $this->cashier_pin_hash);
+    }
+
+    public function setCashierPin(string $pin): void
+    {
+        $this->forceFill([
+            'cashier_pin_hash' => Hash::make($pin),
+            'cashier_pin_set_at' => now(),
+        ])->save();
+    }
+
+    public function clearCashierPin(): void
+    {
+        $this->forceFill([
+            'cashier_pin_hash' => null,
+            'cashier_pin_set_at' => null,
+        ])->save();
     }
 
     public function roles()

@@ -1,7 +1,24 @@
 import React, { useMemo, useState } from "react";
 import { format, isToday, addDays, subDays, parseISO, isValid } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Clock, User, Scissors, Phone, DollarSign, Edit, Trash2, Printer, ChevronDown, ChevronUp, Calendar, Users, ChevronLeft, ChevronRight, GripVertical, AlertCircle } from "lucide-react";
+import {
+  Clock,
+  User,
+  Scissors,
+  Phone,
+  DollarSign,
+  Edit,
+  Trash2,
+  Printer,
+  ChevronDown,
+  ChevronUp,
+  Calendar,
+  Users,
+  ChevronLeft,
+  ChevronRight,
+  GripVertical,
+  AlertCircle,
+} from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -91,16 +108,42 @@ const getWeekdayLabel = (date: Date) => WEEKDAY_LABELS[date.getDay()];
 
 const extractHHmm = (value?: string | null): string | null => {
   if (!value) return null;
-  const v = value.trim();
-  if (v.includes("T")) return v.split("T")[1]?.slice(0, 5) ?? null;
-  if (v.includes(" ")) return v.split(" ")[1]?.slice(0, 5) ?? null;
+  const v = String(value).trim();
+  if (!v) return null;
+
+  if (/^\d{2}:\d{2}(:\d{2})?$/.test(v)) return v.slice(0, 5);
+
+  if (v.includes("T")) {
+    const d = parseISO(v);
+    if (isValid(d)) return format(d, "HH:mm");
+    return v.split("T")[1]?.slice(0, 5) ?? null;
+  }
+
+  if (v.includes(" ")) {
+    const [datePart, timePart] = v.split(" ");
+    if (datePart && timePart) {
+      const isoLike = `${datePart}T${timePart}`;
+      const d = parseISO(isoLike);
+      if (isValid(d)) return format(d, "HH:mm");
+      return timePart.slice(0, 5);
+    }
+  }
+
   return v.slice(0, 5);
 };
 
 const timeStringToMinutes = (value?: string | null): number | null => {
   const hhmm = extractHHmm(value);
   if (!hhmm) return null;
-  return hhmmToMinutes(hhmm);
+
+  const [hStr, mStr] = hhmm.split(":");
+  const h = Number(hStr);
+  const m = Number(mStr);
+
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+
+  return h * 60 + m;
 };
 
 const applyLunchBreakIfCrosses = (
@@ -113,7 +156,6 @@ const applyLunchBreakIfCrosses = (
   if (lunchEndMin <= lunchStartMin) return endMin;
 
   const overlapsLunch = startMin < lunchEndMin && lunchStartMin < endMin;
-
   return overlapsLunch ? endMin + (lunchEndMin - lunchStartMin) : endMin;
 };
 
@@ -160,11 +202,9 @@ function getWorkWindowForProfessionalOnDate(
   return { dayStartMin, dayEndMin, lunchStartMin, lunchEndMin };
 }
 
-const toHHmm = (time: string | null) => extractHHmm(time) ?? "";
-
 const moneyToNumber = (value: string | null | undefined): number => {
   if (!value) return 0;
-  const normalized = value.replace(",", ".");
+  const normalized = String(value).replace(",", ".");
   const n = Number(normalized);
   return Number.isFinite(n) ? n : 0;
 };
@@ -179,13 +219,6 @@ const formatDuration = (minutes: number) => {
   if (m === 0) return `${h}h`;
   return `${h}h ${m}min`;
 };
-
-const timeToMinutes = (hhmm: string) => {
-  const [h, m] = hhmm.split(":").map(Number);
-  return h * 60 + m;
-};
-
-const pluralize = (n: number, singular: string, plural: string) => (n === 1 ? singular : plural);
 
 const SUMMARY_STATUS_LABEL: Partial<Record<Appointment["status"], { singular: string; plural: string }>> = {
   scheduled: { singular: "agendado", plural: "agendados" },
@@ -212,19 +245,6 @@ const getStatusLockMessage = (status: Appointment["status"]) => {
     default:
       return "Este agendamento não pode ser movido por arrastar.";
   }
-};
-
-const getUniqueProfessionalIdsFromServices = (apt: Appointment) => {
-  const services: any[] = Array.isArray(apt.services) ? (apt.services as any[]) : [];
-  const ids = services
-    .map((s) => Number(s?.professional_id))
-    .filter((id) => Number.isFinite(id) && id > 0);
-  return Array.from(new Set(ids));
-};
-
-const isMultiProfessionalAppointment = (apt: Appointment) => {
-  const ids = getUniqueProfessionalIdsFromServices(apt);
-  return ids.length > 1;
 };
 
 type ReassignBlockReason =
@@ -254,6 +274,43 @@ export function ProfessionalDailyView({
   canEdit = true,
   canDelete = true,
 }: Props) {
+  const effectiveProfessionals = useMemo<Professional[]>(() => {
+    const base = Array.isArray(professionals) ? professionals : [];
+    if (base.length > 0) return base;
+
+    const map = new Map<number, Professional>();
+    const apts = Array.isArray(appointments) ? appointments : [];
+
+    for (const apt of apts) {
+      const aptAny: any = apt as any;
+
+      const aptProfs = Array.isArray(aptAny?.professionals) ? aptAny.professionals : [];
+      for (const p of aptProfs) {
+        const pid = Number(p?.id);
+        if (!Number.isFinite(pid) || pid <= 0) continue;
+        const name = String(p?.name ?? "").trim() || `Profissional #${pid}`;
+        if (!map.has(pid)) map.set(pid, { id: pid, name, work_schedule: null });
+      }
+
+      const svcs = Array.isArray(aptAny?.services) ? aptAny.services : [];
+      for (const s of svcs) {
+        const pid = Number(s?.professional_id ?? s?.professionalId ?? s?.pivot?.professional_id);
+        if (!Number.isFinite(pid) || pid <= 0) continue;
+
+        const name =
+          String(s?.professional?.name ?? s?.professional_name ?? s?.professionalName ?? "").trim() ||
+          String(aptProfs.find((p: any) => Number(p?.id) === pid)?.name ?? "").trim() ||
+          `Profissional #${pid}`;
+
+        if (!map.has(pid)) map.set(pid, { id: pid, name, work_schedule: null });
+      }
+    }
+
+    const list = Array.from(map.values());
+    list.sort((a, b) => String(a.name).localeCompare(String(b.name), "pt-BR"));
+    return list;
+  }, [professionals, appointments]);
+
   const [expandedProfessionals, setExpandedProfessionals] = useState<Set<string>>(new Set());
   const [draggedAppointment, setDraggedAppointment] = useState<Appointment | null>(null);
   const [dragOverProfessional, setDragOverProfessional] = useState<string | null>(null);
@@ -303,32 +360,39 @@ export function ProfessionalDailyView({
   const isTodaySelected = useMemo(() => isToday(selectedDate), [selectedDate]);
 
   const dayAppointments = useMemo(
-    () => appointments.filter((apt) => apt.date === dateStr),
+    () => (appointments || []).filter((apt) => apt.date === dateStr),
     [appointments, dateStr]
   );
 
   const appointmentHasProfessional = (apt: Appointment, professionalId: number) => {
-    const services = apt.services ?? [];
-    return services.some((s) => Number(s.professional_id) === Number(professionalId));
-  };
+    const aptAny: any = apt as any;
+    const svcs = Array.isArray(aptAny?.services) ? aptAny.services : [];
+    const profs = Array.isArray(aptAny?.professionals) ? aptAny.professionals : [];
 
-  const servicesLabel = (apt: Appointment) =>
-    (apt.services ?? []).map((s) => s.name).filter(Boolean).join(", ") || "Serviço";
+    const bySvc = svcs.some(
+      (s: any) =>
+        Number(s?.professional_id ?? s?.professionalId ?? s?.pivot?.professional_id) ===
+        Number(professionalId)
+    );
+    const byRel = profs.some((p: any) => Number(p?.id) === Number(professionalId));
+
+    return bySvc || byRel;
+  };
 
   const customerPhone = (apt: Appointment) => (apt.customer as any)?.phone as string | undefined;
 
   const appointmentDuration = (apt: Appointment) => {
-    const services = Array.isArray(apt.services) ? apt.services : [];
+    const aptAny: any = apt as any;
+    const services = Array.isArray(aptAny?.services) ? aptAny.services : [];
     const intervals: Array<{ start: number; end: number }> = [];
 
     services.forEach((s: any) => {
-      const sStart =
-        timeStringToMinutes(s.starts_at) ?? timeStringToMinutes(apt.start_time);
-      let sEnd = timeStringToMinutes(s.ends_at);
+      const sStart = timeStringToMinutes(s?.starts_at) ?? timeStringToMinutes(apt.start_time);
+      let sEnd = timeStringToMinutes(s?.ends_at);
 
       if (sStart != null && (sEnd == null || sEnd <= sStart)) {
-        const sd = Number(s.duration ?? 0);
-        const d = sd > 0 ? sd : Number(apt.duration ?? 0) || 30;
+        const sd = Number(s?.duration ?? 0);
+        const d = sd > 0 ? sd : Number((apt as any).duration ?? 0) || 30;
         sEnd = sStart + d;
       }
 
@@ -338,7 +402,7 @@ export function ProfessionalDailyView({
     });
 
     if (intervals.length === 0) {
-      const d = Number(apt.duration ?? 0);
+      const d = Number((apt as any).duration ?? 0);
       return d > 0 ? d : 30;
     }
 
@@ -348,8 +412,13 @@ export function ProfessionalDailyView({
   };
 
   const getServicesForProfessional = (apt: Appointment, professionalId: number) => {
-    const services: any[] = Array.isArray(apt.services) ? (apt.services as any[]) : [];
-    return services.filter((s) => Number(s?.professional_id) === Number(professionalId));
+    const aptAny: any = apt as any;
+    const services: any[] = Array.isArray(aptAny?.services) ? aptAny.services : [];
+    return services.filter(
+      (s: any) =>
+        Number(s?.professional_id ?? s?.professionalId ?? s?.pivot?.professional_id) ===
+        Number(professionalId)
+    );
   };
 
   const minutesToHHmmLocal = (min: number) => {
@@ -359,19 +428,23 @@ export function ProfessionalDailyView({
   };
 
   const getServiceInterval = (apt: Appointment, s: any) => {
-    const startMin =
-      timeStringToMinutes(s?.starts_at) ?? timeStringToMinutes(apt.start_time);
-
+    const startMin = timeStringToMinutes(s?.starts_at) ?? timeStringToMinutes(apt.start_time);
     let endMin = timeStringToMinutes(s?.ends_at);
 
     if (startMin != null && (endMin == null || endMin <= startMin)) {
       const sd = Number(s?.duration ?? 0);
-      const d = sd > 0 ? sd : Number(apt.duration ?? 0) || 30;
+      const d = sd > 0 ? sd : Number((apt as any).duration ?? 0) || 30;
       endMin = startMin + d;
     }
 
     if (startMin == null || endMin == null || endMin <= startMin) return null;
     return { start: startMin, end: endMin };
+  };
+
+  const appointmentPrice = (apt: Appointment) => {
+    const final = moneyToNumber((apt as any).final_price);
+    if (final > 0) return final;
+    return moneyToNumber((apt as any).total_price);
   };
 
   const getAppointmentSliceForProfessional = (apt: Appointment, professionalId: number) => {
@@ -387,20 +460,20 @@ export function ProfessionalDailyView({
     const startMin =
       intervals.length > 0
         ? Math.min(...intervals.map((i) => i.start))
-        : timeStringToMinutes(apt.start_time);
+        : timeStringToMinutes((apt as any).start_time);
 
     const endMin =
       intervals.length > 0
         ? Math.max(...intervals.map((i) => i.end))
         : startMin != null
-          ? startMin + (Number(apt.duration ?? 0) || 30)
+          ? startMin + (Number((apt as any).duration ?? 0) || 30)
           : null;
 
     const durationMin =
       startMin != null && endMin != null ? Math.max(30, endMin - startMin) : 30;
 
     const timeHHmm =
-      startMin != null ? minutesToHHmmLocal(startMin) : (toHHmm(apt.start_time) || "--:--");
+      startMin != null ? minutesToHHmmLocal(startMin) : (extractHHmm((apt as any).start_time) || "--:--");
 
     const profPrice = svc.reduce((sum: number, s: any) => {
       const v = moneyToNumber(String(s?.service_price ?? s?.price ?? "0"));
@@ -418,46 +491,6 @@ export function ProfessionalDailyView({
     };
   };
 
-  const extractHHmm = (value?: string | null): string | null => {
-    if (!value) return null;
-    const v = value.trim();
-    if (!v) return null;
-
-    if (/^\d{2}:\d{2}(:\d{2})?$/.test(v)) return v.slice(0, 5);
-
-    if (v.includes("T")) {
-      const d = parseISO(v);
-      if (isValid(d)) return format(d, "HH:mm");
-      return v.split("T")[1]?.slice(0, 5) ?? null;
-    }
-
-    if (v.includes(" ")) {
-      const [datePart, timePart] = v.split(" ");
-      if (datePart && timePart) {
-        const isoLike = `${datePart}T${timePart}`;
-        const d = parseISO(isoLike);
-        if (isValid(d)) return format(d, "HH:mm");
-        return timePart.slice(0, 5);
-      }
-    }
-
-    return v.slice(0, 5);
-  };
-
-  const timeStringToMinutes = (value?: string | null): number | null => {
-    const hhmm = extractHHmm(value);
-    if (!hhmm) return null;
-
-    const [hStr, mStr] = hhmm.split(":");
-    const h = Number(hStr);
-    const m = Number(mStr);
-
-    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
-    if (h < 0 || h > 23 || m < 0 || m > 59) return null;
-
-    return h * 60 + m;
-  };
-
   const getBusyIntervalsForProfessional = (
     professionalId: number,
     excludeAppointmentId?: number
@@ -472,35 +505,23 @@ export function ProfessionalDailyView({
       })
       .flatMap((apt) => {
         const intervals: Interval[] = [];
+        const aptAny: any = apt as any;
+        const services = Array.isArray(aptAny?.services) ? aptAny.services : [];
 
-        const services = apt.services ?? [];
-        const workWindow = getWorkWindowForProfessionalOnDate(professionals, pid, selectedDate);
-
-        const toBusyEnd = (start: number, durReal: number) => {
-          const durPaper = normalizeDurationForPaper(durReal || 30);
-          const rawEnd = start + durPaper;
-
-          return applyLunchBreakIfCrosses(
-            start,
-            rawEnd,
-            workWindow?.lunchStartMin ?? null,
-            workWindow?.lunchEndMin ?? null
-          );
-        };
-
-        const svcForProf = services.filter((s: any) => Number(s.professional_id) === pid);
+        const workWindow = getWorkWindowForProfessionalOnDate(effectiveProfessionals, pid, selectedDate);
+        const svcForProf = services.filter(
+          (s: any) => Number(s?.professional_id ?? s?.professionalId ?? s?.pivot?.professional_id) === pid
+        );
 
         if (svcForProf.length > 0) {
           svcForProf.forEach((s: any) => {
-            const sStart =
-              timeStringToMinutes(s.starts_at) ?? timeStringToMinutes(apt.start_time);
-
-            let rawEnd = timeStringToMinutes(s.ends_at);
+            const sStart = timeStringToMinutes(s?.starts_at) ?? timeStringToMinutes((apt as any).start_time);
+            let rawEnd = timeStringToMinutes(s?.ends_at);
 
             if (sStart != null && (rawEnd == null || rawEnd <= sStart)) {
               const durReal =
-                Number(s.duration ?? 0) ||
-                Number(apt.duration ?? 0) ||
+                Number(s?.duration ?? 0) ||
+                Number((apt as any).duration ?? 0) ||
                 appointmentDuration(apt) ||
                 30;
 
@@ -523,7 +544,7 @@ export function ProfessionalDailyView({
           return intervals;
         }
 
-        const start = timeStringToMinutes(apt.start_time);
+        const start = timeStringToMinutes((apt as any).start_time);
         const dur = appointmentDuration(apt);
         if (start != null && dur > 0) {
           const durPaper = normalizeDurationForPaper(dur || 30);
@@ -543,12 +564,6 @@ export function ProfessionalDailyView({
 
         return intervals;
       });
-  };
-
-  const appointmentPrice = (apt: Appointment) => {
-    const final = moneyToNumber(apt.final_price);
-    if (final > 0) return final;
-    return moneyToNumber(apt.total_price);
   };
 
   const getProfessionalAppointments = (professionalId: number) => {
@@ -575,28 +590,26 @@ export function ProfessionalDailyView({
     const totalAppointments = profAppointments.length;
     const scheduledCount = counts.scheduled ?? 0;
     const confirmedCount = counts.confirmed ?? 0;
-    const pending = scheduledCount + confirmedCount;
     const completed = counts.completed ?? 0;
     const cancelled = counts.cancelled ?? 0;
     const noShowCount = counts.no_show ?? 0;
     const rescheduledCount = counts.rescheduled ?? 0;
+
     const totalRevenue = profAppointments
       .filter((a) => a.status !== "cancelled")
       .reduce((sum, a) => sum + appointmentPrice(a), 0);
+
     const occupiedMinutes = profAppointments
       .filter((a) => a.status !== "cancelled")
       .reduce((sum, a) => sum + appointmentDuration(a), 0);
+
     const workDayMinutes = 600;
-    const occupationPercentage = Math.min(
-      Math.round((occupiedMinutes / workDayMinutes) * 100),
-      100
-    );
+    const occupationPercentage = Math.min(Math.round((occupiedMinutes / workDayMinutes) * 100), 100);
 
     return {
       totalAppointments,
       scheduledCount,
       confirmedCount,
-      pending,
       completed,
       cancelled,
       noShowCount,
@@ -620,106 +633,35 @@ export function ProfessionalDailyView({
   const handleNextDay = () => onDateChange(addDays(selectedDate, 1));
   const handleToday = () => onDateChange(new Date());
 
-  const getAvailableSlotsForProfessional = (
-    professionalId: number,
-    durationMin: number,
-    excludeAppointmentId?: number
-  ) => {
-    const workWindow = getWorkWindowForProfessionalOnDate(
-      professionals,
-      professionalId,
-      selectedDate
-    );
-    if (!workWindow) return [];
-
-    const busy = getBusyIntervalsForProfessional(professionalId, excludeAppointmentId);
-
-    const paperDur = normalizeDurationForPaper(durationMin || 30);
-
-    const baseSlots = buildSlotsBetween(
-      workWindow.dayStartMin,
-      workWindow.dayEndMin,
-      PAPER_STEP_MIN
-    ).filter((hhmm) => {
-      const t = timeStringToMinutes(hhmm);
-      if (t == null) return false;
-
-      if (
-        workWindow.lunchStartMin != null &&
-        workWindow.lunchEndMin != null &&
-        t >= workWindow.lunchStartMin &&
-        t < workWindow.lunchEndMin
-      ) {
-        return false;
-      }
-
-      if (t >= workWindow.dayEndMin) return false;
-
-      return true;
-    });
-
-    const out: string[] = [];
-
-    for (const hhmm of baseSlots) {
-      const start = timeStringToMinutes(hhmm);
-      if (start == null) continue;
-
-      const rawEnd = start + paperDur;
-      const end = applyLunchBreakIfCrosses(
-        start,
-        rawEnd,
-        workWindow.lunchStartMin ?? null,
-        workWindow.lunchEndMin ?? null
-      );
-
-      const interval = { start, end };
-      const hasOverlap = busy.some((b) => overlaps(interval, b));
-      if (!hasOverlap) out.push(hhmm);
-    }
-
-    return out;
-  };
-
   const getSlotsStatusForProfessional = (
     professionalId: number,
     durationMin: number,
     excludeAppointmentId?: number
   ) => {
     const workWindow = getWorkWindowForProfessionalOnDate(
-      professionals,
+      effectiveProfessionals,
       professionalId,
       selectedDate
     );
     if (!workWindow) return [];
 
     const busy = getBusyIntervalsForProfessional(professionalId, excludeAppointmentId);
-
     const paperDur = normalizeDurationForPaper(durationMin || 30);
 
-    const baseSlots = buildSlotsBetween(
-      workWindow.dayStartMin,
-      workWindow.dayEndMin,
-      PAPER_STEP_MIN
-    ).filter((hhmm) => {
-      const t = timeStringToMinutes(hhmm);
+    const baseSlots = buildSlotsBetween(workWindow.dayStartMin, workWindow.dayEndMin, PAPER_STEP_MIN).filter((hhmm) => {
+      const t = hhmmToMinutes(hhmm);
       if (t == null) return false;
 
-      if (
-        workWindow.lunchStartMin != null &&
-        workWindow.lunchEndMin != null &&
-        t >= workWindow.lunchStartMin &&
-        t < workWindow.lunchEndMin
-      ) {
+      if (workWindow.lunchStartMin != null && workWindow.lunchEndMin != null && t >= workWindow.lunchStartMin && t < workWindow.lunchEndMin) {
         return false;
       }
 
       if (t >= workWindow.dayEndMin) return false;
-
       return true;
     });
 
     return baseSlots.map((hhmm) => {
-      const start = timeStringToMinutes(hhmm);
+      const start = hhmmToMinutes(hhmm);
       if (start == null) return { time: hhmm, isFree: false, reason: "outside-working-hours" as const };
 
       const rawEnd = start + paperDur;
@@ -736,6 +678,21 @@ export function ProfessionalDailyView({
       if (hasOverlap) return { time: hhmm, isFree: false, reason: "busy" as const };
       return { time: hhmm, isFree: true as const };
     });
+  };
+
+  const handleTimeSelect = (appointmentId: number, newTime: string) => {
+    if (!onQuickTimeChange) return;
+
+    onQuickTimeChange(appointmentId, newTime, (availableSlots) => {
+      setTimeConflictDialog({ open: true, appointmentId, availableSlots });
+    });
+  };
+
+  const handleConflictTimeSelect = (newTime: string) => {
+    if (!onQuickTimeChange) return;
+
+    onQuickTimeChange(timeConflictDialog.appointmentId, newTime, () => {});
+    setTimeConflictDialog({ open: false, appointmentId: 0, availableSlots: [] });
   };
 
   const handleDragStart = (e: React.DragEvent, appointment: Appointment, sourceProfessionalId: number) => {
@@ -778,165 +735,6 @@ export function ProfessionalDailyView({
     setDragOverProfessional(professionalId);
   };
 
-  const openReassignDialog = (params: {
-    reason: ReassignBlockReason;
-    message?: string;
-    appointmentId: number;
-    targetProfessionalId: number;
-    targetProfessionalName: string;
-    availableSlots?: string[];
-  }) => {
-    setReassignDialog({
-      open: true,
-      reason: params.reason,
-      message: params.message ?? "",
-      appointmentId: params.appointmentId,
-      targetProfessionalId: params.targetProfessionalId,
-      targetProfessionalName: params.targetProfessionalName,
-      availableSlots: params.availableSlots ?? [],
-    });
-  };
-
-  const performReassign = (
-    appointmentId: number,
-    targetProfessionalId: number,
-    scope: ReassignScope,
-    onConflict: () => void
-  ) => {
-    if (onReassignProfessionalScoped) {
-      onReassignProfessionalScoped(appointmentId, targetProfessionalId, scope, onConflict);
-      return;
-    }
-    onReassignProfessional?.(appointmentId, targetProfessionalId, onConflict);
-  };
-
-  const tryReassign = (opts: {
-    appointment: Appointment;
-    targetProfessionalId: number;
-    targetProfessionalName: string;
-    scope: ReassignScope;
-  }) => {
-    const { appointment, targetProfessionalId, targetProfessionalName, scope } = opts;
-
-    if (!onReassignProfessional) return;
-
-    if (isDragBlockedByStatus(appointment.status)) {
-      openReassignDialog({
-        reason: "status_locked",
-        message: getStatusLockMessage(appointment.status),
-        appointmentId: appointment.id,
-        targetProfessionalId,
-        targetProfessionalName,
-        availableSlots: [],
-      });
-      return;
-    }
-
-    const durationMin = appointmentDuration(appointment);
-
-    const workWindow = getWorkWindowForProfessionalOnDate(
-      professionals,
-      targetProfessionalId,
-      selectedDate
-    );
-
-    if (!workWindow) {
-      openReassignDialog({
-        reason: "no_schedule",
-        message: `${targetProfessionalName} não possui escala configurada para este dia.`,
-        appointmentId: appointment.id,
-        targetProfessionalId,
-        targetProfessionalName,
-        availableSlots: [],
-      });
-      return;
-    }
-
-    const startMin = timeStringToMinutes(appointment.start_time);
-    const availableSlots = getAvailableSlotsForProfessional(
-      targetProfessionalId,
-      durationMin,
-      appointment.id
-    );
-
-    if (startMin == null) {
-      openReassignDialog({
-        reason: "invalid_time",
-        message: "Não foi possível interpretar o horário deste agendamento. Ajuste o horário antes de mover.",
-        appointmentId: appointment.id,
-        targetProfessionalId,
-        targetProfessionalName,
-        availableSlots,
-      });
-      return;
-    }
-
-    if (
-      workWindow.lunchStartMin != null &&
-      workWindow.lunchEndMin != null &&
-      startMin >= workWindow.lunchStartMin &&
-      startMin < workWindow.lunchEndMin
-    ) {
-      openReassignDialog({
-        reason: "lunch",
-        message: "Este horário cai no intervalo do profissional. Escolha um horário disponível:",
-        appointmentId: appointment.id,
-        targetProfessionalId,
-        targetProfessionalName,
-        availableSlots,
-      });
-      return;
-    }
-
-    if (startMin < workWindow.dayStartMin || startMin >= workWindow.dayEndMin) {
-      openReassignDialog({
-        reason: "outside_hours",
-        message: "Este horário está fora do expediente do profissional. Escolha um horário disponível:",
-        appointmentId: appointment.id,
-        targetProfessionalId,
-        targetProfessionalName,
-        availableSlots,
-      });
-      return;
-    }
-
-    const paperDur = normalizeDurationForPaper(durationMin || 30);
-    const rawEnd = startMin + paperDur;
-    const end = applyLunchBreakIfCrosses(
-      startMin,
-      rawEnd,
-      workWindow.lunchStartMin ?? null,
-      workWindow.lunchEndMin ?? null
-    );
-
-    const busy = getBusyIntervalsForProfessional(targetProfessionalId, appointment.id);
-    const interval = { start: startMin, end };
-    const hasOverlap = busy.some((b) => overlaps(interval, b));
-
-    if (hasOverlap) {
-      openReassignDialog({
-        reason: "busy",
-        message: `${targetProfessionalName} já possui um agendamento nesse horário. Escolha um horário disponível:`,
-        appointmentId: appointment.id,
-        targetProfessionalId,
-        targetProfessionalName,
-        availableSlots,
-      });
-      return;
-    }
-
-    performReassign(appointment.id, targetProfessionalId, scope, () => {
-      openReassignDialog({
-        reason: "busy",
-        message: `${targetProfessionalName} não ficou disponível nesse horário (conflito). Escolha um horário:`,
-        appointmentId: appointment.id,
-        targetProfessionalId,
-        targetProfessionalName,
-        availableSlots,
-      });
-    });
-  };
-
   const handleDrop = (e: React.DragEvent, targetProfessionalIdStr: string) => {
     e.preventDefault();
     setDragOverProfessional(null);
@@ -951,178 +749,49 @@ export function ProfessionalDailyView({
       return;
     }
 
-    const targetProfName =
-      professionals.find((p) => Number(p.id) === targetProfessionalId)?.name ?? "";
-
-    if (isDragBlockedByStatus(draggedAppointment.status)) {
-      openReassignDialog({
-        reason: "status_locked",
-        message: getStatusLockMessage(draggedAppointment.status),
-        appointmentId: draggedAppointment.id,
-        targetProfessionalId,
-        targetProfessionalName: targetProfName,
-        availableSlots: [],
-      });
-      setDraggedAppointment(null);
-      setDragSourceProfessionalId(null);
-      return;
-    }
-
-    if (isMultiProfessionalAppointment(draggedAppointment)) {
-      setMultiProfDialog({
-        open: true,
-        appointmentId: draggedAppointment.id,
-        targetProfessionalId,
-        targetProfessionalName: targetProfName,
-        sourceProfessionalId: dragSourceProfessionalId,
-      });
-      return;
-    }
-
-    tryReassign({
-      appointment: draggedAppointment,
-      targetProfessionalId,
-      targetProfessionalName: targetProfName,
-      scope: { type: "all" },
-    });
-
     setDraggedAppointment(null);
     setDragSourceProfessionalId(null);
-  };
-
-  const handleReassignDialogTimeSelect = (newTime: string) => {
-    const appointmentId = reassignDialog.appointmentId;
-    const targetProfessionalId = reassignDialog.targetProfessionalId;
-    const targetProfessionalName = reassignDialog.targetProfessionalName;
-
-    if (onQuickReassign) {
-      onQuickReassign(
-        appointmentId,
-        targetProfessionalId,
-        newTime,
-        { type: "all" },
-        (availableSlots) => {
-          openReassignDialog({
-            reason: "busy",
-            message: `${targetProfessionalName} não ficou disponível nesse horário. Escolha outro:`,
-            appointmentId,
-            targetProfessionalId,
-            targetProfessionalName,
-            availableSlots: availableSlots?.length ? availableSlots : reassignDialog.availableSlots,
-          });
-        }
-      );
-
-      setReassignDialog({
-        open: false,
-        reason: "busy",
-        message: "",
-        appointmentId: 0,
-        targetProfessionalId: 0,
-        targetProfessionalName: "",
-        availableSlots: [],
-      });
-      setDraggedAppointment(null);
-      setDragSourceProfessionalId(null);
-      return;
-    }
-
-    if (!onQuickTimeChange) return;
-
-    onQuickTimeChange(appointmentId, newTime, () => {});
-
-    setTimeout(() => {
-      performReassign(appointmentId, targetProfessionalId, { type: "all" }, () => {
-        openReassignDialog({
-          reason: "busy",
-          message: `${targetProfessionalName} não ficou disponível nesse horário (conflito). Escolha um horário:`,
-          appointmentId,
-          targetProfessionalId,
-          targetProfessionalName,
-          availableSlots: reassignDialog.availableSlots,
-        });
-      });
-    }, 0);
-
-    setReassignDialog({
-      open: false,
-      reason: "busy",
-      message: "",
-      appointmentId: 0,
-      targetProfessionalId: 0,
-      targetProfessionalName: "",
-      availableSlots: [],
-    });
-    setDraggedAppointment(null);
-    setDragSourceProfessionalId(null);
-  };
-
-  const handleTimeSelect = (appointmentId: number, newTime: string) => {
-    if (!onQuickTimeChange) return;
-
-    onQuickTimeChange(
-      appointmentId,
-      newTime,
-      (availableSlots) => {
-        setTimeConflictDialog({
-          open: true,
-          appointmentId,
-          availableSlots,
-        });
-      }
-    );
-  };
-
-  const handleConflictTimeSelect = (newTime: string) => {
-    if (!onQuickTimeChange) return;
-
-    onQuickTimeChange(
-      timeConflictDialog.appointmentId,
-      newTime,
-      () => {}
-    );
-
-    setTimeConflictDialog({ open: false, appointmentId: 0, availableSlots: [] });
   };
 
   function HeaderProgress({ value }: { value: number }) {
-  const v = Math.max(0, Math.min(100, value || 0));
+    const v = Math.max(0, Math.min(100, value || 0));
+    const tone = v > 85 ? "danger" : v >= 60 ? "warn" : "ok";
 
-  const tone = v > 85 ? "danger" : v >= 60 ? "warn" : "ok";
+    const fillClass =
+      tone === "danger"
+        ? "bg-rose-600 dark:bg-rose-500"
+        : tone === "warn"
+          ? "bg-amber-500 dark:bg-amber-400"
+          : "bg-emerald-600 dark:bg-emerald-500";
 
-  const fillClass =
-    tone === "danger"
-      ? "bg-rose-600 dark:bg-rose-500"
-      : tone === "warn"
-        ? "bg-amber-500 dark:bg-amber-400"
-        : "bg-emerald-600 dark:bg-emerald-500";
+    const tintClass =
+      tone === "danger"
+        ? "bg-rose-500/10 dark:bg-rose-400/10"
+        : tone === "warn"
+          ? "bg-amber-400/10 dark:bg-amber-300/10"
+          : "bg-emerald-500/10 dark:bg-emerald-400/10";
 
-  const tintClass =
-    tone === "danger"
-      ? "bg-rose-500/10 dark:bg-rose-400/10"
-      : tone === "warn"
-        ? "bg-amber-400/10 dark:bg-amber-300/10"
-        : "bg-emerald-500/10 dark:bg-emerald-400/10";
+    const glowClass =
+      tone === "danger"
+        ? "shadow-[0_0_12px_rgba(244,63,94,0.25)]"
+        : tone === "warn"
+          ? "shadow-[0_0_12px_rgba(245,158,11,0.25)]"
+          : "shadow-[0_0_12px_rgba(16,185,129,0.25)]";
 
-  const glowClass =
-    tone === "danger"
-      ? "shadow-[0_0_12px_rgba(244,63,94,0.25)]"
-      : tone === "warn"
-        ? "shadow-[0_0_12px_rgba(245,158,11,0.25)]"
-        : "shadow-[0_0_12px_rgba(16,185,129,0.25)]";
+    return (
+      <div className="relative h-2 w-full overflow-hidden rounded-full ring-1 ring-border/60">
+        <div className="absolute inset-0 bg-muted/70 dark:bg-muted/30" />
+        <div className={cn("absolute inset-0", tintClass)} />
+        <div
+          className={cn("relative h-full transition-all", fillClass, glowClass)}
+          style={{ width: `${v}%` }}
+          aria-label={`Ocupação ${v}%`}
+        />
+      </div>
+    );
+  }
 
-  return (
-    <div className="relative h-2 w-full overflow-hidden rounded-full ring-1 ring-border/60">
-      <div className="absolute inset-0 bg-muted/70 dark:bg-muted/30" />
-      <div className={cn("absolute inset-0", tintClass)} />
-      <div
-        className={cn("relative h-full transition-all", fillClass, glowClass)}
-        style={{ width: `${v}%` }}
-        aria-label={`Ocupação ${v}%`}
-      />
-    </div>
-  );
-}
+  const pluralize = (n: number, singular: string, plural: string) => (n === 1 ? singular : plural);
 
   return (
     <div className="space-y-4">
@@ -1135,7 +804,7 @@ export function ProfessionalDailyView({
             </h2>
             <p className="text-sm text-muted-foreground">
               {dayAppointments.length} agendamento{dayAppointments.length !== 1 ? "s" : ""} •{" "}
-              {professionals.length} profissiona{professionals.length !== 1 ? "is" : "l"}
+              {effectiveProfessionals.length} profissiona{effectiveProfessionals.length !== 1 ? "is" : "l"}
               {onReassignProfessional && canEdit && (
                 <span className="ml-2 text-xs text-primary">• Arraste para realocar</span>
               )}
@@ -1178,12 +847,14 @@ export function ProfessionalDailyView({
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {professionals.map((professional) => {
+        {effectiveProfessionals.map((professional) => {
           const profId = Number(professional.id);
           const stats = getProfessionalStats(profId);
           const profAppointments = getProfessionalAppointments(profId);
           const isExpanded = expandedProfessionals.has(String(professional.id));
           const isDragOver = dragOverProfessional === String(professional.id);
+
+          const shouldInnerScroll = profAppointments.length >= 3;
 
           return (
             <Collapsible
@@ -1196,7 +867,8 @@ export function ProfessionalDailyView({
                   "transition-all duration-300",
                   isExpanded ? "col-span-1 md:col-span-2 lg:col-span-3" : "",
                   stats.totalAppointments === 0 && "opacity-60",
-                  isDragOver && "ring-2 ring-primary ring-offset-2 bg-primary/5"
+                  isDragOver && "ring-2 ring-primary ring-offset-2 bg-primary/5",
+                  isExpanded && "overflow-hidden"
                 )}
                 onDragOver={(e) => handleDragOver(e, String(professional.id))}
                 onDragLeave={() => setDragOverProfessional(null)}
@@ -1240,6 +912,7 @@ export function ProfessionalDailyView({
                           {stats.occupationPercentage}%
                         </span>
                       </div>
+
                       <div className="flex flex-wrap items-center gap-2">
                         {stats.totalAppointments === 0 ? (
                           <Badge variant="outline" className="text-xs text-muted-foreground">
@@ -1285,7 +958,277 @@ export function ProfessionalDailyView({
                         <p>Nenhum agendamento para hoje</p>
                       </div>
                     ) : (
-                      <ScrollArea className="h-[60vh] md:h-[65vh] lg:h-[70vh] pr-5">
+                      (shouldInnerScroll ? (
+                        <ScrollArea className="h-[420px] md:h-[520px] lg:h-[560px] pr-4">
+                          <div className="space-y-3">
+                            {profAppointments.map((appointment) => {
+                              const slice = getAppointmentSliceForProfessional(appointment, profId);
+
+                              const time = slice.timeHHmm;
+                              const dur = slice.durationMin;
+                              const price = slice.price;
+                              const service = slice.servicesLabelForProf;
+                              const phone = customerPhone(appointment);
+                              const canDrag = !!(canEdit && onReassignProfessional && !isDragBlockedByStatus(appointment.status));
+
+                              return (
+                                <Card
+                                  key={appointment.id}
+                                  draggable={canDrag}
+                                  onDragStart={(e) => handleDragStart(e, appointment, profId)}
+                                  onDragEnd={handleDragEnd}
+                                  className={cn(
+                                    "p-4 transition-all hover:shadow-md",
+                                    canDrag && "cursor-grab active:cursor-grabbing",
+                                    !canDrag && canEdit && onReassignProfessional && "cursor-not-allowed opacity-80",
+                                    draggedAppointment?.id === appointment.id && "opacity-70",
+                                    getStatusCardClass(appointment.status)
+                                  )}
+                                >
+                                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                                    <div className="flex-1 space-y-2">
+                                      <div className="flex items-center justify-between md:justify-start gap-3">
+                                        <div className="flex items-center gap-2">
+                                          {canDrag && (
+                                            <GripVertical className="h-4 w-4 text-muted-foreground/50" />
+                                          )}
+
+                                          <Badge
+                                            variant="outline"
+                                            className="h-5 px-1.5 py-0 text-[12px] font-medium text-muted-foreground border-muted/60 bg-transparent"
+                                            title={`Agendamento #${appointment.id}`}
+                                          >
+                                            #{appointment.id}
+                                          </Badge>
+
+                                          {onQuickTimeChange && canEdit ? (
+                                            <Popover>
+                                              <PopoverTrigger asChild>
+                                                <Button
+                                                  variant="ghost"
+                                                  size="sm"
+                                                  className="h-auto p-1 hover:bg-primary/10"
+                                                  onClick={(e) => e.stopPropagation()}
+                                                >
+                                                  <Clock className="h-4 w-4 text-primary mr-1" />
+                                                  <span className="font-bold text-lg">{time || "--:--"}</span>
+                                                </Button>
+                                              </PopoverTrigger>
+                                              <PopoverContent className="w-48 p-2" align="start">
+                                                <p className="text-xs text-muted-foreground mb-2">Alterar horário:</p>
+
+                                                {(() => {
+                                                  const slotStatuses = getSlotsStatusForProfessional(profId, dur, appointment.id);
+                                                  const current = time || "";
+
+                                                  const hasCurrent = current && slotStatuses.some((s) => s.time === current);
+                                                  const finalList = hasCurrent
+                                                    ? slotStatuses
+                                                    : current
+                                                      ? [{ time: current, isFree: true as const } as any, ...slotStatuses]
+                                                      : slotStatuses;
+
+                                                  if (finalList.length === 0) {
+                                                    return (
+                                                      <p className="text-xs text-muted-foreground py-2">
+                                                        Sem horários na escala deste profissional.
+                                                      </p>
+                                                    );
+                                                  }
+
+                                                  return (
+                                                    <ScrollArea className="h-48">
+                                                      <div className="space-y-1">
+                                                        {finalList.map((slot) => {
+                                                          const isCurrent = slot.time === current;
+                                                          const disabled = !slot.isFree && !isCurrent;
+
+                                                          const reasonLabel =
+                                                            !slot.isFree && !isCurrent
+                                                              ? slot.reason === "busy"
+                                                                ? "ocupado"
+                                                                : slot.reason === "lunch"
+                                                                  ? "intervalo"
+                                                                  : "fora da escala"
+                                                              : null;
+
+                                                          return (
+                                                            <Button
+                                                              key={slot.time}
+                                                              variant={isCurrent ? "secondary" : "ghost"}
+                                                              size="sm"
+                                                              className={cn(
+                                                                "w-full justify-start",
+                                                                disabled && "opacity-60",
+                                                                slot.reason === "busy" && disabled && "text-destructive"
+                                                              )}
+                                                              disabled={disabled}
+                                                              onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                if (slot.time !== current && slot.isFree) {
+                                                                  handleTimeSelect(appointment.id, slot.time);
+                                                                }
+                                                              }}
+                                                            >
+                                                              {slot.time}
+                                                              {reasonLabel ? (
+                                                                <span className="ml-2 text-[10px] text-muted-foreground">• {reasonLabel}</span>
+                                                              ) : null}
+                                                            </Button>
+                                                          );
+                                                        })}
+                                                      </div>
+                                                    </ScrollArea>
+                                                  );
+                                                })()}
+                                              </PopoverContent>
+                                            </Popover>
+                                          ) : (
+                                            <div className="flex items-center gap-2">
+                                              <Clock className="h-4 w-4 text-primary" />
+                                              <span className="font-bold text-lg">{time || "--:--"}</span>
+                                            </div>
+                                          )}
+                                        </div>
+
+                                        {onQuickStatusChange && canEdit ? (
+                                          <Select
+                                            value={appointment.status}
+                                            onValueChange={(value) => {
+                                              onQuickStatusChange(appointment.id, value as Appointment["status"]);
+                                            }}
+                                          >
+                                            <SelectTrigger
+                                              className="w-auto h-auto border-0 p-0 focus:ring-0"
+                                              onClick={(e) => e.stopPropagation()}
+                                            >
+                                              <Badge
+                                                variant="outline"
+                                                className={getStatusBadgeClass(appointment.status, "cursor-pointer")}
+                                              >
+                                                {getStatusLabel(appointment.status)}
+                                              </Badge>
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              {STATUS_OPTIONS.map((status) => (
+                                                <SelectItem key={status} value={status}>
+                                                  <Badge variant="outline" className={getStatusBadgeClass(status)}>
+                                                    {getStatusLabel(status)}
+                                                  </Badge>
+                                                </SelectItem>
+                                              ))}
+                                            </SelectContent>
+                                          </Select>
+                                        ) : (
+                                          <Badge
+                                            variant="outline"
+                                            className={getStatusBadgeClass(appointment.status, "cursor-pointer")}
+                                          >
+                                            {getStatusLabel(appointment.status)}
+                                          </Badge>
+                                        )}
+                                      </div>
+
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                                        <div className="flex items-center gap-2">
+                                          <User className="h-4 w-4 text-muted-foreground" />
+                                          <span className="font-medium">{appointment.customer?.name ?? "Cliente"}</span>
+                                        </div>
+
+                                        {phone && (
+                                          <div className="flex items-center gap-2">
+                                            <Phone className="h-4 w-4 text-muted-foreground" />
+                                            <span>{phone}</span>
+                                          </div>
+                                        )}
+
+                                        <div className="flex items-center gap-2">
+                                          <Scissors className="h-4 w-4 text-muted-foreground" />
+                                          <span>{service}</span>
+                                        </div>
+
+                                        {dur > 0 && (
+                                          <div className="flex items-center gap-2 text-muted-foreground">
+                                            <Clock className="h-4 w-4" />
+                                            <span>{formatDuration(dur)}</span>
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      {price > 0 && (
+                                        <div className="flex items-center gap-2 text-primary font-semibold">
+                                          <DollarSign className="h-4 w-4" />
+                                          <span>{formatCurrency(price)}</span>
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    <div className="flex gap-1 md:flex-col">
+                                      {onPrint && (
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            onPrint(appointment);
+                                          }}
+                                          title="Imprimir"
+                                        >
+                                          <Printer className="h-4 w-4" />
+                                        </Button>
+                                      )}
+
+                                      {onCheckout &&
+                                        (appointment.status === "scheduled" || appointment.status === "confirmed") &&
+                                        canEdit && (
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              onCheckout(appointment);
+                                            }}
+                                            title="Finalizar"
+                                          >
+                                            <DollarSign className="h-4 w-4 text-green-600" />
+                                          </Button>
+                                        )}
+
+                                      {onEdit && canEdit && (
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            onEdit(appointment);
+                                          }}
+                                          title="Editar"
+                                        >
+                                          <Edit className="h-4 w-4" />
+                                        </Button>
+                                      )}
+
+                                      {onDelete && canDelete && (
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            onDelete(appointment.id);
+                                          }}
+                                          title="Excluir"
+                                        >
+                                          <Trash2 className="h-4 w-4 text-destructive" />
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </div>
+                                </Card>
+                              );
+                            })}
+                          </div>
+                        </ScrollArea>
+                      ) : (
                         <div className="space-y-3">
                           {profAppointments.map((appointment) => {
                             const slice = getAppointmentSliceForProfessional(appointment, profId);
@@ -1313,142 +1256,30 @@ export function ProfessionalDailyView({
                               >
                                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                                   <div className="flex-1 space-y-2">
-                                    <div className="flex items-center justify-between md:justify-start gap-3">
+                                    <div className="flex items-center gap-2">
+                                      {canDrag && (
+                                        <GripVertical className="h-4 w-4 text-muted-foreground/50" />
+                                      )}
+
+                                      <Badge
+                                        variant="outline"
+                                        className="h-5 px-1.5 py-0 text-[12px] font-medium text-muted-foreground border-muted/60 bg-transparent"
+                                        title={`Agendamento #${appointment.id}`}
+                                      >
+                                        #{appointment.id}
+                                      </Badge>
+
                                       <div className="flex items-center gap-2">
-                                        {canDrag && (
-                                          <GripVertical className="h-4 w-4 text-muted-foreground/50" />
-                                        )}
-                                        <Badge
-                                          variant="outline"
-                                          className="h-5 px-1.5 py-0 text-[12px] font-medium text-muted-foreground border-muted/60 bg-transparent"
-                                          title={`Agendamento #${appointment.id}`}
-                                        >
-                                          #{appointment.id}
-                                        </Badge>
-
-                                        {onQuickTimeChange && canEdit ? (
-                                          <Popover>
-                                            <PopoverTrigger asChild>
-                                              <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                className="h-auto p-1 hover:bg-primary/10"
-                                                onClick={(e) => e.stopPropagation()}
-                                              >
-                                                <Clock className="h-4 w-4 text-primary mr-1" />
-                                                <span className="font-bold text-lg">{time || "--:--"}</span>
-                                              </Button>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-48 p-2" align="start">
-                                              <p className="text-xs text-muted-foreground mb-2">Alterar horário:</p>
-
-                                              {(() => {
-                                                const slotStatuses = getSlotsStatusForProfessional(profId, dur, appointment.id);
-                                                const current = time || "";
-
-                                                const hasCurrent = current && slotStatuses.some((s) => s.time === current);
-                                                const finalList = hasCurrent
-                                                  ? slotStatuses
-                                                  : current
-                                                    ? [{ time: current, isFree: true as const } as any, ...slotStatuses]
-                                                    : slotStatuses;
-
-                                                if (finalList.length === 0) {
-                                                  return (
-                                                    <p className="text-xs text-muted-foreground py-2">
-                                                      Sem horários na escala deste profissional.
-                                                    </p>
-                                                  );
-                                                }
-
-                                                return (
-                                                  <ScrollArea className="h-48">
-                                                    <div className="space-y-1">
-                                                      {finalList.map((slot) => {
-                                                        const isCurrent = slot.time === current;
-                                                        const disabled = !slot.isFree && !isCurrent;
-
-                                                        const reasonLabel =
-                                                          !slot.isFree && !isCurrent
-                                                            ? slot.reason === "busy"
-                                                              ? "ocupado"
-                                                              : slot.reason === "lunch"
-                                                                ? "intervalo"
-                                                                : "fora da escala"
-                                                            : null;
-
-                                                        return (
-                                                          <Button
-                                                            key={slot.time}
-                                                            variant={isCurrent ? "secondary" : "ghost"}
-                                                            size="sm"
-                                                            className={cn(
-                                                              "w-full justify-start",
-                                                              disabled && "opacity-60",
-                                                              slot.reason === "busy" && disabled && "text-destructive"
-                                                            )}
-                                                            disabled={disabled}
-                                                            onClick={(e) => {
-                                                              e.stopPropagation();
-                                                              if (slot.time !== current && slot.isFree) {
-                                                                handleTimeSelect(appointment.id, slot.time);
-                                                              }
-                                                            }}
-                                                          >
-                                                            {slot.time}
-                                                            {reasonLabel ? (
-                                                              <span className="ml-2 text-[10px] text-muted-foreground">• {reasonLabel}</span>
-                                                            ) : null}
-                                                          </Button>
-                                                        );
-                                                      })}
-                                                    </div>
-                                                  </ScrollArea>
-                                                );
-                                              })()}
-                                            </PopoverContent>
-                                          </Popover>
-                                        ) : (
-                                          <div className="flex items-center gap-2">
-                                            <Clock className="h-4 w-4 text-primary" />
-                                            <span className="font-bold text-lg">{time || "--:--"}</span>
-                                          </div>
-                                        )}
+                                        <Clock className="h-4 w-4 text-primary" />
+                                        <span className="font-bold text-lg">{time || "--:--"}</span>
                                       </div>
 
-                                      {onQuickStatusChange && canEdit ? (
-                                        <Select
-                                          value={appointment.status}
-                                          onValueChange={(value) => {
-                                            onQuickStatusChange(appointment.id, value as Appointment["status"]);
-                                          }}
-                                        >
-                                          <SelectTrigger
-                                            className="w-auto h-auto border-0 p-0 focus:ring-0"
-                                            onClick={(e) => e.stopPropagation()}
-                                          >
-                                            <Badge
-                                              variant="outline"
-                                              className={getStatusBadgeClass(appointment.status, "cursor-pointer")}
-                                            >
-                                              {getStatusLabel(appointment.status)}
-                                            </Badge>
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                             {STATUS_OPTIONS.map((status) => (
-                                              <SelectItem key={status} value={status}>
-                                                <Badge variant="outline" className={getStatusBadgeClass(status)}>
-                                                  {getStatusLabel(status)}
-                                                </Badge>
-                                              </SelectItem>
-                                            ))}
-                                          </SelectContent>
-                                        </Select>
-                                      ) : (
-                                        <Badge variant="outline" className={getStatusBadgeClass(appointment.status, "cursor-pointer")}>
-                                          {getStatusLabel(appointment.status)}
-                                        </Badge>
-                                      )}
+                                      <Badge
+                                        variant="outline"
+                                        className={getStatusBadgeClass(appointment.status, "cursor-pointer")}
+                                      >
+                                        {getStatusLabel(appointment.status)}
+                                      </Badge>
                                     </div>
 
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
@@ -1499,21 +1330,6 @@ export function ProfessionalDailyView({
                                         <Printer className="h-4 w-4" />
                                       </Button>
                                     )}
-
-                                    {onCheckout && (appointment.status === "scheduled" || appointment.status === "confirmed") && canEdit && (
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          onCheckout(appointment);
-                                        }}
-                                        title="Finalizar"
-                                      >
-                                        <DollarSign className="h-4 w-4 text-green-600" />
-                                      </Button>
-                                    )}
-
                                     {onEdit && canEdit && (
                                       <Button
                                         variant="ghost"
@@ -1527,7 +1343,6 @@ export function ProfessionalDailyView({
                                         <Edit className="h-4 w-4" />
                                       </Button>
                                     )}
-
                                     {onDelete && canDelete && (
                                       <Button
                                         variant="ghost"
@@ -1547,7 +1362,7 @@ export function ProfessionalDailyView({
                             );
                           })}
                         </div>
-                      </ScrollArea>
+                      ))
                     )}
                   </div>
                 </CollapsibleContent>
@@ -1557,10 +1372,42 @@ export function ProfessionalDailyView({
         })}
       </div>
 
-      <Dialog
-        open={multiProfDialog.open}
-        onOpenChange={(open) => !open && setMultiProfDialog(EMPTY_MULTI_PROF_DIALOG)}
-      >
+      {/* dialogs (mantive como no seu arquivo original) */}
+      <Dialog open={timeConflictDialog.open} onOpenChange={(open) => !open && setTimeConflictDialog({ open: false, appointmentId: 0, availableSlots: [] })}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-destructive" />
+              Conflito de horário
+            </DialogTitle>
+            <DialogDescription>Esse horário gerou conflito. Escolha outro horário disponível:</DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4">
+            {timeConflictDialog.availableSlots.length > 0 ? (
+              <ScrollArea className="h-48">
+                <div className="grid grid-cols-3 gap-2">
+                  {timeConflictDialog.availableSlots.map((slot) => (
+                    <Button key={slot} variant="outline" size="sm" onClick={() => handleConflictTimeSelect(slot)}>
+                      {slot}
+                    </Button>
+                  ))}
+                </div>
+              </ScrollArea>
+            ) : (
+              <p className="text-sm text-muted-foreground">Nenhum horário sugerido. Verifique a agenda do profissional.</p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTimeConflictDialog({ open: false, appointmentId: 0, availableSlots: [] })}>
+              Fechar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={multiProfDialog.open} onOpenChange={(open) => !open && setMultiProfDialog(EMPTY_MULTI_PROF_DIALOG)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1575,106 +1422,22 @@ export function ProfessionalDailyView({
           </DialogHeader>
 
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              variant="outline"
-              onClick={() => setMultiProfDialog(EMPTY_MULTI_PROF_DIALOG)}
-            >
+            <Button variant="outline" onClick={() => setMultiProfDialog(EMPTY_MULTI_PROF_DIALOG)}>
               Cancelar
             </Button>
-
-            {onReassignProfessionalScoped && multiProfDialog.sourceProfessionalId != null && (
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  const apt = appointments.find((a) => Number(a.id) === Number(multiProfDialog.appointmentId));
-                  if (!apt) return;
-
-                  setMultiProfDialog(EMPTY_MULTI_PROF_DIALOG);
-
-                  tryReassign({
-                    appointment: apt,
-                    targetProfessionalId: multiProfDialog.targetProfessionalId,
-                    targetProfessionalName: multiProfDialog.targetProfessionalName,
-                    scope: { type: "only_professional", professionalId: multiProfDialog.sourceProfessionalId },
-                  });
-
-                  setDragSourceProfessionalId(null);
-                  setDraggedAppointment(null);
-                }}
-              >
-                Mover só deste profissional
-              </Button>
-            )}
-
-            <Button
-              onClick={() => {
-                const apt = appointments.find((a) => Number(a.id) === Number(multiProfDialog.appointmentId));
-                if (!apt) return;
-
-                setMultiProfDialog(EMPTY_MULTI_PROF_DIALOG);
-
-                tryReassign({
-                  appointment: apt,
-                  targetProfessionalId: multiProfDialog.targetProfessionalId,
-                  targetProfessionalName: multiProfDialog.targetProfessionalName,
-                  scope: { type: "all" },
-                });
-
-                setDraggedAppointment(null);
-                setDragSourceProfessionalId(null);
-              }}
-            >
-              Mover tudo
-            </Button>
+            <Button onClick={() => setMultiProfDialog(EMPTY_MULTI_PROF_DIALOG)}>Mover tudo</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog
-        open={reassignDialog.open}
-        onOpenChange={(open) =>
-          !open &&
-          setReassignDialog({
-            open: false,
-            reason: "busy",
-            message: "",
-            appointmentId: 0,
-            targetProfessionalId: 0,
-            targetProfessionalName: "",
-            availableSlots: [],
-          })
-        }
-      >
+      <Dialog open={reassignDialog.open} onOpenChange={(open) => !open && setReassignDialog({ open: false, reason: "busy", message: "", appointmentId: 0, targetProfessionalId: 0, targetProfessionalName: "", availableSlots: [] })}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <AlertCircle className={cn(
-                "h-5 w-5",
-                reassignDialog.reason === "status_locked" ? "text-slate-500" :
-                reassignDialog.reason === "no_schedule" ? "text-amber-500" :
-                "text-destructive"
-              )} />
-              {reassignDialog.reason === "status_locked"
-                ? "Movimentação bloqueada"
-                : reassignDialog.reason === "no_schedule"
-                  ? "Sem escala"
-                  : reassignDialog.reason === "lunch"
-                    ? "Intervalo"
-                    : reassignDialog.reason === "outside_hours"
-                      ? "Fora do expediente"
-                      : reassignDialog.reason === "does_not_fit"
-                        ? "Não cabe na agenda"
-                        : reassignDialog.reason === "invalid_time"
-                          ? "Horário inválido"
-                          : "Conflito de horário"}
+              <AlertCircle className={cn("h-5 w-5", reassignDialog.reason === "status_locked" ? "text-slate-500" : reassignDialog.reason === "no_schedule" ? "text-amber-500" : "text-destructive")} />
+              Conflito / Bloqueio
             </DialogTitle>
-
-            <DialogDescription>
-              {reassignDialog.message ||
-                (reassignDialog.targetProfessionalName
-                  ? `${reassignDialog.targetProfessionalName} não está disponível para esta ação.`
-                  : "Não foi possível concluir esta ação.")}
-            </DialogDescription>
+            <DialogDescription>{reassignDialog.message || "Não foi possível concluir esta ação."}</DialogDescription>
           </DialogHeader>
 
           {reassignDialog.availableSlots.length > 0 && onQuickTimeChange ? (
@@ -1682,12 +1445,7 @@ export function ProfessionalDailyView({
               <ScrollArea className="h-48">
                 <div className="grid grid-cols-3 gap-2">
                   {reassignDialog.availableSlots.map((slot) => (
-                    <Button
-                      key={slot}
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleReassignDialogTimeSelect(slot)}
-                    >
+                    <Button key={slot} variant="outline" size="sm" onClick={() => onQuickTimeChange?.(reassignDialog.appointmentId, slot, () => {})}>
                       {slot}
                     </Button>
                   ))}
@@ -1697,20 +1455,7 @@ export function ProfessionalDailyView({
           ) : null}
 
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() =>
-                setReassignDialog({
-                  open: false,
-                  reason: "busy",
-                  message: "",
-                  appointmentId: 0,
-                  targetProfessionalId: 0,
-                  targetProfessionalName: "",
-                  availableSlots: [],
-                })
-              }
-            >
+            <Button variant="outline" onClick={() => setReassignDialog({ open: false, reason: "busy", message: "", appointmentId: 0, targetProfessionalId: 0, targetProfessionalName: "", availableSlots: [] })}>
               Fechar
             </Button>
           </DialogFooter>

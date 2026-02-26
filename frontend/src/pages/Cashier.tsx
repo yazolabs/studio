@@ -1,39 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataTable } from "@/components/DataTable";
 import { Badge } from "@/components/ui/badge";
-import {
-  DollarSign,
-  TrendingUp,
-  ArrowUpCircle,
-  ArrowDownCircle,
-  Download,
-  FileText,
-  Tag,
-  CreditCard,
-  Check,
-  X,
-  Filter,
-  ChevronDown,
-  ChevronUp,
-  Calendar as CalendarIcon,
-} from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { DollarSign, TrendingUp, ArrowUpCircle, ArrowDownCircle, Download, FileText, Tag, CreditCard, Check, X, Filter, ChevronDown, ChevronUp, Calendar as CalendarIcon, Lock } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
@@ -43,17 +16,12 @@ import type { AccountPayable } from "@/types/account-payable";
 import type { CashierTransaction } from "@/types/cashier-transaction";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { cashierLock, cashierUnlockStatus, type CashierPinStatus } from "@/services/cashierPinService";
+import { CashierPinDialog } from "@/components/CashierPinDialog";
 
 type MultiSelectOption = { value: string; label: string };
 
@@ -87,13 +55,7 @@ function MultiSelectString({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          className="w-full justify-between"
-        >
+        <Button type="button" variant="outline" role="combobox" aria-expanded={open} className="w-full justify-between">
           <div className="flex flex-wrap gap-2 items-center">
             {value.length === 0 ? (
               <span className="text-muted-foreground">{placeholder}</span>
@@ -125,11 +87,7 @@ function MultiSelectString({
                     className="flex items-center justify-between"
                   >
                     <span>{opt.label}</span>
-                    {isSelected ? (
-                      <Check className="h-4 w-4 opacity-100" />
-                    ) : (
-                      <X className="h-4 w-4 opacity-30" />
-                    )}
+                    {isSelected ? <Check className="h-4 w-4 opacity-100" /> : <X className="h-4 w-4 opacity-30" />}
                   </CommandItem>
                 );
               })}
@@ -142,14 +100,72 @@ function MultiSelectString({
 }
 
 export default function Cashier() {
-  const [selectedType, setSelectedType] = useState<"all" | "entrada" | "saida">(
-    "all"
-  );
-  const [dateFrom, setDateFrom] = useState<Date | null>(null);
-  const [dateTo, setDateTo] = useState<Date | null>(null);
-  const [selectedPaymentMethods, setSelectedPaymentMethods] = useState<string[]>(
-    []
-  );
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    return () => {
+      cashierLock().catch(() => {});
+
+      queryClient.setQueryData<CashierPinStatus | undefined>(["cashier-pin-status"], (old) =>
+        old ? { ...old, unlocked: false } : old
+      );
+
+      queryClient.removeQueries({ queryKey: ["cashier-transactions"] });
+      queryClient.removeQueries({ queryKey: ["accounts-payable", "cashier"] });
+    };
+  }, [queryClient]);
+
+  const [pinDialogOpen, setPinDialogOpen] = useState(false);
+  const [pinDialogMode, setPinDialogMode] = useState<"unlock" | "set">("unlock");
+
+  const {
+    data: pinStatus,
+    isLoading: pinStatusLoading,
+    refetch: refetchPinStatus,
+  } = useQuery<CashierPinStatus>({
+    queryKey: ["cashier-pin-status"],
+    queryFn: cashierUnlockStatus,
+    retry: false,
+  });
+
+  const unlocked = pinStatus?.unlocked === true;
+  const pinSet = pinStatus?.pin_set === true;
+
+  useEffect(() => {
+    if (!pinStatus) return;
+
+    if (!pinSet) {
+      setPinDialogMode("set");
+      setPinDialogOpen(true);
+      return;
+    }
+
+    if (!unlocked) {
+      setPinDialogMode("unlock");
+      setPinDialogOpen(true);
+      return;
+    }
+
+    setPinDialogOpen(false);
+  }, [pinStatus, pinSet, unlocked]);
+
+  const onPinSuccess = async () => {
+    setPinDialogOpen(false);
+    await refetchPinStatus();
+    await queryClient.invalidateQueries({ queryKey: ["cashier-transactions"] });
+    await queryClient.invalidateQueries({ queryKey: ["accounts-payable", "cashier"] });
+  };
+
+  const [selectedType, setSelectedType] = useState<"all" | "entrada" | "saida">("all");
+  const [dateFrom, setDateFrom] = useState<Date | null>(() => {
+  const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  });
+  const [dateTo, setDateTo] = useState<Date | null>(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  });
+  const [selectedPaymentMethods, setSelectedPaymentMethods] = useState<string[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [filtersOpen, setFiltersOpen] = useState(false);
 
@@ -177,52 +193,109 @@ export default function Cashier() {
     return true;
   };
 
+  const today = toStartOfDay(new Date());
+
+  const isDefaultTodayRange =
+    !!dateFrom &&
+    !!dateTo &&
+    toStartOfDay(dateFrom).getTime() === today.getTime() &&
+    toStartOfDay(dateTo).getTime() === today.getTime();
+
   const hasActiveFilters =
     selectedType !== "all" ||
     selectedCategory !== "all" ||
     selectedPaymentMethods.length > 0 ||
-    dateFrom !== null ||
-    dateTo !== null;
+    !isDefaultTodayRange;
 
   useEffect(() => {
     if (hasActiveFilters) setFiltersOpen(true);
   }, [hasActiveFilters]);
 
   const clearFilters = () => {
+    const today = toStartOfDay(new Date());
     setSelectedType("all");
     setSelectedCategory("all");
     setSelectedPaymentMethods([]);
-    setDateFrom(null);
-    setDateTo(null);
+    setDateFrom(today);
+    setDateTo(today);
   };
 
   const periodText = useMemo(() => {
-    if (!dateFrom && !dateTo) return "Todos os períodos";
     const fmt = (d: Date) => format(d, "dd/MM/yyyy", { locale: ptBR });
-    const fromTxt = dateFrom ? fmt(dateFrom) : "…";
-    const toTxt = dateTo ? fmt(dateTo) : "…";
+
+    const fromDate = dateFrom ?? toStartOfDay(new Date());
+    const toDate = dateTo ?? toStartOfDay(new Date());
+
+    const fromTxt = fmt(fromDate);
+    const toTxt = fmt(toDate);
+
+    if (fromTxt === toTxt) return `Dia: ${fromTxt}`;
     return `${fromTxt} a ${toTxt}`;
   }, [dateFrom, dateTo]);
 
-  const { data: transactionsRaw, isLoading, isError } = useQuery({
-    queryKey: ["cashier-transactions"],
-    queryFn: () => listCashierTransactions(),
+  const startDateParam = useMemo(() => {
+    if (!dateFrom) return undefined;
+    return format(dateFrom, "yyyy-MM-dd");
+  }, [dateFrom]);
+
+  const endDateParam = useMemo(() => {
+    if (!dateTo) return undefined;
+    return format(dateTo, "yyyy-MM-dd");
+  }, [dateTo]);
+
+  const typeParam = useMemo(() => {
+    if (selectedType === "all") return undefined;
+    return selectedType;
+  }, [selectedType]);
+
+  const {
+    data: transactionsRaw,
+    isLoading: transactionsLoading,
+    isError: transactionsIsError,
+    error: transactionsError,
+  } = useQuery<CashierTransaction[]>({
+    queryKey: ["cashier-transactions", startDateParam, endDateParam, typeParam],
+    queryFn: () =>
+      listCashierTransactions({
+        startDate: startDateParam,
+        endDate: endDateParam,
+        type: typeParam,
+      }),
+    enabled: unlocked,
+    retry: false,
   });
 
-  const { data: accountsPayableRaw } = useQuery({
-    queryKey: ["accounts-payable", "cashier"],
-    queryFn: () => listAccountsPayable({ perPage: 1000 }),
+  useEffect(() => {
+    if (!unlocked) return;
+    if (!transactionsIsError) return;
+
+    const status = (transactionsError as any)?.response?.status;
+    const code = (transactionsError as any)?.response?.data?.code;
+
+    if (status === 423 || code === "CASHIER_PIN_REQUIRED") {
+      setPinDialogMode("unlock");
+      setPinDialogOpen(true);
+
+      queryClient.setQueryData<CashierPinStatus | undefined>(["cashier-pin-status"], (old) =>
+        old ? { ...old, unlocked: false } : old
+      );
+    }
+  }, [unlocked, transactionsIsError, transactionsError, queryClient]);
+
+  const { data: accountsPayableRaw } = useQuery<AccountPayable[]>({
+    queryKey: ["accounts-payable", "cashier", startDateParam, endDateParam],
+    queryFn: () =>
+      listAccountsPayable({
+        status: "pending",
+        start_date: startDateParam,
+        end_date: endDateParam,
+      }),
+    enabled: unlocked,
+    retry: false,
   });
 
-  const accountsPayable: AccountPayable[] = useMemo(
-    () => (accountsPayableRaw as any)?.data ?? [],
-    [accountsPayableRaw]
-  );
-
-  const transactions: CashierTransaction[] = useMemo(
-    () => transactionsRaw ?? [],
-    [transactionsRaw]
-  );
+  const accountsPayable = useMemo(() => accountsPayableRaw ?? [], [accountsPayableRaw]);
+  const transactions = useMemo(() => transactionsRaw ?? [], [transactionsRaw]);
 
   const uniqueCategories = useMemo(() => {
     const set = new Set<string>();
@@ -253,15 +326,6 @@ export default function Cashier() {
 
   const filteredTransactions = useMemo(() => {
     return transactions.filter((t) => {
-      const transactionDate = t.date ? new Date(t.date) : null;
-      if (!transactionDate || Number.isNaN(transactionDate.getTime())) return false;
-
-      // ✅ Datas só filtram se o usuário escolher
-      const dateMatch =
-        !dateFrom && !dateTo ? true : isWithinRange(transactionDate, dateFrom, dateTo);
-
-      const typeMatch = selectedType === "all" || t.type === selectedType;
-
       const categoryMatch =
         selectedCategory === "all" || (t.category && t.category === selectedCategory);
 
@@ -269,9 +333,9 @@ export default function Cashier() {
         selectedPaymentMethods.length === 0 ||
         (t.payment_method && selectedPaymentMethods.includes(t.payment_method));
 
-      return dateMatch && typeMatch && categoryMatch && paymentMatch;
+      return categoryMatch && paymentMatch;
     });
-  }, [transactions, dateFrom, dateTo, selectedType, selectedCategory, selectedPaymentMethods]);
+  }, [transactions, selectedCategory, selectedPaymentMethods]);
 
   const summary = useMemo(() => {
     const entradas = filteredTransactions.filter((t) => t.type === "entrada");
@@ -307,27 +371,8 @@ export default function Cashier() {
   }, [filteredTransactions]);
 
   const pendingPayablesInRange = useMemo(() => {
-    // ✅ Se não tem datas, considera todas as pendências
-    if (!dateFrom && !dateTo) {
-      return accountsPayable.filter((a) => a.status === "pending");
-    }
-
-    const start = dateFrom ? toStartOfDay(dateFrom) : null;
-    const end = dateTo ? toStartOfDay(dateTo) : null;
-
-    return accountsPayable.filter((a) => {
-      if (a.status !== "pending") return false;
-      if (!a.due_date) return false;
-
-      const due = new Date(`${a.due_date}T00:00:00`);
-      if (Number.isNaN(due.getTime())) return false;
-
-      if (start && due < start) return false;
-      if (end && due > end) return false;
-
-      return true;
-    });
-  }, [accountsPayable, dateFrom, dateTo]);
+    return accountsPayable;
+  }, [accountsPayable]);
 
   const pendingPayablesTotal = useMemo(() => {
     return pendingPayablesInRange.reduce((sum, a) => sum + Number(a.amount || 0), 0);
@@ -378,8 +423,7 @@ export default function Cashier() {
         Descrição: t.description ?? "-",
         Categoria: t.category ?? "-",
         Referência: t.reference ?? "-",
-        "Forma de Pagamento":
-          PAYMENT_METHOD_LABEL[t.payment_method ?? ""] ?? t.payment_method ?? "-",
+        "Forma de Pagamento": PAYMENT_METHOD_LABEL[t.payment_method ?? ""] ?? t.payment_method ?? "-",
         "Valor (R$)": Number(t.amount).toFixed(2),
       }))
     );
@@ -431,24 +475,15 @@ export default function Cashier() {
     {
       key: "date",
       header: "Data/Hora",
-      render: (t: CashierTransaction) =>
-        t.date ? new Date(t.date).toLocaleDateString("pt-BR") : "-",
+      render: (t: CashierTransaction) => (t.date ? new Date(t.date).toLocaleDateString("pt-BR") : "-"),
     },
-    {
-      key: "description",
-      header: "Descrição",
-      render: (transaction: CashierTransaction) => transaction.description ?? "-",
-    },
-    {
-      key: "reference",
-      header: "Referência",
-      render: (transaction: CashierTransaction) => transaction.reference ?? "-",
-    },
+    { key: "description", header: "Descrição", render: (t: CashierTransaction) => t.description ?? "-" },
+    { key: "reference", header: "Referência", render: (t: CashierTransaction) => t.reference ?? "-" },
     {
       key: "payment_method",
       header: "Forma de Pagamento",
-      render: (transaction: CashierTransaction) => {
-        const m = transaction.payment_method;
+      render: (t: CashierTransaction) => {
+        const m = t.payment_method;
         if (!m) return "-";
         return PAYMENT_METHOD_LABEL[m] ?? m;
       },
@@ -456,23 +491,49 @@ export default function Cashier() {
     {
       key: "amount",
       header: "Valor",
-      render: (transaction: CashierTransaction) => (
-        <span
-          className={
-            transaction.type === "entrada"
-              ? "text-green-600 font-semibold"
-              : "text-red-600 font-semibold"
-          }
-        >
-          {transaction.type === "entrada" ? "+" : "-"} R$ {Number(transaction.amount).toFixed(2)}
+      render: (t: CashierTransaction) => (
+        <span className={t.type === "entrada" ? "text-green-600 font-semibold" : "text-red-600 font-semibold"}>
+          {t.type === "entrada" ? "+" : "-"} R$ {Number(t.amount).toFixed(2)}
         </span>
       ),
     },
   ];
 
-  if (isLoading && !transactionsRaw) {
+  if (pinStatusLoading) {
     return (
       <div className="space-y-6">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">Caixa</h1>
+            <p className="text-muted-foreground">Gestão financeira e relatórios</p>
+          </div>
+        </div>
+        <p className="text-sm text-muted-foreground">Verificando acesso...</p>
+      </div>
+    );
+  }
+
+  if (!unlocked) {
+    return (
+      <div className="space-y-6">
+        <CashierPinDialog open={pinDialogOpen} mode={pinDialogMode} onSuccess={onPinSuccess} />
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">Caixa</h1>
+            <p className="text-muted-foreground">Gestão financeira e relatórios</p>
+          </div>
+        </div>
+        <div className="rounded-lg border bg-muted/40 p-4">
+          <p className="text-sm text-muted-foreground">Para acessar esta tela, informe o PIN do caixa.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (transactionsLoading && !transactionsRaw) {
+    return (
+      <div className="space-y-6">
+        <CashierPinDialog open={pinDialogOpen} mode={pinDialogMode} onSuccess={onPinSuccess} />
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-3xl font-bold">Caixa</h1>
@@ -484,9 +545,14 @@ export default function Cashier() {
     );
   }
 
-  if (isError) {
+  if (transactionsIsError) {
+    const status = (transactionsError as any)?.response?.status;
+    const code = (transactionsError as any)?.response?.data?.code;
+    const pinRequired = status === 423 || code === "CASHIER_PIN_REQUIRED";
+
     return (
       <div className="space-y-6">
+        <CashierPinDialog open={pinDialogOpen} mode={pinDialogMode} onSuccess={onPinSuccess} />
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-3xl font-bold">Caixa</h1>
@@ -494,7 +560,9 @@ export default function Cashier() {
           </div>
         </div>
         <p className="text-sm text-red-500">
-          Ocorreu um erro ao carregar os dados do caixa. Verifique suas permissões ou tente novamente.
+          {pinRequired
+            ? "PIN do caixa requerido. Informe o PIN para continuar."
+            : "Ocorreu um erro ao carregar os dados do caixa. Verifique suas permissões ou tente novamente."}
         </p>
       </div>
     );
@@ -502,12 +570,27 @@ export default function Cashier() {
 
   return (
     <div className="space-y-6">
+      <CashierPinDialog open={pinDialogOpen} mode={pinDialogMode} onSuccess={onPinSuccess} />
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Caixa</h1>
           <p className="text-muted-foreground">Gestão financeira e relatórios</p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={async () => {
+              await cashierLock();
+              queryClient.removeQueries({ queryKey: ["cashier-transactions"] });
+              queryClient.removeQueries({ queryKey: ["accounts-payable", "cashier"] });
+              await refetchPinStatus();
+            }}
+          >
+            <Lock className="h-4 w-4 mr-2" />
+            Bloquear
+          </Button>
+
           <Button variant="outline" onClick={exportToPDF}>
             <FileText className="h-4 w-4 mr-2" />
             Exportar PDF
@@ -519,20 +602,16 @@ export default function Cashier() {
         </div>
       </div>
 
-      {/* ✅ Filtros no estilo /appointments */}
       <div className="bg-muted/40 border rounded-lg p-3 md:p-4 space-y-2">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Filter className="h-4 w-4 text-muted-foreground" />
             <div className="flex flex-col">
-              <span className="text-xs md:text-sm font-medium text-muted-foreground">
-                Filtros
-              </span>
+              <span className="text-xs md:text-sm font-medium text-muted-foreground">Filtros</span>
 
               {hasActiveFilters && (
                 <span className="text-[11px] text-muted-foreground">
-                  {filteredTransactions.length} resultado
-                  {filteredTransactions.length === 1 ? "" : "s"} encontrado
+                  {filteredTransactions.length} resultado{filteredTransactions.length === 1 ? "" : "s"} encontrado
                   {filteredTransactions.length === 1 ? "" : "s"}
                 </span>
               )}
@@ -560,11 +639,7 @@ export default function Cashier() {
               onClick={() => setFiltersOpen((prev) => !prev)}
             >
               {filtersOpen ? "Ocultar filtros" : "Mostrar filtros"}
-              {filtersOpen ? (
-                <ChevronUp className="h-3 w-3" />
-              ) : (
-                <ChevronDown className="h-3 w-3" />
-              )}
+              {filtersOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
             </Button>
           </div>
         </div>
@@ -572,65 +647,43 @@ export default function Cashier() {
         {filtersOpen && (
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-2 mt-2">
             <div className="flex flex-col gap-1">
-              <span className="text-[11px] font-medium text-muted-foreground">
-                Data de
-              </span>
+              <span className="text-[11px] font-medium text-muted-foreground">Data de</span>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
-                    className={cn(
-                      "justify-between px-3 py-2 h-9 text-xs",
-                      !dateFrom && "text-muted-foreground"
-                    )}
+                    className={cn("justify-between px-3 py-2 h-9 text-xs", !dateFrom && "text-muted-foreground")}
                   >
                     {dateFrom ? format(dateFrom, "P", { locale: ptBR }) : "Qualquer data"}
                     <CalendarIcon className="ml-2 h-3 w-3 opacity-60" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={dateFrom ?? undefined}
-                    onSelect={(d) => setDateFrom(d ?? null)}
-                    locale={ptBR}
-                  />
+                  <Calendar mode="single" selected={dateFrom ?? undefined} onSelect={(d) => setDateFrom(d ?? toStartOfDay(new Date()))} locale={ptBR} />
                 </PopoverContent>
               </Popover>
             </div>
 
             <div className="flex flex-col gap-1">
-              <span className="text-[11px] font-medium text-muted-foreground">
-                Data até
-              </span>
+              <span className="text-[11px] font-medium text-muted-foreground">Data até</span>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
-                    className={cn(
-                      "justify-between px-3 py-2 h-9 text-xs",
-                      !dateTo && "text-muted-foreground"
-                    )}
+                    className={cn("justify-between px-3 py-2 h-9 text-xs", !dateTo && "text-muted-foreground")}
                   >
                     {dateTo ? format(dateTo, "P", { locale: ptBR }) : "Qualquer data"}
                     <CalendarIcon className="ml-2 h-3 w-3 opacity-60" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={dateTo ?? undefined}
-                    onSelect={(d) => setDateTo(d ?? null)}
-                    locale={ptBR}
-                  />
+                  <Calendar mode="single" selected={dateTo ?? undefined} onSelect={(d) => setDateTo(d ?? toStartOfDay(new Date()))} locale={ptBR} />
                 </PopoverContent>
               </Popover>
             </div>
 
             <div className="flex flex-col gap-1 lg:col-span-2">
-              <span className="text-[11px] font-medium text-muted-foreground">
-                Forma de Pagamento
-              </span>
+              <span className="text-[11px] font-medium text-muted-foreground">Forma de Pagamento</span>
               <MultiSelectString
                 value={selectedPaymentMethods}
                 onChange={setSelectedPaymentMethods}
@@ -640,15 +693,8 @@ export default function Cashier() {
             </div>
 
             <div className="flex flex-col gap-1">
-              <span className="text-[11px] font-medium text-muted-foreground">
-                Tipo
-              </span>
-              <Select
-                value={selectedType}
-                onValueChange={(value) =>
-                  setSelectedType(value as "all" | "entrada" | "saida")
-                }
-              >
+              <span className="text-[11px] font-medium text-muted-foreground">Tipo</span>
+              <Select value={selectedType} onValueChange={(value) => setSelectedType(value as "all" | "entrada" | "saida")}>
                 <SelectTrigger className="h-9 text-xs">
                   <SelectValue placeholder="Todos" />
                 </SelectTrigger>
@@ -661,9 +707,7 @@ export default function Cashier() {
             </div>
 
             <div className="flex flex-col gap-1">
-              <span className="text-[11px] font-medium text-muted-foreground">
-                Categoria
-              </span>
+              <span className="text-[11px] font-medium text-muted-foreground">Categoria</span>
               <Select value={selectedCategory} onValueChange={setSelectedCategory}>
                 <SelectTrigger className="h-9 text-xs">
                   <SelectValue placeholder="Todas" />
@@ -689,12 +733,8 @@ export default function Cashier() {
             <ArrowUpCircle className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              R$ {summary.totalEntradas.toFixed(2)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {hasActiveFilters ? periodText : "Todos os períodos"}
-            </p>
+            <div className="text-2xl font-bold text-green-600">R$ {summary.totalEntradas.toFixed(2)}</div>
+            <p className="text-xs text-muted-foreground">{periodText}</p>
           </CardContent>
         </Card>
 
@@ -704,12 +744,8 @@ export default function Cashier() {
             <ArrowDownCircle className="h-4 w-4 text-red-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">
-              R$ {summary.totalSaidas.toFixed(2)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {hasActiveFilters ? periodText : "Todos os períodos"}
-            </p>
+            <div className="text-2xl font-bold text-red-600">R$ {summary.totalSaidas.toFixed(2)}</div>
+            <p className="text-xs text-muted-foreground">{periodText}</p>
           </CardContent>
         </Card>
 
@@ -719,11 +755,7 @@ export default function Cashier() {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div
-              className={`text-2xl font-bold ${
-                summary.saldo >= 0 ? "text-green-600" : "text-red-600"
-              }`}
-            >
+            <div className={`text-2xl font-bold ${summary.saldo >= 0 ? "text-green-600" : "text-red-600"}`}>
               R$ {summary.saldo.toFixed(2)}
             </div>
             <p className="text-xs text-muted-foreground">Entradas - Saídas</p>
@@ -747,9 +779,7 @@ export default function Cashier() {
             <Tag className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              R$ {summary.avgTicketEntradas.toFixed(2)}
-            </div>
+            <div className="text-2xl font-bold">R$ {summary.avgTicketEntradas.toFixed(2)}</div>
             <p className="text-xs text-muted-foreground">Por atendimento (entradas)</p>
           </CardContent>
         </Card>
@@ -758,44 +788,30 @@ export default function Cashier() {
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Saídas Pendentes (Contas a Pagar)
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Saídas Pendentes (Contas a Pagar)</CardTitle>
             <ArrowDownCircle className="h-4 w-4 text-yellow-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">
-              R$ {pendingPayablesTotal.toFixed(2)}
-            </div>
+            <div className="text-2xl font-bold text-yellow-600">R$ {pendingPayablesTotal.toFixed(2)}</div>
             <p className="text-xs text-muted-foreground">
-              {hasActiveFilters ? `Previstas para: ${periodText}` : "Todas as pendências"}
+              {`Previstas para: ${periodText}`}
             </p>
             {pendingPayablesInRange.length > 0 && (
-              <p className="text-xs text-muted-foreground mt-2">
-                {pendingPayablesInRange.length} conta(s) pendente(s)
-              </p>
+              <p className="text-xs text-muted-foreground mt-2">{pendingPayablesInRange.length} conta(s) pendente(s)</p>
             )}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Saldo Projetado (se pagar pendências)
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Saldo Projetado (se pagar pendências)</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div
-              className={`text-2xl font-bold ${
-                projectedBalance >= 0 ? "text-green-600" : "text-red-600"
-              }`}
-            >
+            <div className={`text-2xl font-bold ${projectedBalance >= 0 ? "text-green-600" : "text-red-600"}`}>
               R$ {projectedBalance.toFixed(2)}
             </div>
-            <p className="text-xs text-muted-foreground">
-              Saldo atual - saídas pendentes
-            </p>
+            <p className="text-xs text-muted-foreground">Saldo atual - saídas pendentes</p>
           </CardContent>
         </Card>
       </div>
@@ -814,16 +830,11 @@ export default function Cashier() {
             <CardHeader>
               <CardTitle>Todas as Transações</CardTitle>
               <CardDescription>
-                Lista completa de entradas e saídas{" "}
-                {hasActiveFilters ? `(${periodText})` : "(todos os períodos)"}
+                Lista completa de entradas e saídas ({periodText})
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <DataTable
-                data={filteredTransactions}
-                columns={columns}
-                searchPlaceholder="Buscar por descrição ou referência..."
-              />
+              <DataTable data={filteredTransactions} columns={columns} searchPlaceholder="Buscar por descrição ou referência..." />
               {filteredTransactions.length === 0 && (
                 <p className="text-sm text-muted-foreground italic mt-4">
                   Nenhuma transação encontrada para os filtros selecionados.
@@ -879,10 +890,7 @@ export default function Cashier() {
                   </p>
                 )}
                 {Object.entries(summary.byPaymentMethod).map(([method, amount]) => (
-                  <div
-                    key={method}
-                    className="flex items-center justify-between border-b pb-2"
-                  >
+                  <div key={method} className="flex items-center justify-between border-b pb-2">
                     <span className="flex items-center gap-2 font-medium">
                       <CreditCard className="h-4 w-4" />
                       {PAYMENT_METHOD_LABEL[method] ?? method}
@@ -904,17 +912,12 @@ export default function Cashier() {
             <CardContent>
               <div className="space-y-4">
                 {Object.entries(summary.byCategory).length === 0 && (
-                  <p className="text-muted-foreground text-center py-8">
-                    Nenhuma transação categorizada.
-                  </p>
+                  <p className="text-muted-foreground text-center py-8">Nenhuma transação categorizada.</p>
                 )}
                 {Object.entries(summary.byCategory)
                   .sort(([, a], [, b]) => b - a)
                   .map(([category, amount]) => (
-                    <div
-                      key={category}
-                      className="flex items-center justify-between border-b pb-2"
-                    >
+                    <div key={category} className="flex items-center justify-between border-b pb-2">
                       <span className="font-medium">{category}</span>
                       <span className="text-lg font-bold">R$ {amount.toFixed(2)}</span>
                     </div>

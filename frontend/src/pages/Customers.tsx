@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Plus, Pencil, Trash2, Mail, Phone } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -54,7 +54,7 @@ export default function Customers() {
   const [isFetchingCep, setIsFetchingCep] = useState(false);
 
   const { toast } = useToast();
-  const { can } = usePermission();
+  const { can, canAccess } = usePermission();
   const isMobile = useIsMobile();
 
   const { data: customersData, isLoading } = useCustomersQuery();
@@ -62,6 +62,19 @@ export default function Customers() {
   const createMutation = useCreateCustomer();
   const updateMutation = useUpdateCustomer(editingCustomer?.id ?? 0);
   const deleteMutation = useDeleteCustomer();
+
+  const isProfessionalView = useMemo(() => {
+    return (
+      canAccess("customers") &&
+      !canAccess("cashier") &&
+      !canAccess("accounts-payable") &&
+      !canAccess("suppliers") &&
+      !canAccess("item-prices") &&
+      !canAccess("item-price-histories") &&
+      !canAccess("professionals") &&
+      !canAccess("users")
+    );
+  }, [canAccess]);
 
   const form = useForm<CustomerFormData>({
     resolver: zodResolver(customerSchema),
@@ -199,79 +212,93 @@ export default function Customers() {
     resetForm();
   };
 
-  const columns = [
-    { key: "name", header: "Nome", render: (c: Customer) => c.name },
-    {
-      key: "email",
-      header: "Email",
-      render: (c: Customer) => (
-        <div className="flex items-center gap-2">
-          <Mail className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm break-all">{c.email}</span>
-        </div>
-      ),
-    },
-    {
-      key: "phone",
-      header: "Telefone",
-      render: (c: Customer) => (
-        <div className="flex items-center gap-2">
-          <Phone className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm">{c.phone}</span>
-        </div>
-      ),
-    },
-    {
-      key: "accepts_marketing",
-      header: "Marketing",
-      render: (c: Customer) => (
-        <Badge variant={c.accepts_marketing ? "default" : "outline"}>
-          {c.accepts_marketing ? "Aceita" : "Não aceita"}
-        </Badge>
-      ),
-    },
-    {
-      key: "active",
-      header: "Status",
-      render: (c: Customer) => (
-        <Badge variant={c.active ? "success" : "secondary"}>
-          {c.active ? "Ativo" : "Inativo"}
-        </Badge>
-      ),
-    },
-    {
-      key: "actions",
-      header: "Ações",
-      render: (c: Customer) => (
-        <div className="flex gap-2 justify-end">
-          {can("customers", "update") && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => handleEdit(c)}
-              aria-label="Editar cliente"
-            >
-              <Pencil className="h-4 w-4" />
-            </Button>
-          )}
-          {can("customers", "delete") && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => {
-                setDeletingId(c.id);
-                setDeleteDialogOpen(true);
-              }}
-              aria-label="Excluir cliente"
-              className="text-destructive hover:text-destructive hover:bg-destructive/10"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          )}
-        </div>
-      ),
-    },
-  ];
+  const columns = useMemo(() => {
+    if (isProfessionalView) {
+      return [{ key: "name", header: "Nome", render: (c: Customer) => c.name }];
+    }
+
+    const base = [
+      { key: "name", header: "Nome", render: (c: Customer) => c.name },
+      {
+        key: "email",
+        header: "Email",
+        render: (c: Customer) => (
+          <div className="flex items-center gap-2">
+            <Mail className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm break-all">{c.email}</span>
+          </div>
+        ),
+      },
+      {
+        key: "phone",
+        header: "Telefone",
+        render: (c: Customer) => (
+          <div className="flex items-center gap-2">
+            <Phone className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm">{c.phone}</span>
+          </div>
+        ),
+      },
+      {
+        key: "accepts_marketing",
+        header: "Marketing",
+        render: (c: Customer) => (
+          <Badge variant={c.accepts_marketing ? "default" : "outline"}>
+            {c.accepts_marketing ? "Aceita" : "Não aceita"}
+          </Badge>
+        ),
+      },
+      {
+        key: "active",
+        header: "Status",
+        render: (c: Customer) => (
+          <Badge variant={c.active ? "success" : "secondary"}>
+            {c.active ? "Ativo" : "Inativo"}
+          </Badge>
+        ),
+      },
+    ];
+
+    const showActions = can("customers", "update") || can("customers", "delete");
+
+    if (!showActions) return base;
+
+    return [
+      ...base,
+      {
+        key: "actions",
+        header: "Ações",
+        render: (c: Customer) => (
+          <div className="flex gap-2 justify-end">
+            {can("customers", "update") && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => handleEdit(c)}
+                aria-label="Editar cliente"
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+            )}
+            {can("customers", "delete") && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  setDeletingId(c.id);
+                  setDeleteDialogOpen(true);
+                }}
+                aria-label="Excluir cliente"
+                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+        ),
+      },
+    ];
+  }, [isProfessionalView, can]);
 
   return (
     <div className="space-y-6">

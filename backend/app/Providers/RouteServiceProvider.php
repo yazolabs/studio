@@ -2,22 +2,23 @@
 
 namespace App\Providers;
 
-use Illuminate\Support\Facades\Route;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Support\Providers\RouteServiceProvider as ServiceProvider;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 
 class RouteServiceProvider extends ServiceProvider
 {
-    public const HOME = '/';
-
     public function boot(): void
     {
-        $this->routes(function () {
-            Route::middleware('web')
-                ->group(base_path('routes/web.php'));
+        RateLimiter::for('cashier-pin', function (Request $request) {
+            $userId = optional($request->user())->id ?: 'guest';
+            $key = $userId . '|' . $request->ip();
 
-            Route::prefix('api')
-                ->middleware('api')
-                ->group(base_path('routes/api.php'));
+            return [
+                Limit::perMinute(5)->by($key),
+                Limit::perHour(30)->by($key),
+            ];
         });
     }
 }

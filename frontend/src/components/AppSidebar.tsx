@@ -75,7 +75,7 @@ export function AppSidebar() {
     try {
       await logout();
     } finally {
-      navigate("/login");
+      window.location.replace("/login");
     }
   };
 
