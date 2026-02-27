@@ -1,24 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { format, isToday, addDays, subDays, parseISO, isValid } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import {
-  Clock,
-  User,
-  Scissors,
-  Phone,
-  DollarSign,
-  Edit,
-  Trash2,
-  Printer,
-  ChevronDown,
-  ChevronUp,
-  Calendar,
-  Users,
-  ChevronLeft,
-  ChevronRight,
-  GripVertical,
-  AlertCircle,
-} from "lucide-react";
+import { Clock, User, Scissors, Phone, DollarSign, Edit, Trash2, Printer, ChevronDown, ChevronUp, Calendar, Users, ChevronLeft, ChevronRight, GripVertical, AlertCircle } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -793,6 +776,68 @@ export function ProfessionalDailyView({
 
   const pluralize = (n: number, singular: string, plural: string) => (n === 1 ? singular : plural);
 
+  const renderAppointmentActions = (appointment: Appointment) => (
+    <div className="flex gap-1 md:flex-col">
+      {onPrint && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={(e) => {
+            e.stopPropagation();
+            onPrint(appointment);
+          }}
+          title="Imprimir"
+        >
+          <Printer className="h-4 w-4" />
+        </Button>
+      )}
+
+      {onCheckout &&
+        (appointment.status === "scheduled" || appointment.status === "confirmed") &&
+        canEdit && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCheckout(appointment);
+            }}
+            title="Finalizar"
+          >
+            <DollarSign className="h-4 w-4 text-green-600" />
+          </Button>
+        )}
+
+      {onEdit && canEdit && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit(appointment);
+          }}
+          title="Editar"
+        >
+          <Edit className="h-4 w-4" />
+        </Button>
+      )}
+
+      {onDelete && canDelete && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(appointment.id);
+          }}
+          title="Excluir"
+        >
+          <Trash2 className="h-4 w-4 text-destructive" />
+        </Button>
+      )}
+    </div>
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 bg-primary/10 rounded-lg border border-primary/20">
@@ -1163,65 +1208,7 @@ export function ProfessionalDailyView({
                                       )}
                                     </div>
 
-                                    <div className="flex gap-1 md:flex-col">
-                                      {onPrint && (
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            onPrint(appointment);
-                                          }}
-                                          title="Imprimir"
-                                        >
-                                          <Printer className="h-4 w-4" />
-                                        </Button>
-                                      )}
-
-                                      {onCheckout &&
-                                        (appointment.status === "scheduled" || appointment.status === "confirmed") &&
-                                        canEdit && (
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              onCheckout(appointment);
-                                            }}
-                                            title="Finalizar"
-                                          >
-                                            <DollarSign className="h-4 w-4 text-green-600" />
-                                          </Button>
-                                        )}
-
-                                      {onEdit && canEdit && (
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            onEdit(appointment);
-                                          }}
-                                          title="Editar"
-                                        >
-                                          <Edit className="h-4 w-4" />
-                                        </Button>
-                                      )}
-
-                                      {onDelete && canDelete && (
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            onDelete(appointment.id);
-                                          }}
-                                          title="Excluir"
-                                        >
-                                          <Trash2 className="h-4 w-4 text-destructive" />
-                                        </Button>
-                                      )}
-                                    </div>
+                                    {renderAppointmentActions(appointment)}
                                   </div>
                                 </Card>
                               );
@@ -1316,47 +1303,7 @@ export function ProfessionalDailyView({
                                     )}
                                   </div>
 
-                                  <div className="flex gap-1 md:flex-col">
-                                    {onPrint && (
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          onPrint(appointment);
-                                        }}
-                                        title="Imprimir"
-                                      >
-                                        <Printer className="h-4 w-4" />
-                                      </Button>
-                                    )}
-                                    {onEdit && canEdit && (
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          onEdit(appointment);
-                                        }}
-                                        title="Editar"
-                                      >
-                                        <Edit className="h-4 w-4" />
-                                      </Button>
-                                    )}
-                                    {onDelete && canDelete && (
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          onDelete(appointment.id);
-                                        }}
-                                        title="Excluir"
-                                      >
-                                        <Trash2 className="h-4 w-4 text-destructive" />
-                                      </Button>
-                                    )}
-                                  </div>
+                                  {renderAppointmentActions(appointment)}
                                 </div>
                               </Card>
                             );
@@ -1372,8 +1319,10 @@ export function ProfessionalDailyView({
         })}
       </div>
 
-      {/* dialogs (mantive como no seu arquivo original) */}
-      <Dialog open={timeConflictDialog.open} onOpenChange={(open) => !open && setTimeConflictDialog({ open: false, appointmentId: 0, availableSlots: [] })}>
+      <Dialog
+        open={timeConflictDialog.open}
+        onOpenChange={(open) => !open && setTimeConflictDialog({ open: false, appointmentId: 0, availableSlots: [] })}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1407,7 +1356,10 @@ export function ProfessionalDailyView({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={multiProfDialog.open} onOpenChange={(open) => !open && setMultiProfDialog(EMPTY_MULTI_PROF_DIALOG)}>
+      <Dialog
+        open={multiProfDialog.open}
+        onOpenChange={(open) => !open && setMultiProfDialog(EMPTY_MULTI_PROF_DIALOG)}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1430,11 +1382,34 @@ export function ProfessionalDailyView({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={reassignDialog.open} onOpenChange={(open) => !open && setReassignDialog({ open: false, reason: "busy", message: "", appointmentId: 0, targetProfessionalId: 0, targetProfessionalName: "", availableSlots: [] })}>
+      <Dialog
+        open={reassignDialog.open}
+        onOpenChange={(open) =>
+          !open &&
+          setReassignDialog({
+            open: false,
+            reason: "busy",
+            message: "",
+            appointmentId: 0,
+            targetProfessionalId: 0,
+            targetProfessionalName: "",
+            availableSlots: [],
+          })
+        }
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <AlertCircle className={cn("h-5 w-5", reassignDialog.reason === "status_locked" ? "text-slate-500" : reassignDialog.reason === "no_schedule" ? "text-amber-500" : "text-destructive")} />
+              <AlertCircle
+                className={cn(
+                  "h-5 w-5",
+                  reassignDialog.reason === "status_locked"
+                    ? "text-slate-500"
+                    : reassignDialog.reason === "no_schedule"
+                      ? "text-amber-500"
+                      : "text-destructive"
+                )}
+              />
               Conflito / Bloqueio
             </DialogTitle>
             <DialogDescription>{reassignDialog.message || "Não foi possível concluir esta ação."}</DialogDescription>
@@ -1445,7 +1420,12 @@ export function ProfessionalDailyView({
               <ScrollArea className="h-48">
                 <div className="grid grid-cols-3 gap-2">
                   {reassignDialog.availableSlots.map((slot) => (
-                    <Button key={slot} variant="outline" size="sm" onClick={() => onQuickTimeChange?.(reassignDialog.appointmentId, slot, () => {})}>
+                    <Button
+                      key={slot}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onQuickTimeChange?.(reassignDialog.appointmentId, slot, () => {})}
+                    >
                       {slot}
                     </Button>
                   ))}
@@ -1455,7 +1435,20 @@ export function ProfessionalDailyView({
           ) : null}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setReassignDialog({ open: false, reason: "busy", message: "", appointmentId: 0, targetProfessionalId: 0, targetProfessionalName: "", availableSlots: [] })}>
+            <Button
+              variant="outline"
+              onClick={() =>
+                setReassignDialog({
+                  open: false,
+                  reason: "busy",
+                  message: "",
+                  appointmentId: 0,
+                  targetProfessionalId: 0,
+                  targetProfessionalName: "",
+                  availableSlots: [],
+                })
+              }
+            >
               Fechar
             </Button>
           </DialogFooter>
