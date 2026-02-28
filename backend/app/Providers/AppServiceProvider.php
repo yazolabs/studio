@@ -2,7 +2,7 @@
 
 namespace App\Providers;
 
-use App\Models\Commission;
+use App\Models\{AccountPayable, Commission};
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Database\Eloquent\Relations\Relation;
 
@@ -17,6 +17,7 @@ class AppServiceProvider extends ServiceProvider
     {
         Relation::morphMap([
             'commission' => Commission::class,
+            'manual'     => AccountPayable::class,
         ]);
     }
 }

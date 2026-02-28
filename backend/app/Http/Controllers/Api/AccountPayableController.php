@@ -8,6 +8,7 @@ use App\Models\{AccountPayable, CashierTransaction, Commission};
 use App\Services\AccountPayableService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
 
 class AccountPayableController extends Controller
@@ -30,11 +31,12 @@ class AccountPayableController extends Controller
             ->with(['professional', 'appointment'])
             ->where(function ($q) {
                 $q->whereNull('origin_type')
-                ->orWhere('origin_type', 'commission');
+                  ->orWhereIn('origin_type', ['commission', 'manual']);
             })
             ->with(['origin' => function ($morphTo) {
                 $morphTo->morphWith([
                     Commission::class => [],
+                    AccountPayable::class => [],
                 ]);
             }])
             ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
@@ -76,6 +78,8 @@ class AccountPayableController extends Controller
             'notes',
         ]);
 
+        $payload = $this->normalizeOriginPayload($payload);
+
         $account = $this->service->create($payload);
 
         return (new AccountPayableResource(
@@ -110,6 +114,8 @@ class AccountPayableController extends Controller
             'reference',
             'notes',
         ]);
+
+        $payload = $this->normalizeOriginPayload($payload, isUpdate: true);
 
         $updated = $this->service->update($accountPayable, $payload);
 
@@ -158,5 +164,42 @@ class AccountPayableController extends Controller
         return new AccountPayableResource(
             $updated->fresh(['professional', 'appointment', 'origin'])
         );
+    }
+
+    private function normalizeOriginPayload(array $payload, bool $isUpdate = false): array
+    {
+        $originType = trim((string)($payload['origin_type'] ?? ''));
+        $originType = $originType === '' ? null : $originType;
+        $originId   = $payload['origin_id'] ?? null;
+
+        if (!$originType) {
+            $payload['origin_type'] = 'manual';
+            $payload['origin_id'] = null;
+            return $payload;
+        }
+
+        if (!in_array($originType, ['manual', 'commission'], true)) {
+            throw ValidationException::withMessages([
+                'origin_type' => 'origin_type inválido. Use manual ou commission.',
+            ]);
+        }
+
+        if ($originType === 'manual') {
+            $payload['origin_type'] = 'manual';
+            $payload['origin_id'] = null;
+            return $payload;
+        }
+
+        $oid = is_numeric($originId) ? (int)$originId : 0;
+        if ($oid <= 0) {
+            throw ValidationException::withMessages([
+                'origin_id' => 'Para origin_type=commission, origin_id (id da comissão) é obrigatório.',
+            ]);
+        }
+
+        $payload['origin_type'] = 'commission';
+        $payload['origin_id'] = $oid;
+
+        return $payload;
     }
 }

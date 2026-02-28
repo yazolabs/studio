@@ -55,6 +55,11 @@ class AccountPayable extends Model
         return $this->belongsTo(Appointment::class);
     }
 
+    public function commission()
+    {
+        return $this->belongsTo(Commission::class, 'commission_id');
+    }
+
     public function origin(): MorphTo
     {
         return $this->morphTo();
