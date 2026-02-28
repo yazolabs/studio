@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AccountPayableResource;
-use App\Models\{AccountPayable, CashierTransaction};
+use App\Models\{AccountPayable, CashierTransaction, Commission};
 use App\Services\AccountPayableService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -26,14 +26,24 @@ class AccountPayableController extends Controller
             'search',
         ]);
 
-        $query = AccountPayable::with(['professional', 'appointment', 'origin'])
-            ->when($filters['status'] ?? null, fn($q, $status) => $q->where('status', $status))
-            ->when($filters['category'] ?? null, fn($q, $cat) => $q->where('category', 'like', "%{$cat}%"))
-            ->when($filters['professional_id'] ?? null, fn($q, $id) => $q->where('professional_id', $id))
-            ->when($filters['appointment_id'] ?? null, fn($q, $id) => $q->where('appointment_id', $id))
+        $query = AccountPayable::query()
+            ->with(['professional', 'appointment'])
+            ->where(function ($q) {
+                $q->whereNull('origin_type')
+                ->orWhere('origin_type', 'commission');
+            })
+            ->with(['origin' => function ($morphTo) {
+                $morphTo->morphWith([
+                    Commission::class => [],
+                ]);
+            }])
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['category'] ?? null, fn ($q, $cat) => $q->where('category', 'like', "%{$cat}%"))
+            ->when($filters['professional_id'] ?? null, fn ($q, $id) => $q->where('professional_id', $id))
+            ->when($filters['appointment_id'] ?? null, fn ($q, $id) => $q->where('appointment_id', $id))
             ->when(
                 ($filters['start_date'] ?? null) && ($filters['end_date'] ?? null),
-                fn($q) => $q->whereBetween('due_date', [$filters['start_date'], $filters['end_date']])
+                fn ($q) => $q->whereBetween('due_date', [$filters['start_date'], $filters['end_date']])
             )
             ->when($filters['search'] ?? null, function ($q, $term) {
                 $q->where(function ($sub) use ($term) {
