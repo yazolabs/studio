@@ -9,9 +9,9 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call([
-            // ActionSeeder::class,
-            // AccessControlSeeder::class,
-            // StateSeeder::class,
+            ActionSeeder::class,
+            AccessControlSeeder::class,
+            StateSeeder::class,
             StudioSampleDataSeeder::class,
         ]);
     }
