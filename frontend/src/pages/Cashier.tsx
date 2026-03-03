@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataTable } from "@/components/DataTable";
 import { Badge } from "@/components/ui/badge";
-import { DollarSign, TrendingUp, ArrowUpCircle, ArrowDownCircle, Download, FileText, Tag, CreditCard, Check, X, Filter, ChevronDown, ChevronUp, Calendar as CalendarIcon, Lock } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { DollarSign, TrendingUp, ArrowUpCircle, ArrowDownCircle, Download, FileText, Tag, CreditCard, Check, X, Filter, ChevronDown, ChevronUp, Calendar as CalendarIcon, Lock, Search, XCircle } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -48,9 +49,7 @@ function MultiSelectString({
     else onChange([...value, val]);
   };
 
-  const selectedLabels = options
-    .filter((o) => value.includes(o.value))
-    .map((o) => o.label);
+  const selectedLabels = options.filter((o) => value.includes(o.value)).map((o) => o.label);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -99,13 +98,122 @@ function MultiSelectString({
   );
 }
 
+function MobileSearchBar({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="relative flex-1">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="pl-9"
+        />
+      </div>
+      {value.trim().length > 0 && (
+        <Button type="button" variant="outline" size="icon" onClick={() => onChange("")} aria-label="Limpar busca">
+          <XCircle className="h-4 w-4" />
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function TransactionCards({
+  data,
+  paymentLabel,
+}: {
+  data: CashierTransaction[];
+  paymentLabel: (m?: string | null) => string;
+}) {
+  if (data.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground italic">
+        Nenhuma transação encontrada para os filtros selecionados.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {data.map((t: any, idx) => {
+        const key = t?.id ?? `${t?.reference ?? "ref"}-${t?.date ?? "date"}-${idx}`;
+        const isEntrada = t.type === "entrada";
+
+        return (
+          <Card key={key} className="overflow-hidden">
+            <CardContent className="p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      variant={isEntrada ? "default" : "destructive"}
+                      className={cn(isEntrada ? "bg-green-500" : "bg-red-500")}
+                    >
+                      {isEntrada ? (
+                        <>
+                          <ArrowUpCircle className="h-3 w-3 mr-1" /> Entrada
+                        </>
+                      ) : (
+                        <>
+                          <ArrowDownCircle className="h-3 w-3 mr-1" /> Saída
+                        </>
+                      )}
+                    </Badge>
+
+                    <span className="text-xs text-muted-foreground">
+                      {t.date ? new Date(t.date).toLocaleDateString("pt-BR") : "-"}
+                    </span>
+                  </div>
+
+                  <p className="mt-2 font-medium leading-snug break-words">
+                    {t.description ?? "-"}
+                  </p>
+
+                  <div className="mt-2 space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-muted-foreground">Referência</span>
+                      <span className="text-xs font-medium truncate max-w-[60%] text-right">
+                        {t.reference ?? "-"}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-muted-foreground">Forma de pagamento</span>
+                      <span className="text-xs font-medium text-right">{paymentLabel(t.payment_method)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="shrink-0 text-right">
+                  <div className={cn("text-lg font-bold", isEntrada ? "text-green-600" : "text-red-600")}>
+                    {isEntrada ? "+" : "-"} R$ {Number(t.amount).toFixed(2)}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">Valor</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function Cashier() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
     return () => {
       cashierLock().catch(() => {});
-
       queryClient.setQueryData<CashierPinStatus | undefined>(["cashier-pin-status"], (old) =>
         old ? { ...old, unlocked: false } : old
       );
@@ -131,23 +239,30 @@ export default function Cashier() {
   const unlocked = pinStatus?.unlocked === true;
   const pinSet = pinStatus?.pin_set === true;
 
+  const openPinDialog = useCallback(
+    (forceMode?: "unlock" | "set") => {
+      const nextMode = forceMode ?? (pinSet ? "unlock" : "set");
+      setPinDialogMode(nextMode);
+      setPinDialogOpen(true);
+    },
+    [pinSet]
+  );
+
   useEffect(() => {
     if (!pinStatus) return;
 
     if (!pinSet) {
-      setPinDialogMode("set");
-      setPinDialogOpen(true);
+      openPinDialog("set");
       return;
     }
 
     if (!unlocked) {
-      setPinDialogMode("unlock");
-      setPinDialogOpen(true);
+      openPinDialog("unlock");
       return;
     }
 
     setPinDialogOpen(false);
-  }, [pinStatus, pinSet, unlocked]);
+  }, [pinStatus, pinSet, unlocked, openPinDialog]);
 
   const onPinSuccess = async () => {
     setPinDialogOpen(false);
@@ -158,7 +273,7 @@ export default function Cashier() {
 
   const [selectedType, setSelectedType] = useState<"all" | "entrada" | "saida">("all");
   const [dateFrom, setDateFrom] = useState<Date | null>(() => {
-  const now = new Date();
+    const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), now.getDate());
   });
   const [dateTo, setDateTo] = useState<Date | null>(() => {
@@ -169,6 +284,14 @@ export default function Cashier() {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [filtersOpen, setFiltersOpen] = useState(false);
 
+  const [mobileSearch, setMobileSearch] = useState("");
+
+  const [activeTab, setActiveTab] = useState<"transactions" | "entradas" | "saidas" | "payment" | "category">("transactions");
+
+  useEffect(() => {
+    setMobileSearch("");
+  }, [activeTab]);
+
   const PAYMENT_METHOD_LABEL: Record<string, string> = {
     pix: "Pix",
     cash: "Dinheiro",
@@ -176,6 +299,14 @@ export default function Cashier() {
     credit: "Crédito",
     credit_link: "Crédito (link)",
   };
+
+  const paymentLabel = useCallback(
+    (m?: string | null) => {
+      if (!m) return "-";
+      return PAYMENT_METHOD_LABEL[m] ?? m;
+    },
+    [PAYMENT_METHOD_LABEL]
+  );
 
   const toStartOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 
@@ -273,14 +404,13 @@ export default function Cashier() {
     const code = (transactionsError as any)?.response?.data?.code;
 
     if (status === 423 || code === "CASHIER_PIN_REQUIRED") {
-      setPinDialogMode("unlock");
-      setPinDialogOpen(true);
+      openPinDialog("unlock");
 
       queryClient.setQueryData<CashierPinStatus | undefined>(["cashier-pin-status"], (old) =>
         old ? { ...old, unlocked: false } : old
       );
     }
-  }, [unlocked, transactionsIsError, transactionsError, queryClient]);
+  }, [unlocked, transactionsIsError, transactionsError, queryClient, openPinDialog]);
 
   const { data: accountsPayableRaw } = useQuery<AccountPayable[]>({
     queryKey: ["accounts-payable", "cashier", startDateParam, endDateParam],
@@ -326,16 +456,27 @@ export default function Cashier() {
 
   const filteredTransactions = useMemo(() => {
     return transactions.filter((t) => {
-      const categoryMatch =
-        selectedCategory === "all" || (t.category && t.category === selectedCategory);
+      const categoryMatch = selectedCategory === "all" || (t.category && t.category === selectedCategory);
 
       const paymentMatch =
-        selectedPaymentMethods.length === 0 ||
-        (t.payment_method && selectedPaymentMethods.includes(t.payment_method));
+        selectedPaymentMethods.length === 0 || (t.payment_method && selectedPaymentMethods.includes(t.payment_method));
 
       return categoryMatch && paymentMatch;
     });
   }, [transactions, selectedCategory, selectedPaymentMethods]);
+
+  const mobileSearchText = mobileSearch.trim().toLowerCase();
+  const applyMobileSearch = useCallback(
+    (rows: CashierTransaction[]) => {
+      if (!mobileSearchText) return rows;
+      return rows.filter((t) => {
+        const d = (t.description ?? "").toLowerCase();
+        const r = (t.reference ?? "").toLowerCase();
+        return d.includes(mobileSearchText) || r.includes(mobileSearchText);
+      });
+    },
+    [mobileSearchText]
+  );
 
   const summary = useMemo(() => {
     const entradas = filteredTransactions.filter((t) => t.type === "entrada");
@@ -370,9 +511,7 @@ export default function Cashier() {
     };
   }, [filteredTransactions]);
 
-  const pendingPayablesInRange = useMemo(() => {
-    return accountsPayable;
-  }, [accountsPayable]);
+  const pendingPayablesInRange = useMemo(() => accountsPayable, [accountsPayable]);
 
   const pendingPayablesTotal = useMemo(() => {
     return pendingPayablesInRange.reduce((sum, a) => sum + Number(a.amount || 0), 0);
@@ -482,11 +621,7 @@ export default function Cashier() {
     {
       key: "payment_method",
       header: "Forma de Pagamento",
-      render: (t: CashierTransaction) => {
-        const m = t.payment_method;
-        if (!m) return "-";
-        return PAYMENT_METHOD_LABEL[m] ?? m;
-      },
+      render: (t: CashierTransaction) => paymentLabel(t.payment_method),
     },
     {
       key: "amount",
@@ -499,12 +634,13 @@ export default function Cashier() {
     },
   ];
 
+
   if (pinStatusLoading) {
     return (
-      <div className="space-y-6">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="relative space-y-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-bold">Caixa</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold">Caixa</h1>
             <p className="text-muted-foreground">Gestão financeira e relatórios</p>
           </div>
         </div>
@@ -515,16 +651,28 @@ export default function Cashier() {
 
   if (!unlocked) {
     return (
-      <div className="space-y-6">
-        <CashierPinDialog open={pinDialogOpen} mode={pinDialogMode} onSuccess={onPinSuccess} />
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="relative space-y-8 sm:space-y-10">
+        <CashierPinDialog
+          open={pinDialogOpen}
+          mode={pinDialogMode}
+          onSuccess={onPinSuccess}
+          onOpenChange={setPinDialogOpen}
+        />
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-bold">Caixa</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold">Caixa</h1>
             <p className="text-muted-foreground">Gestão financeira e relatórios</p>
           </div>
         </div>
-        <div className="rounded-lg border bg-muted/40 p-4">
+
+        <div className="rounded-lg border bg-muted/40 p-4 space-y-3">
           <p className="text-sm text-muted-foreground">Para acessar esta tela, informe o PIN do caixa.</p>
+
+          <Button onClick={() => openPinDialog()} className="w-full sm:w-auto">
+            <Lock className="h-4 w-4 mr-2" />
+            {pinSet ? "Inserir PIN" : "Definir PIN"}
+          </Button>
         </div>
       </div>
     );
@@ -532,14 +680,21 @@ export default function Cashier() {
 
   if (transactionsLoading && !transactionsRaw) {
     return (
-      <div className="space-y-6">
-        <CashierPinDialog open={pinDialogOpen} mode={pinDialogMode} onSuccess={onPinSuccess} />
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="relative space-y-8 sm:space-y-10">
+        <CashierPinDialog
+          open={pinDialogOpen}
+          mode={pinDialogMode}
+          onSuccess={onPinSuccess}
+          onOpenChange={setPinDialogOpen}
+        />
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-bold">Caixa</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold">Caixa</h1>
             <p className="text-muted-foreground">Gestão financeira e relatórios</p>
           </div>
         </div>
+
         <p className="text-sm text-muted-foreground">Carregando...</p>
       </div>
     );
@@ -551,14 +706,21 @@ export default function Cashier() {
     const pinRequired = status === 423 || code === "CASHIER_PIN_REQUIRED";
 
     return (
-      <div className="space-y-6">
-        <CashierPinDialog open={pinDialogOpen} mode={pinDialogMode} onSuccess={onPinSuccess} />
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="relative space-y-8 sm:space-y-10">
+        <CashierPinDialog
+          open={pinDialogOpen}
+          mode={pinDialogMode}
+          onSuccess={onPinSuccess}
+          onOpenChange={setPinDialogOpen}
+        />
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-bold">Caixa</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold">Caixa</h1>
             <p className="text-muted-foreground">Gestão financeira e relatórios</p>
           </div>
         </div>
+
         <p className="text-sm text-red-500">
           {pinRequired
             ? "PIN do caixa requerido. Informe o PIN para continuar."
@@ -568,18 +730,26 @@ export default function Cashier() {
     );
   }
 
-  return (
-    <div className="space-y-6">
-      <CashierPinDialog open={pinDialogOpen} mode={pinDialogMode} onSuccess={onPinSuccess} />
 
-      <div className="flex items-center justify-between">
+  return (
+    <div className="relative space-y-8 sm:space-y-10">
+      <CashierPinDialog
+        open={pinDialogOpen}
+        mode={pinDialogMode}
+        onSuccess={onPinSuccess}
+        onOpenChange={setPinDialogOpen}
+      />
+
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Caixa</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold">Caixa</h1>
           <p className="text-muted-foreground">Gestão financeira e relatórios</p>
         </div>
-        <div className="flex gap-2">
+
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
           <Button
             variant="outline"
+            className="w-full sm:w-auto"
             onClick={async () => {
               await cashierLock();
               queryClient.removeQueries({ queryKey: ["cashier-transactions"] });
@@ -591,23 +761,24 @@ export default function Cashier() {
             Bloquear
           </Button>
 
-          <Button variant="outline" onClick={exportToPDF}>
+          <Button variant="outline" className="w-full sm:w-auto" onClick={exportToPDF}>
             <FileText className="h-4 w-4 mr-2" />
             Exportar PDF
           </Button>
-          <Button variant="outline" onClick={exportToExcel}>
+
+          <Button variant="outline" className="w-full sm:w-auto" onClick={exportToExcel}>
             <Download className="h-4 w-4 mr-2" />
             Exportar Excel
           </Button>
         </div>
       </div>
 
-      <div className="bg-muted/40 border rounded-lg p-3 md:p-4 space-y-2">
-        <div className="flex items-center justify-between gap-2">
+      <div className="bg-muted/40 border rounded-lg p-3 sm:p-4 space-y-2">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div className="flex items-center gap-2">
             <Filter className="h-4 w-4 text-muted-foreground" />
             <div className="flex flex-col">
-              <span className="text-xs md:text-sm font-medium text-muted-foreground">Filtros</span>
+              <span className="text-xs sm:text-sm font-medium text-muted-foreground">Filtros</span>
 
               {hasActiveFilters && (
                 <span className="text-[11px] text-muted-foreground">
@@ -618,13 +789,13 @@ export default function Cashier() {
             </div>
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center gap-1">
             {hasActiveFilters && (
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="text-[11px] md:text-xs"
+                className="text-[11px] sm:text-xs"
                 onClick={clearFilters}
               >
                 Limpar filtros
@@ -635,7 +806,7 @@ export default function Cashier() {
               type="button"
               variant="outline"
               size="sm"
-              className="text-[11px] md:text-xs gap-1"
+              className="text-[11px] sm:text-xs gap-1"
               onClick={() => setFiltersOpen((prev) => !prev)}
             >
               {filtersOpen ? "Ocultar filtros" : "Mostrar filtros"}
@@ -645,7 +816,7 @@ export default function Cashier() {
         </div>
 
         {filtersOpen && (
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-2 mt-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2 mt-2">
             <div className="flex flex-col gap-1">
               <span className="text-[11px] font-medium text-muted-foreground">Data de</span>
               <Popover>
@@ -659,7 +830,12 @@ export default function Cashier() {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={dateFrom ?? undefined} onSelect={(d) => setDateFrom(d ?? toStartOfDay(new Date()))} locale={ptBR} />
+                  <Calendar
+                    mode="single"
+                    selected={dateFrom ?? undefined}
+                    onSelect={(d) => setDateFrom(d ?? toStartOfDay(new Date()))}
+                    locale={ptBR}
+                  />
                 </PopoverContent>
               </Popover>
             </div>
@@ -677,12 +853,17 @@ export default function Cashier() {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={dateTo ?? undefined} onSelect={(d) => setDateTo(d ?? toStartOfDay(new Date()))} locale={ptBR} />
+                  <Calendar
+                    mode="single"
+                    selected={dateTo ?? undefined}
+                    onSelect={(d) => setDateTo(d ?? toStartOfDay(new Date()))}
+                    locale={ptBR}
+                  />
                 </PopoverContent>
               </Popover>
             </div>
 
-            <div className="flex flex-col gap-1 lg:col-span-2">
+            <div className="flex flex-col gap-1 lg:col-span-2 sm:col-span-2">
               <span className="text-[11px] font-medium text-muted-foreground">Forma de Pagamento</span>
               <MultiSelectString
                 value={selectedPaymentMethods}
@@ -726,7 +907,7 @@ export default function Cashier() {
         )}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Entradas</CardTitle>
@@ -785,7 +966,7 @@ export default function Cashier() {
         </Card>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Saídas Pendentes (Contas a Pagar)</CardTitle>
@@ -793,9 +974,7 @@ export default function Cashier() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-yellow-600">R$ {pendingPayablesTotal.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">
-              {`Previstas para: ${periodText}`}
-            </p>
+            <p className="text-xs text-muted-foreground">{`Previstas para: ${periodText}`}</p>
             {pendingPayablesInRange.length > 0 && (
               <p className="text-xs text-muted-foreground mt-2">{pendingPayablesInRange.length} conta(s) pendente(s)</p>
             )}
@@ -816,30 +995,58 @@ export default function Cashier() {
         </Card>
       </div>
 
-      <Tabs defaultValue="transactions" className="space-y-4">
-        <TabsList className="grid grid-cols-4 lg:grid-cols-5 w-full">
-          <TabsTrigger value="transactions">Todas</TabsTrigger>
-          <TabsTrigger value="entradas">Entradas</TabsTrigger>
-          <TabsTrigger value="saidas">Saídas</TabsTrigger>
-          <TabsTrigger value="payment">Forma Pgto</TabsTrigger>
-          <TabsTrigger value="category">Categorias</TabsTrigger>
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="space-y-4">
+        <div className="md:hidden">
+          <Select value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
+            <SelectTrigger className="w-full h-10">
+              <SelectValue placeholder="Visualização" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="transactions">Todas</SelectItem>
+              <SelectItem value="entradas">Entradas</SelectItem>
+              <SelectItem value="saidas">Saídas</SelectItem>
+              <SelectItem value="payment">Forma Pgto</SelectItem>
+              <SelectItem value="category">Categorias</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <TabsList className="hidden md:grid w-full grid-cols-5 gap-2">
+          <TabsTrigger className="w-full" value="transactions">Todas</TabsTrigger>
+          <TabsTrigger className="w-full" value="entradas">Entradas</TabsTrigger>
+          <TabsTrigger className="w-full" value="saidas">Saídas</TabsTrigger>
+          <TabsTrigger className="w-full" value="payment">Forma Pgto</TabsTrigger>
+          <TabsTrigger className="w-full" value="category">Categorias</TabsTrigger>
         </TabsList>
 
         <TabsContent value="transactions" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>Todas as Transações</CardTitle>
-              <CardDescription>
-                Lista completa de entradas e saídas ({periodText})
-              </CardDescription>
+              <CardDescription>Lista completa de entradas e saídas ({periodText})</CardDescription>
             </CardHeader>
-            <CardContent>
-              <DataTable data={filteredTransactions} columns={columns} searchPlaceholder="Buscar por descrição ou referência..." />
-              {filteredTransactions.length === 0 && (
-                <p className="text-sm text-muted-foreground italic mt-4">
-                  Nenhuma transação encontrada para os filtros selecionados.
-                </p>
-              )}
+            <CardContent className="space-y-4">
+              <div className="hidden md:block">
+                <DataTable
+                  data={filteredTransactions}
+                  columns={columns}
+                  searchPlaceholder="Buscar por descrição ou referência..."
+                />
+                {filteredTransactions.length === 0 && (
+                  <p className="text-sm text-muted-foreground italic mt-4">
+                    Nenhuma transação encontrada para os filtros selecionados.
+                  </p>
+                )}
+              </div>
+
+              <div className="md:hidden space-y-4">
+                <MobileSearchBar
+                  value={mobileSearch}
+                  onChange={setMobileSearch}
+                  placeholder="Buscar por descrição ou referência..."
+                />
+                <TransactionCards data={applyMobileSearch(filteredTransactions)} paymentLabel={paymentLabel} />
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -850,12 +1057,26 @@ export default function Cashier() {
               <CardTitle>Receitas (Entradas)</CardTitle>
               <CardDescription>Entradas financeiras conforme filtros</CardDescription>
             </CardHeader>
-            <CardContent>
-              <DataTable
-                data={filteredTransactions.filter((t) => t.type === "entrada")}
-                columns={columns}
-                searchPlaceholder="Buscar por descrição ou referência..."
-              />
+            <CardContent className="space-y-4">
+              <div className="hidden md:block">
+                <DataTable
+                  data={filteredTransactions.filter((t) => t.type === "entrada")}
+                  columns={columns}
+                  searchPlaceholder="Buscar por descrição ou referência..."
+                />
+              </div>
+
+              <div className="md:hidden space-y-4">
+                <MobileSearchBar
+                  value={mobileSearch}
+                  onChange={setMobileSearch}
+                  placeholder="Buscar por descrição ou referência..."
+                />
+                <TransactionCards
+                  data={applyMobileSearch(filteredTransactions.filter((t) => t.type === "entrada"))}
+                  paymentLabel={paymentLabel}
+                />
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -866,12 +1087,26 @@ export default function Cashier() {
               <CardTitle>Despesas (Saídas)</CardTitle>
               <CardDescription>Saídas financeiras conforme filtros</CardDescription>
             </CardHeader>
-            <CardContent>
-              <DataTable
-                data={filteredTransactions.filter((t) => t.type === "saida")}
-                columns={columns}
-                searchPlaceholder="Buscar por descrição ou referência..."
-              />
+            <CardContent className="space-y-4">
+              <div className="hidden md:block">
+                <DataTable
+                  data={filteredTransactions.filter((t) => t.type === "saida")}
+                  columns={columns}
+                  searchPlaceholder="Buscar por descrição ou referência..."
+                />
+              </div>
+
+              <div className="md:hidden space-y-4">
+                <MobileSearchBar
+                  value={mobileSearch}
+                  onChange={setMobileSearch}
+                  placeholder="Buscar por descrição ou referência..."
+                />
+                <TransactionCards
+                  data={applyMobileSearch(filteredTransactions.filter((t) => t.type === "saida"))}
+                  paymentLabel={paymentLabel}
+                />
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
