@@ -935,6 +935,11 @@ class AppointmentController extends Controller
             'services_to_add.*.commission_value'    => ['nullable', 'numeric', 'min:0'],
             'services_to_add.*.promotion_ids'       => ['nullable', 'array'],
             'services_to_add.*.promotion_ids.*'     => ['integer', 'exists:promotions,id'],
+            'items'            => ['sometimes', 'array'],
+            'items.*.id'       => ['nullable', 'integer'],
+            'items.*.item_id'  => ['nullable', 'integer'],
+            'items.*.price'    => ['nullable', 'numeric', 'min:0'],
+            'items.*.quantity' => ['nullable', 'integer', 'min:1'],
             'payments'                => ['nullable', 'array'],
             'payments.*.method'       => ['required_with:payments', 'string', 'max:50'],
             'payments.*.amount'       => ['required_with:payments', 'numeric', 'min:0'],
@@ -956,6 +961,12 @@ class AppointmentController extends Controller
                     'appointmentServices.promotions',
                     'payments',
                 ]);
+
+                if (array_key_exists('items', $data)) {
+                    $this->syncItems($appointment, (array) ($data['items'] ?? []));
+                    $appointment->unsetRelation('items');
+                    $appointment->loadMissing(['items']);
+                }
 
                 if (!empty($data['services_to_add']) && is_array($data['services_to_add'])) {
                     foreach ($data['services_to_add'] as $row) {
